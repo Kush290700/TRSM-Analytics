@@ -1,0 +1,19 @@
+[Unit]
+Description=TRSM Analytics (Flask + Gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/amw_analytics
+Environment="PYTHONPATH=/opt/amw_analytics"
+EnvironmentFile=/opt/amw_analytics/.env
+ExecStart=/opt/amw_analytics/.venv/bin/gunicorn -c gunicorn_conf.py wsgi:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+

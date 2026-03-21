@@ -1,0 +1,266 @@
+{% extends 'base.html' %}
+{% set filters_handler = 'ajax' %}
+{% block content %}
+<div
+  id="SuppliersV2App"
+  class="container-fluid py-4 bg-light"
+  data-page="suppliers"
+  data-suppliers-v2="1"
+  data-bundle-url="{{ url_for('bundles.suppliers_bundle') }}"
+  data-export-csv-url="{{ url_for('bundles.suppliers_export_csv') }}"
+  data-export-xlsx-url="{{ url_for('bundles.suppliers_export_xlsx') }}"
+  data-show-costs="{{ show_costs|tojson }}"
+>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h2 class="mb-1">Suppliers Executive Summary</h2>
+      <p class="text-muted mb-0">Enterprise supplier performance, concentration, risk, and action drivers under current filters.</p>
+      <p class="small text-muted mt-1 mb-0" id="suppliersWindowSummary">Computed using current filter window.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a id="supV2ExportXlsx" class="btn btn-sm btn-success" href="{{ url_for('bundles.suppliers_export_xlsx') }}?scope=table&suppliers_v2=1">
+        <i class="bi bi-file-earmark-spreadsheet me-1"></i> Export Table XLSX
+      </a>
+      <a id="supV2ExportCsv" class="btn btn-sm btn-outline-secondary" href="{{ url_for('bundles.suppliers_export_csv') }}?scope=table&suppliers_v2=1">
+        <i class="bi bi-filetype-csv me-1"></i> Export Table CSV
+      </a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0 mb-3">
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-2 align-items-center" id="supplierHealthChips" aria-live="polite"></div>
+      <div class="small text-muted mt-2" id="supplierNarrative">Loading supplier narrative...</div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3" aria-live="polite">
+    <div class="col-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="small text-muted">Revenue</div>
+          <div class="fs-4 fw-semibold" id="kpiRevenue">—</div>
+          <div class="small text-muted" id="kpiRevenueDelta">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="small text-muted">Profit</div>
+          <div class="fs-4 fw-semibold" id="kpiProfit">—</div>
+          <div class="small text-muted" id="kpiProfitDelta">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="small text-muted">Margin %</div>
+          <div class="fs-4 fw-semibold" id="kpiMargin">—</div>
+          <div class="small text-muted" id="kpiMarginDelta">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="small text-muted">Active Suppliers</div>
+          <div class="fs-4 fw-semibold" id="kpiActiveSuppliers">—</div>
+          <div class="small text-muted" id="kpiActiveSuppliersMeta">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="small text-muted">Cost Coverage</div>
+          <div class="fs-4 fw-semibold" id="kpiCostCoverage">—</div>
+          <div class="small text-muted" id="kpiRevenueAtRisk">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-8">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Revenue & Profit Trend (Monthly)</h5>
+          <a id="exportTrend" class="btn btn-sm btn-outline-secondary" href="{{ url_for('bundles.suppliers_export_csv') }}?scope=table&suppliers_v2=1">Export</a>
+        </div>
+        <div class="card-body">
+          <div id="supTrendChart" class="chart-wrap" aria-label="Monthly revenue and profit trend"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Concentration (Pareto)</h5>
+          <a id="exportConcentration" class="btn btn-sm btn-outline-secondary" href="{{ url_for('bundles.suppliers_export_csv') }}?scope=concentration&suppliers_v2=1">Export</a>
+        </div>
+        <div class="card-body">
+          <div class="small text-muted mb-2" id="concentrationSummary">—</div>
+          <div id="supParetoChart" class="chart-wrap" aria-label="Supplier concentration pareto chart"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Margin Leakage</h5>
+          <a id="exportRisk" class="btn btn-sm btn-outline-secondary" href="{{ url_for('bundles.suppliers_export_csv') }}?scope=risk&suppliers_v2=1">Export</a>
+        </div>
+        <div class="card-body">
+          <div class="small text-muted mb-2">Suppliers below target margin ({{ '%.0f'|format(27) }}%) and estimated profit uplift.</div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr><th>Supplier</th><th class="text-end">Margin</th><th class="text-end">Uplift</th></tr>
+              </thead>
+              <tbody id="marginLeakageRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-transparent">
+          <h5 class="mb-0">Data Quality Risk</h5>
+        </div>
+        <div class="card-body">
+          <div class="small text-muted mb-2">Suppliers with high missing-cost rates.</div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr><th>Supplier</th><th class="text-end">Missing Cost %</th><th class="text-end">Revenue</th></tr>
+              </thead>
+              <tbody id="dataRiskRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Supplier Movers</h5>
+          <a id="exportMovers" class="btn btn-sm btn-outline-secondary" href="{{ url_for('bundles.suppliers_export_csv') }}?scope=movers&suppliers_v2=1">Export</a>
+        </div>
+        <div class="card-body">
+          <div class="small text-muted mb-2">Top gainers and decliners by revenue delta vs prior window.</div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr><th>Supplier</th><th class="text-end">Δ Revenue</th><th>Status</th></tr>
+              </thead>
+              <tbody id="moversRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Supplier Segments</h5>
+      <a id="exportSegments" class="btn btn-sm btn-outline-secondary" href="{{ url_for('bundles.suppliers_export_csv') }}?scope=segments&suppliers_v2=1">Export</a>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2 mb-2" role="group" aria-label="Supplier quick segment filters">
+        <button type="button" class="btn btn-sm btn-outline-secondary segment-chip active" data-quick="all">All</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary segment-chip" data-quick="strategic">Strategic</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary segment-chip" data-quick="growth">Growth</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary segment-chip" data-quick="margin_risk">Margin Risk</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary segment-chip" data-quick="data_risk">Data Risk</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary segment-chip" data-quick="long_tail">Long Tail</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Segment</th>
+              <th class="text-end">Suppliers</th>
+              <th class="text-end">Revenue</th>
+              <th class="text-end">Profit</th>
+              <th class="text-end">Avg Margin %</th>
+              <th class="text-end">Share %</th>
+            </tr>
+          </thead>
+          <tbody id="segmentSummaryRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-header bg-transparent">
+      <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+        <h5 class="mb-0">Supplier Command Center</h5>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <label for="supV2PageSize" class="small text-muted mb-0">Page size</label>
+          <select id="supV2PageSize" class="form-select form-select-sm" aria-label="Suppliers table page size">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+            <input id="supV2Search" type="search" class="form-control" placeholder="Search supplier..." aria-label="Search suppliers">
+            <button type="button" class="btn btn-outline-secondary" id="supV2SearchClear">Clear</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body pt-2">
+      <div class="table-responsive">
+        <table id="supV2Table" class="table table-sm table-striped table-hover align-middle">
+          <thead class="table-light sticky-top">
+            <tr>
+              <th class="sortable" data-sort="supplier_name" scope="col">Supplier</th>
+              <th class="sortable text-end" data-sort="segment_label" scope="col">Segment</th>
+              <th class="sortable text-end" data-sort="risk_band" scope="col">Risk</th>
+              <th class="sortable text-end" data-sort="revenue_current" scope="col" title="Revenue under current global date window">Revenue</th>
+              <th class="sortable text-end" data-sort="revenue_prior" scope="col" title="Revenue in immediately prior window">Revenue Prior</th>
+              <th class="sortable text-end" data-sort="delta_revenue" scope="col">Δ Revenue</th>
+              <th class="sortable text-end" data-sort="delta_revenue_pct" scope="col">Δ Revenue %</th>
+              <th class="sortable text-end" data-sort="profit" scope="col">Profit</th>
+              <th class="sortable text-end" data-sort="margin_pct" scope="col">Margin %</th>
+              <th class="sortable text-end" data-sort="orders" scope="col">Orders</th>
+              <th class="sortable text-end" data-sort="days_since_last_order" scope="col">Days Since Last</th>
+              <th class="sortable text-end" data-sort="missing_cost_pct" scope="col">Missing Cost %</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody id="supV2TableBody">
+            <tr><td colspan="13" class="text-center text-muted py-4">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <div id="supV2TableStatus" class="small text-muted">Loading...</div>
+        <button id="supV2LoadMore" class="btn btn-sm btn-outline-secondary">Load More</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/suppliers_v2.js') }}" defer></script>
+
+<style>
+  #SuppliersV2App .chart-wrap { min-height: 320px; width: 100%; }
+  #SuppliersV2App .table td, #SuppliersV2App .table th { white-space: nowrap; }
+  #SuppliersV2App .table th.sortable { cursor: pointer; user-select: none; }
+  #SuppliersV2App .segment-chip.active { color: #fff; background: #0d6efd; border-color: #0d6efd; }
+  #SuppliersV2App .chip { border: 1px solid #dfe3ea; border-radius: 999px; padding: .2rem .65rem; background: #fff; font-size: .8rem; }
+  #SuppliersV2App .risk-high { color: #b42318; font-weight: 600; }
+  #SuppliersV2App .risk-medium { color: #b54708; font-weight: 600; }
+  #SuppliersV2App .risk-low { color: #027a48; font-weight: 600; }
+</style>
+{% endblock %}

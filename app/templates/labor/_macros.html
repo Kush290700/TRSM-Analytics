@@ -1,0 +1,42 @@
+{% macro section_header(kicker, title, subtitle, description) -%}
+  <header class="labor-section-head">
+    <div class="labor-section-kicker">{{ kicker }}</div>
+    <div class="labor-section-title-row">
+      <div>
+        <h2 class="labor-section-title">{{ title }}</h2>
+        <div class="labor-section-subtitle">{{ subtitle }}</div>
+      </div>
+      <p class="labor-section-copy mb-0">{{ description }}</p>
+    </div>
+  </header>
+{%- endmacro %}
+
+{% macro kpi_card(title, value, footnote=None, tone='default') -%}
+  <article class="labor-kpi-card labor-kpi-card-{{ tone }}">
+    <div class="labor-kpi-title">{{ title }}</div>
+    <div class="labor-kpi-value">{{ value }}</div>
+    {% if footnote %}
+      <div class="labor-kpi-footnote">{{ footnote }}</div>
+    {% endif %}
+  </article>
+{%- endmacro %}
+
+{% macro signal_card(signal) -%}
+  <article class="labor-signal-card labor-signal-card-{{ signal.tone or 'secondary' }}">
+    <div class="labor-signal-title">{{ signal.title }}</div>
+    <div class="labor-signal-detail">{{ signal.detail }}</div>
+    {% if signal.next_step %}
+      <div class="labor-signal-next">{{ signal.next_step }}</div>
+    {% endif %}
+  </article>
+{%- endmacro %}
+
+{% macro mini_stat(label, value, hint=None) -%}
+  <div class="labor-mini-stat">
+    <div class="labor-mini-stat__label">{{ label }}</div>
+    <div class="labor-mini-stat__value">{{ value }}</div>
+    {% if hint %}
+      <div class="labor-mini-stat__hint">{{ hint }}</div>
+    {% endif %}
+  </div>
+{%- endmacro %}

@@ -1,0 +1,117 @@
+.udrill-banner {
+  border: 1px solid rgba(20, 61, 84, 0.12);
+  background: linear-gradient(180deg, rgba(246, 249, 252, 0.96), rgba(238, 244, 249, 0.98));
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+}
+
+.udrill-banner__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4d6070;
+}
+
+.udrill-banner__path {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #17313d;
+}
+
+.udrill-chip-row,
+.udw-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.udrill-chip,
+.udw-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  background: rgba(23, 49, 61, 0.08);
+  color: #17313d;
+  font-size: 0.8rem;
+}
+
+[data-drilldown-payload] {
+  position: relative;
+}
+
+[data-drilldown-payload].is-drillable {
+  cursor: pointer;
+}
+
+[data-drilldown-payload].is-drillable:hover,
+[data-drilldown-payload].is-drillable:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(44, 111, 134, 0.18);
+}
+
+[data-drilldown-payload].is-drillable::after {
+  content: "Drill";
+  position: absolute;
+  top: 0.55rem;
+  right: 0.65rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(23, 49, 61, 0.55);
+  pointer-events: none;
+}
+
+.udw-page {
+  padding-bottom: 2rem;
+}
+
+.udw-eyebrow,
+.udw-card-label,
+.udw-detail-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5e6f7b;
+  font-weight: 700;
+}
+
+.udw-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+}
+
+.udw-card-value,
+.udw-detail-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #17313d;
+  margin-top: 0.2rem;
+}
+
+.udw-card-detail {
+  color: #60717d;
+  font-size: 0.88rem;
+  margin-top: 0.2rem;
+}
+
+.udw-table-wrap {
+  max-height: 34rem;
+}
+
+.udw-empty {
+  border: 1px dashed rgba(23, 49, 61, 0.18);
+  background: rgba(245, 248, 251, 0.82);
+  color: #5b6b77;
+  border-radius: 14px;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+@media (max-width: 767.98px) {
+  [data-drilldown-payload].is-drillable::after {
+    display: none;
+  }
+}

@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% set filters_handler = 'ajax' %}
+{% block title %}Sales Reps Command Center{% endblock %}
+
+{% block head_extras %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div id="SalesRepsApp"
+     class="salesreps-v2"
+     data-page="salesreps"
+     data-bundle-url="{{ url_for('bundles.salesreps_bundle') }}"
+     data-export-xlsx="{{ url_for('salesreps.export_xlsx') }}"
+     data-export-csv="{{ url_for('salesreps.export_csv') }}"
+     data-drilldown-template="{{ url_for('salesreps.rep_detail', rep_id='__ID__') }}"
+     data-units-label="{{ units_label }}"
+     data-asp-label="{{ asp_label }}"
+     data-asp-lb-label="{{ asp_lb_label }}">
+
+  <section class="card shadow-sm border-0 sr-exec mb-4">
+    <div class="card-body">
+      <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <p class="text-uppercase text-muted small mb-1">Sales Reps Performance</p>
+          <h2 class="fw-bold mb-1">Sales Reps Command Center</h2>
+          <div class="text-muted small" id="srWhatChanged">What changed: loading...</div>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="badge text-bg-light border" id="srActiveRepsChip">Active reps: --</span>
+          <span class="badge text-bg-light border" id="srCoverageChip">Coverage: --</span>
+          <span class="text-muted small" id="srLastRefresh">Last refresh: --</span>
+          <a class="btn btn-primary btn-sm" id="salesrepsExportXlsx" href="{{ url_for('salesreps.export_xlsx') }}" aria-label="Export all sales reps rows to Excel">Export XLSX</a>
+          <a class="btn btn-outline-secondary btn-sm" id="salesrepsExportCsv" href="{{ url_for('salesreps.export_csv') }}" aria-label="Export all sales reps rows to CSV">Export CSV</a>
+        </div>
+      </div>
+
+      <div class="row g-3" aria-live="polite">
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label">Revenue</div><div class="value" id="kpiRevenue">--</div><div class="delta" id="kpiRevenueDelta">--</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label">Profit</div><div class="value" id="kpiProfit">--</div><div class="delta" id="kpiProfitDelta">--</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label">Margin %</div><div class="value" id="kpiMargin">--</div><div class="delta" id="kpiMarginDelta">--</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label">Orders</div><div class="value" id="kpiOrders">--</div><div class="delta">&nbsp;</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label">Customers</div><div class="value" id="kpiCustomers">--</div><div class="delta">&nbsp;</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label">Weight (lb)</div><div class="value" id="kpiWeight">--</div><div class="delta">&nbsp;</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label" id="kpiUnitsLabel">Units</div><div class="value" id="kpiUnits">--</div><div class="delta">&nbsp;</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label" id="kpiAspLbLabel">ASP / lb</div><div class="value" id="kpiAspLb">--</div><div class="delta">&nbsp;</div></div></div>
+        <div class="col-6 col-md-4 col-lg-2"><div class="sr-kpi"><div class="label" id="kpiAspLabel">ASP</div><div class="value" id="kpiAsp">--</div><div class="delta">&nbsp;</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <h5 class="mb-0">Ranking &amp; Performance</h5>
+      <div class="d-flex gap-2 align-items-center">
+        <label for="srMetricToggle" class="small text-muted">Metric</label>
+        <select id="srMetricToggle" class="form-select form-select-sm" aria-label="Choose chart metric">
+          <option value="revenue" selected>Revenue</option>
+          <option value="profit">Profit</option>
+          <option value="margin_dollar">Margin $</option>
+          <option value="margin_pct">Margin %</option>
+          <option value="orders">Orders</option>
+          <option value="customers">Customers</option>
+          <option value="weight_lb">Weight</option>
+        </select>
+        <label for="srTopN" class="small text-muted">Top</label>
+        <select id="srTopN" class="form-select form-select-sm" aria-label="Rows shown in chart">
+          <option value="10" selected>10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+        </select>
+      </div>
+    </div>
+    <div class="row g-3">
+      <div class="col-12 col-xl-7">
+        <article class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+            <span>Top Reps</span>
+            <span class="text-muted small" data-bs-toggle="tooltip" title="Ranks reps by your selected metric so you can identify leaders and laggards quickly.">What this tells you</span>
+          </div>
+          <div class="card-body"><div class="ratio ratio-16x9"><canvas id="topRepsChart"></canvas></div></div>
+        </article>
+      </div>
+      <div class="col-12 col-xl-5">
+        <article class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+            <span>Revenue Share (Pareto)</span>
+            <span class="text-muted small" data-bs-toggle="tooltip" title="Shows contribution concentration; the line indicates cumulative share across reps.">What this tells you</span>
+          </div>
+          <div class="card-body"><div class="ratio ratio-16x9"><canvas id="revenueShareChart"></canvas></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-4">
+    <h5 class="mb-2">Efficiency &amp; Risk</h5>
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-xl-7">
+        <article class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+            <span>Rep Efficiency (Customers vs Revenue)</span>
+            <span class="text-muted small" data-bs-toggle="tooltip" title="Bubbles highlight reps balancing customer count and revenue; bubble size tracks profit.">What this tells you</span>
+          </div>
+          <div class="card-body"><div class="ratio ratio-16x9"><canvas id="effChart"></canvas></div></div>
+        </article>
+      </div>
+      <div class="col-12 col-xl-5">
+        <article class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+            <span>Concentration Risk</span>
+            <span class="text-muted small" data-bs-toggle="tooltip" title="Compares Top 1 and Top 5 customer dependency by rep; includes HHI in tooltips.">What this tells you</span>
+          </div>
+          <div class="card-body"><div class="ratio ratio-16x9"><canvas id="concentrationChart"></canvas></div></div>
+        </article>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-xl-7">
+        <article class="card shadow-sm border-0 h-100">
+          <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+            <span>Profit vs Revenue</span>
+            <span class="text-muted small" data-bs-toggle="tooltip" title="Quadrants separate high/low profit and revenue so coaching priorities are clear.">What this tells you</span>
+          </div>
+          <div class="card-body"><div class="ratio ratio-16x9"><canvas id="profitRevenueChart"></canvas></div></div>
+        </article>
+      </div>
+      <div class="col-12 col-xl-5 d-flex flex-column gap-3">
+        <article class="card shadow-sm border-0 flex-grow-1">
+          <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+            <span id="aspChartTitle">ASP Leaders</span>
+            <span class="text-muted small" data-bs-toggle="tooltip" title="Highlights pricing leaders for margin and mix review.">What this tells you</span>
+          </div>
+          <div class="card-body"><div class="ratio ratio-16x9"><canvas id="aspChart"></canvas></div></div>
+        </article>
+        <article class="card shadow-sm border-0">
+          <div class="card-header bg-white border-0 fw-semibold">Risk Flags</div>
+          <div class="card-body">
+            <ul class="list-unstyled mb-0" id="srRiskFlags"></ul>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-4">
+    <article class="card shadow-sm border-0 h-100">
+      <div class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center">
+        <span>Revenue Trend (Top Reps)</span>
+        <span class="text-muted small" data-bs-toggle="tooltip" title="Shows month-over-month trajectory for top reps with remaining reps grouped as Others.">What this tells you</span>
+      </div>
+      <div class="card-body"><div class="ratio ratio-16x9"><canvas id="trendChart"></canvas></div></div>
+    </article>
+  </section>
+
+  <section class="card shadow-sm border-0 mb-4" id="srTableSection">
+    <div class="card-header bg-white border-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span class="fw-semibold">Detailed Table</span>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <label class="visually-hidden" for="srSearchInput">Search sales rep</label>
+        <input id="srSearchInput" class="form-control form-control-sm" type="search" placeholder="Search rep" aria-label="Search by rep name">
+        <label class="small text-muted" for="srPageSize">Rows</label>
+        <select id="srPageSize" class="form-select form-select-sm" aria-label="Rows per page">
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <details class="sr-columns">
+          <summary class="btn btn-outline-secondary btn-sm" aria-label="Choose visible columns">Columns</summary>
+          <div class="sr-columns-menu">
+            <label><input type="checkbox" data-col-toggle="top_customer_name" checked> Top Customer</label>
+            <label><input type="checkbox" data-col-toggle="mom_revenue_pct" checked> MoM Revenue %</label>
+            <label><input type="checkbox" data-col-toggle="mom_profit_pct" checked> MoM Profit %</label>
+            <label><input type="checkbox" data-col-toggle="top_5_customer_share" checked> Top 5 Share %</label>
+            <label><input type="checkbox" data-col-toggle="customer_hhi" checked> HHI</label>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="table-responsive sr-table-wrap">
+      <table class="table table-sm table-hover table-striped align-middle mb-0" id="srTable">
+        <thead class="table-light">
+          <tr>
+            <th scope="col" class="sticky-col sortable" tabindex="0" data-sort-key="rep_name" title="Sales rep name">Rep</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="revenue" title="Total revenue under current filters">Revenue</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="profit" title="Revenue minus cost">Profit</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="margin_pct" title="Profit divided by revenue">Margin %</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="orders" title="Distinct orders">Orders</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="customers" title="Distinct customers">Customers</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="weight_lb" title="Total shipped weight">Weight (lb)</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="units" title="Total shipped units" data-column-label="units">Units</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="asp_lb" title="Revenue divided by weight" data-column-label="asp_lb">ASP/LB</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="asp" title="Average selling price" data-column-label="asp">ASP</th>
+            <th scope="col" class="text-end sortable" tabindex="0" data-sort-key="top_customer_share" title="Share of revenue from top customer">Top Customer %</th>
+            <th scope="col" class="col-top_customer_name" title="Largest customer by revenue">Top Customer</th>
+            <th scope="col" class="text-end sortable col-top_customer_revenue" tabindex="0" data-sort-key="top_customer_revenue" title="Revenue from top customer">Top Cust Rev</th>
+            <th scope="col" class="text-end sortable col-mom_revenue_pct" tabindex="0" data-sort-key="mom_revenue_pct" title="Latest month vs prior month revenue">MoM Rev %</th>
+            <th scope="col" class="text-end sortable col-mom_profit_pct" tabindex="0" data-sort-key="mom_profit_pct" title="Latest month vs prior month profit">MoM Profit %</th>
+            <th scope="col" class="text-end sortable col-top_5_customer_share" tabindex="0" data-sort-key="top_5_customer_share" title="Revenue share from top 5 customers">Top 5 Share %</th>
+            <th scope="col" class="text-end sortable col-customer_hhi" tabindex="0" data-sort-key="customer_hhi" title="Herfindahl-Hirschman concentration index">HHI</th>
+            <th scope="col" class="text-end">Drilldown</th>
+          </tr>
+        </thead>
+        <tbody id="salesreps-table-body"></tbody>
+      </table>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+      <div id="salesrepsPagerSummary" class="text-muted small"></div>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Pagination controls">
+        <button class="btn btn-outline-secondary" id="salesrepsPrev" type="button">Prev</button>
+        <button class="btn btn-outline-secondary" id="salesrepsNext" type="button">Next</button>
+      </div>
+    </div>
+    <div id="salesrepsPagerIndicator" class="text-muted small px-3 pb-2"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/salesreps.js', v='20260306-ctxfix1') }}" defer></script>
+{% endblock %}

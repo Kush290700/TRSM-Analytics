@@ -1,0 +1,13 @@
+[Unit]
+Description=AMW Analytics Notifications & Alerts Runner
+After=network.target
+
+[Service]
+Type=oneshot
+User=amwapp
+Group=www-data
+WorkingDirectory=/opt/amw_analytics
+EnvironmentFile=/etc/amw_analytics/amw.env
+ExecStart=/opt/amw_analytics/.venv/bin/python /opt/amw_analytics/scripts/alerts_runner.py
+Nice=5
+

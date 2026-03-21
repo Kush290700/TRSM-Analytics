@@ -1,0 +1,443 @@
+:root {
+  --labor-ink: #173039;
+  --labor-muted: #5d7480;
+  --labor-border: #d7e2e8;
+  --labor-surface: #ffffff;
+  --labor-surface-soft: #f4f8fa;
+  --labor-primary: #0f766e;
+  --labor-primary-deep: #0c4f4a;
+  --labor-accent: #c98a2a;
+  --labor-danger: #b53a2b;
+  --labor-danger-soft: #fff1ee;
+  --labor-warning: #9a6413;
+  --labor-warning-soft: #fff7e5;
+  --labor-success: #296743;
+  --labor-success-soft: #eef8f1;
+  --labor-shadow: 0 18px 40px rgba(16, 37, 44, 0.08);
+}
+
+.labor-page {
+  color: var(--labor-ink);
+}
+
+.labor-page .card {
+  border-color: var(--labor-border);
+  box-shadow: var(--labor-shadow);
+}
+
+.labor-hero {
+  color: #fff;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(245, 197, 92, 0.30), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(44, 154, 143, 0.25), transparent 26%),
+    linear-gradient(140deg, #10292f 0%, #153a42 52%, #0b1d22 100%);
+}
+
+.labor-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -10% -45% auto;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  filter: blur(6px);
+}
+
+.labor-kicker,
+.labor-section-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.labor-kicker {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.labor-hero-title {
+  font-size: clamp(2rem, 3vw, 2.9rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.labor-hero-subtitle {
+  max-width: 70ch;
+  margin: 0.4rem 0 0.55rem;
+  font-size: 1.05rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.labor-hero-purpose,
+.labor-hero-narrative {
+  max-width: 76ch;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.labor-hero-narrative {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.labor-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.labor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.72rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.labor-chip-dark {
+  background: #edf4f7;
+  border-color: #d9e5ea;
+  color: var(--labor-ink);
+}
+
+.labor-hero-stat,
+.labor-mini-stat {
+  height: 100%;
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.labor-hero-stat__label,
+.labor-mini-stat__label,
+.labor-kpi-title,
+.labor-signal-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.labor-hero-stat__label {
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.labor-hero-stat__value,
+.labor-mini-stat__value {
+  margin-top: 0.25rem;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.labor-section {
+  margin-bottom: 1.5rem;
+}
+
+.labor-section-head {
+  margin-bottom: 1rem;
+}
+
+.labor-section-kicker {
+  color: var(--labor-primary);
+}
+
+.labor-section-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  justify-content: space-between;
+  align-items: end;
+}
+
+.labor-section-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.labor-section-subtitle {
+  margin-top: 0.2rem;
+  color: var(--labor-muted);
+}
+
+.labor-section-copy {
+  max-width: 42rem;
+  color: var(--labor-muted);
+  line-height: 1.45;
+}
+
+.labor-filter-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbfc 100%);
+}
+
+.labor-filter-note {
+  color: var(--labor-muted);
+  font-size: 0.92rem;
+}
+
+.labor-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.labor-kpi-card {
+  min-height: 140px;
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+  border: 1px solid var(--labor-border);
+  background: var(--labor-surface);
+  box-shadow: var(--labor-shadow);
+}
+
+.labor-kpi-value {
+  margin-top: 0.45rem;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.labor-kpi-footnote {
+  margin-top: 0.8rem;
+  color: var(--labor-muted);
+  font-size: 0.9rem;
+}
+
+.labor-kpi-card-primary {
+  background: linear-gradient(180deg, #f3fbfa 0%, #ffffff 100%);
+}
+
+.labor-kpi-card-warning {
+  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 100%);
+}
+
+.labor-kpi-card-danger {
+  background: linear-gradient(180deg, #fff4f1 0%, #ffffff 100%);
+}
+
+.labor-signal-grid,
+.labor-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.labor-signal-card,
+.labor-action-card {
+  height: 100%;
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+  border: 1px solid var(--labor-border);
+  background: var(--labor-surface-soft);
+}
+
+.labor-signal-detail,
+.labor-action-detail {
+  margin-top: 0.6rem;
+  line-height: 1.48;
+}
+
+.labor-signal-next,
+.labor-action-scope {
+  margin-top: 0.75rem;
+  color: var(--labor-muted);
+  font-size: 0.92rem;
+}
+
+.labor-signal-card-primary {
+  background: #eef4ff;
+  border-color: #cdd9f3;
+}
+
+.labor-signal-card-success {
+  background: var(--labor-success-soft);
+  border-color: #cae2d4;
+}
+
+.labor-signal-card-warning {
+  background: var(--labor-warning-soft);
+  border-color: #f0ddb7;
+}
+
+.labor-signal-card-danger {
+  background: var(--labor-danger-soft);
+  border-color: #efc6bf;
+}
+
+.labor-chart {
+  min-height: 320px;
+}
+
+.labor-chart-lg {
+  min-height: 380px;
+}
+
+.labor-focus-card {
+  border-radius: 1.1rem;
+  border: 1px solid var(--labor-border);
+  background: linear-gradient(180deg, #ffffff 0%, #f6fafb 100%);
+  box-shadow: var(--labor-shadow);
+}
+
+.labor-focus-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.labor-focus-card__eyebrow {
+  color: var(--labor-primary);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.labor-focus-card__title {
+  margin: 0.2rem 0 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.labor-focus-card__copy {
+  color: var(--labor-muted);
+  margin-top: 0.55rem;
+  max-width: 58rem;
+}
+
+.labor-summary-strip,
+.labor-mini-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.labor-mini-stat {
+  background: #f3f8fa;
+  border-color: #dbe6eb;
+}
+
+.labor-mini-stat__hint {
+  margin-top: 0.4rem;
+  color: var(--labor-muted);
+  font-size: 0.86rem;
+}
+
+.labor-data-table thead th {
+  white-space: nowrap;
+}
+
+.labor-data-table tbody tr {
+  border-color: #edf2f4;
+}
+
+.labor-data-table tbody tr:hover {
+  background: #f7fbfc;
+}
+
+.labor-empty {
+  padding: 1.1rem;
+  border-radius: 1rem;
+  background: #f7fafb;
+  border: 1px dashed var(--labor-border);
+  color: var(--labor-muted);
+}
+
+.labor-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.labor-table-note {
+  color: var(--labor-muted);
+  font-size: 0.92rem;
+}
+
+.labor-page .btn-link {
+  font-weight: 600;
+  color: var(--labor-primary-deep);
+}
+
+.labor-page .btn-link:hover {
+  color: var(--labor-primary);
+}
+
+.labor-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: #eef4f6;
+  color: var(--labor-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.labor-tag-warning {
+  background: #fff3d8;
+  color: #8f590f;
+}
+
+.labor-tag-danger {
+  background: #ffe1dc;
+  color: #9c3326;
+}
+
+.labor-tag-success {
+  background: #e8f5ec;
+  color: #256442;
+}
+
+@media (max-width: 1399px) {
+  .labor-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1199px) {
+  .labor-kpi-grid,
+  .labor-signal-grid,
+  .labor-action-grid,
+  .labor-summary-strip,
+  .labor-mini-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .labor-kpi-grid,
+  .labor-signal-grid,
+  .labor-action-grid,
+  .labor-summary-strip,
+  .labor-mini-stat-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .labor-hero-title {
+    font-size: 1.9rem;
+  }
+
+  .labor-chart,
+  .labor-chart-lg {
+    min-height: 280px;
+  }
+}

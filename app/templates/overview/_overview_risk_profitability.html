@@ -1,0 +1,49 @@
+<section class="overview-panel" id="riskWatchlistCard">
+  <div class="panel-header">
+    <div class="panel-eyebrow">Risk and concentration</div>
+    <h2 class="panel-title">Risk summary and margin watchlist</h2>
+    <div class="panel-subtitle">Concentration, dependency, and negative-margin exposure are split into summary and watchlist layers so the highest-risk issues surface first.</div>
+  </div>
+  <div class="panel-body">
+    <div class="row g-3">
+      <div class="col-xl-4">
+        <div class="risk-summary-card h-100">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h6 class="mb-0">Concentration risk</h6>
+            <button class="btn btn-sm btn-outline-secondary" id="concentrationExportBtn" type="button">Export</button>
+          </div>
+          <div id="concentrationPanel" class="small text-muted"></div>
+        </div>
+      </div>
+      <div class="col-xl-8">
+        <div class="risk-summary-card h-100">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h6 class="mb-0">Margin watchlist</h6>
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-sm btn-outline-secondary" id="marginRiskExportBtn" type="button">Export</button>
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#negativeMarginCollapse" aria-expanded="false" aria-controls="negativeMarginCollapse">
+                Toggle watchlist
+              </button>
+            </div>
+          </div>
+          <div id="profitabilityPanel" class="small mb-2"></div>
+          <div id="marginRiskSummary" class="small text-muted mb-2"></div>
+          <div class="small mb-2">
+            <a href="#" id="marginRiskDrilldownLink" class="text-decoration-none">View margin-risk drilldown</a>
+          </div>
+          <div class="collapse" id="negativeMarginCollapse">
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <select id="negativeMarginSupplierFilter" class="form-select form-select-sm w-auto" aria-label="Filter by supplier">
+                <option value="">All suppliers</option>
+              </select>
+              <select id="negativeMarginProteinFilter" class="form-select form-select-sm w-auto" aria-label="Filter by protein">
+                <option value="">All proteins</option>
+              </select>
+            </div>
+            <ul id="marginRiskList" class="watchlist-list small mb-0"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

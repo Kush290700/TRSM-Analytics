@@ -1,0 +1,690 @@
+{% extends 'base.html' %}
+{% import 'customers/_drilldown_v2_macros.html' as ui %}
+{% set filters_handler = 'ssr' %}
+
+{% block title %}Customer Intelligence Workspace{% endblock %}
+
+{% block head_extras %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/customer_drilldown_v2.css') }}">
+{% endblock %}
+
+{% block content %}
+{% set hero_data = hero or {} %}
+{% set priority_scores = (priority_engine or {}).get('scores') or [] %}
+{% set weight_summary = (weight_analytics or {}).get('summary') or {} %}
+{% set weight_top_products = (weight_analytics or {}).get('top_products') or [] %}
+{% set weight_top_categories = (weight_analytics or {}).get('top_categories') or [] %}
+{% set price_summary = (pricing_intelligence or {}).get('summary') or {} %}
+{% set price_watchlist = (pricing_intelligence or {}).get('price_watchlist') or [] %}
+{% set low_margin_watchlist = (pricing_intelligence or {}).get('low_margin_watchlist') or [] %}
+{% set category_rows = categories or [] %}
+{% set trust_data = trust_coverage or {} %}
+{% set chart_state_map = chart_states or ((payload or {}).get('chart_states') or {}) %}
+{% set export_map = export_links or {} %}
+{% set primary_action = ((next_best_actions or [None])[0]) %}
+{% set scope_window_text = (window_start ~ ' to ' ~ window_end) if window_start and window_end else 'Current active filters' %}
+
+{% set export_snapshot_xlsx = export_map.get('snapshot_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='snapshot', format='xlsx') %}
+{% set export_orders_csv = export_map.get('orders_csv') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='orders', format='csv') %}
+{% set export_monthly_xlsx = export_map.get('monthly_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='monthly', format='xlsx') %}
+{% set export_products_xlsx = export_map.get('products_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='product_profitability', format='xlsx') %}
+{% set export_products_csv = export_map.get('products_csv') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='product_profitability', format='csv') %}
+{% set export_price_xlsx = export_map.get('price_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='price', format='xlsx') %}
+{% set export_price_csv = export_map.get('price_csv') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='price', format='csv') %}
+{% set export_cross_sell_xlsx = export_map.get('cross_sell_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='cross_sell', format='xlsx') %}
+{% set export_cross_sell_csv = export_map.get('cross_sell_csv') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='cross_sell', format='csv') %}
+{% set export_cadence_xlsx = export_map.get('cadence_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='cadence', format='xlsx') %}
+{% set export_seasonality_xlsx = export_map.get('seasonality_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='seasonality', format='xlsx') %}
+{% set export_categories_xlsx = export_map.get('categories_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='categories', format='xlsx') %}
+{% set export_weight_xlsx = export_map.get('weight_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='weight_operational', format='xlsx') %}
+{% set export_actions_xlsx = export_map.get('actions_xlsx') or url_for('customers.export', page='drilldown', customer_id=customer_id, dataset='crm_actions', format='xlsx') %}
+
+<div id="CustomerDrilldownMeta"
+     class="d-none"
+     data-page="customer_drilldown"
+     data-entity-id="{{ customer_id }}"
+     data-entity-label="{{ hero_data.get('customer_name') or customer_name }}"
+     data-bundle-url="{{ url_for('bundles.customers_drilldown_bundle') }}"></div>
+
+<div class="ciw-page">
+  <section class="ciw-hero">
+    <div class="ciw-hero__grid">
+      <div>
+        <div class="ciw-eyebrow">Customer Intelligence Workspace</div>
+        <h1 class="ciw-title">{{ hero_data.get('customer_name') or customer_name }}</h1>
+        <div class="ciw-subtitle">
+          {{ customer_id }}
+          {% if window_start and window_end %}&middot; Active window {{ window_start }} to {{ window_end }}{% endif %}
+          {% if generated_at %}&middot; Generated {{ generated_at }}{% endif %}
+        </div>
+        <div class="ciw-badge-row">
+          {% for badge in hero_data.get('badges') or [] %}
+            {{ ui.badge(badge.get('label'), badge.get('tone')) }}
+          {% endfor %}
+        </div>
+        <p class="ciw-copy mt-3 mb-3">{{ hero_data.get('narrative') or 'No relationship narrative is available for the current scope.' }}</p>
+        <div class="ciw-chip-row">
+          {% if hero_data.get('owner') %}<span class="ciw-pill">Owner: {{ hero_data.get('owner') }}</span>{% endif %}
+          {% if hero_data.get('region') %}<span class="ciw-pill">Region: {{ hero_data.get('region') }}</span>{% endif %}
+          {% if hero_data.get('shipping_pattern') %}<span class="ciw-pill">Shipping: {{ hero_data.get('shipping_pattern') }}</span>{% endif %}
+          {% if hero_data.get('city') or hero_data.get('state') %}
+            <span class="ciw-pill">{{ hero_data.get('city') }}{% if hero_data.get('city') and hero_data.get('state') %}, {% endif %}{{ hero_data.get('state') }}</span>
+          {% endif %}
+          {% if hero_data.get('key_account_flag') %}<span class="ciw-pill ciw-pill--info">Key Account</span>{% endif %}
+        </div>
+      </div>
+      <div class="ciw-hero__actions">
+        <div class="ciw-surface ciw-card-body">
+          <div class="ciw-card-head">
+            <h3>Relationship Header</h3>
+          </div>
+          <div class="ciw-kv-grid">
+            {{ ui.key_value('Lifecycle Stage', hero_data.get('lifecycle_stage'), 'text') }}
+            {{ ui.key_value('Commercial Tier', hero_data.get('commercial_tier'), 'text') }}
+            {{ ui.key_value('Risk Posture', hero_data.get('risk_posture'), 'text') }}
+            {{ ui.key_value('Profitability', hero_data.get('profitability_posture'), 'text') }}
+            {{ ui.key_value('Dependency', hero_data.get('dependency_posture'), 'text') }}
+            {{ ui.key_value('Coverage', hero_data.get('coverage_posture'), 'text') }}
+            {{ ui.key_value('Trust Posture', hero_data.get('trust_posture'), 'text') }}
+            {{ ui.key_value('Last Order', hero_data.get('last_order_date'), 'text') }}
+          </div>
+        </div>
+        <div class="ciw-surface ciw-card-body">
+          <div class="ciw-card-head">
+            <div>
+              <h3>Scope, Coverage & Snapshot</h3>
+              <div class="ciw-card-subtitle">Exports below preserve the active filters and RBAC-visible customer scope.</div>
+            </div>
+          </div>
+          <div class="ciw-kv-grid">
+            {{ ui.key_value('Current Window', scope_window_text, 'text') }}
+            {{ ui.key_value('Lifetime Scope', 'Visible history in current scope', 'text') }}
+            {{ ui.key_value('Customers in Scope', trust_data.get('customers_in_scope'), 'number') }}
+            {{ ui.key_value('Customers in Window', trust_data.get('customers_in_window'), 'number') }}
+          </div>
+          <div class="ciw-action-row">
+            <a class="btn btn-primary btn-sm" href="{{ export_snapshot_xlsx }}">Snapshot XLSX</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ export_orders_csv }}">Orders CSV</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ export_actions_xlsx }}">CRM Actions</a>
+          </div>
+          {% if trust_data.get('scope_note') %}
+            <p class="ciw-note mt-3 mb-0">{{ trust_data.get('scope_note') }}</p>
+          {% endif %}
+          {% if scope_info and not scope_info.get('is_admin') %}
+            <p class="ciw-note mt-2 mb-0">Results are limited to your assigned RBAC scope.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ciw-stat-strip">
+    {{ ui.metric_card(
+      {'label': 'Lifetime Revenue', 'value': kpis.get('total_revenue'), 'format': 'currency', 'scope': 'Visible lifetime', 'detail': (ui.fmt_value(kpis.get('contribution_share_pct'), 'percent')|string ~ ' of visible lifetime revenue') if kpis.get('contribution_share_pct') is not none else None, 'emphasize': True},
+      {'source_page': 'customer_drilldown', 'source_section': 'Executive Strip', 'source_widget': 'Lifetime Revenue', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Lifetime Revenue', 'clicked_metric_value': kpis.get('total_revenue'), 'extra': {'workspace_kind': 'fact_orders', 'filter_mode': 'lifetime_visible', 'target_filters': {'customer_ids': [customer_id]}}}
+    ) }}
+    {{ ui.metric_card(
+      {'label': 'Window Revenue', 'value': kpis.get('revenue_window'), 'format': 'currency', 'scope': 'Current filter window', 'detail': (ui.fmt_value(kpis.get('window_contribution_share_pct'), 'percent')|string ~ ' of scoped current-window revenue') if kpis.get('window_contribution_share_pct') is not none else None, 'emphasize': True},
+      {'source_page': 'customer_drilldown', 'source_section': 'Executive Strip', 'source_widget': 'Window Revenue', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Window Revenue', 'clicked_metric_value': kpis.get('revenue_window'), 'extra': {'workspace_kind': 'fact_orders', 'filter_mode': 'current_window', 'target_filters': {'customer_ids': [customer_id]}}}
+    ) }}
+    {{ ui.metric_card(
+      {'label': 'Window Shipped lb', 'value': weight_summary.get('total_weight_lb_window'), 'format': 'weight', 'scope': 'Current filter window', 'detail': (ui.fmt_value(weight_summary.get('weight_share_window_pct'), 'percent')|string ~ ' of scoped current-window weight') if weight_summary.get('weight_share_window_pct') is not none else None, 'emphasize': True},
+      {'source_page': 'customer_drilldown', 'source_section': 'Executive Strip', 'source_widget': 'Window Weight', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Window Shipped lb', 'clicked_metric_value': weight_summary.get('total_weight_lb_window'), 'extra': {'workspace_kind': 'fact_orders', 'filter_mode': 'current_window', 'target_filters': {'customer_ids': [customer_id]}}}
+    ) }}
+    {{ ui.metric_card(
+      {'label': 'Relationship Health', 'value': kpis.get('relationship_health_score'), 'format': 'score', 'scope': 'Current relationship', 'detail': hero_data.get('risk_posture'), 'emphasize': True},
+      {'source_page': 'customer_drilldown', 'source_section': 'Executive Strip', 'source_widget': 'Relationship Health', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Relationship Health', 'clicked_metric_value': kpis.get('relationship_health_score'), 'extra': {'workspace_kind': 'narrative', 'detail': hero_data.get('narrative'), 'target_filters': {'customer_ids': [customer_id]}}}
+    ) }}
+  </section>
+
+  <section class="ciw-section-shell">
+    <div class="ciw-section-intro">
+      <div class="ciw-eyebrow">Executive Scorecard</div>
+      <h2 class="ciw-section-title">Value, health, weight, margin, and recovery in one view</h2>
+      <p class="ciw-section-copy">Lifetime cards use visible history within the current scope. Window cards use the active filter window.</p>
+    </div>
+    <div class="ciw-scorecard-grid">
+      {% for group in executive_scorecard or [] %}
+        <article class="ciw-surface ciw-card-body">
+          <div class="ciw-card-head">
+            <div>
+              <h3>{{ group.get('title') }}</h3>
+              <div class="ciw-card-subtitle">{{ group.get('subtitle') }}</div>
+            </div>
+          </div>
+          <div class="ciw-metric-grid">
+            {% for metric in group.get('metrics') or [] %}
+              {{ ui.metric_card(metric) }}
+            {% endfor %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="ciw-two-col">
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Customer Health & Priority Engine</h3>
+          <div class="ciw-card-subtitle">{{ (priority_engine or {}).get('focus_area') or 'Maintain and monitor' }}</div>
+        </div>
+      </div>
+      <p class="ciw-copy">{{ (priority_engine or {}).get('narrative') or 'No health narrative available.' }}</p>
+      <div class="ciw-three-col">
+        {% for item in priority_scores %}
+          {{ ui.score_chip(item) }}
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Next Best Actions</h3>
+          <div class="ciw-card-subtitle">Protect now, grow wallet share, recover lapsed demand, and monitor emerging risk in the current filter window.</div>
+        </div>
+      </div>
+      <div class="ciw-kv-grid ciw-kv-grid--plain ciw-kv-grid--compact">
+        {{ ui.key_value('Primary Motion', (priority_engine or {}).get('focus_area'), 'text') }}
+        {{ ui.key_value('Lead Action', (primary_action or {}).get('title') or 'No immediate move', 'text') }}
+        {{ ui.key_value('Window Trend', (trend_summary or {}).get('revenue_direction'), 'text') }}
+        {{ ui.key_value('Recovery Potential', (lifecycle or {}).get('recovery_potential'), 'text') }}
+      </div>
+      <div class="ciw-lane-list">
+        {% for action in next_best_actions[:4] %}
+          {{ ui.action_card(action, {'source_page': 'customer_drilldown', 'source_section': 'Next Best Actions', 'source_widget': 'Action Card', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': action.get('title'), 'clicked_metric_value': action.get('priority_score'), 'extra': {'workspace_kind': 'narrative', 'detail': action.get('why') or action.get('detail'), 'confidence': action.get('confidence'), 'revenue_upside': action.get('revenue_upside'), 'profit_upside': action.get('profit_upside'), 'related_products': action.get('related_products'), 'related_categories': action.get('related_categories'), 'target_filters': {'customer_ids': [customer_id]}}}) }}
+        {% else %}
+          <div class="ciw-empty">No immediate actions detected for this customer.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="ciw-two-col ciw-two-col--rail">
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-toolbar mb-3">
+        <div>
+          <h3 class="ciw-section-title">Trend, Lifecycle, and Value per lb</h3>
+          <p class="ciw-section-copy">Revenue, order rhythm, and value movement anchored to the active filter window.</p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ export_monthly_xlsx }}">Export Monthly</a>
+      </div>
+      <div id="ciwTrendChart" class="ciw-chart" aria-label="Revenue and orders trend">
+        {% if (chart_state_map.get('trend') or {}).get('status') == 'empty' %}
+          <div class="ciw-empty">{{ (chart_state_map.get('trend') or {}).get('reason') }}</div>
+        {% endif %}
+      </div>
+      <div class="ciw-metric-grid ciw-metric-grid--wide mt-3">
+        {{ ui.metric_card({'label': 'Trend Direction', 'value': (lifecycle or {}).get('relationship_direction'), 'format': 'text'}) }}
+        {{ ui.metric_card({'label': 'Active Streak', 'value': (lifecycle or {}).get('active_streak_months'), 'format': 'number', 'suffix': 'months'}) }}
+        {{ ui.metric_card({'label': 'Repeat Revenue Share', 'value': (lifecycle or {}).get('repeat_revenue_share_pct'), 'format': 'percent'}) }}
+        {{ ui.metric_card({'label': 'Recovery Potential', 'value': (lifecycle or {}).get('recovery_potential'), 'format': 'text'}) }}
+      </div>
+    </article>
+
+    <div class="ciw-stack">
+      <article class="ciw-surface ciw-card-body">
+        <div class="ciw-card-head">
+          <div>
+            <h3>Lifecycle & Retention</h3>
+            <div class="ciw-card-subtitle">{{ (lifecycle or {}).get('stage') or 'No stage' }}</div>
+          </div>
+        </div>
+        <div class="ciw-kv-grid">
+          {{ ui.key_value('First Order', (lifecycle or {}).get('first_order'), 'text') }}
+          {{ ui.key_value('Last Order', (lifecycle or {}).get('last_order'), 'text') }}
+          {{ ui.key_value('Tenure Months', (lifecycle or {}).get('tenure_months'), 'number') }}
+          {{ ui.key_value('Dormancy Risk', (lifecycle or {}).get('dormancy_risk'), 'text') }}
+          {{ ui.key_value('Lost Products', (lifecycle or {}).get('lost_product_count'), 'number') }}
+          {{ ui.key_value('Lost Families', (lifecycle or {}).get('lost_family_count'), 'number') }}
+        </div>
+      </article>
+
+      <article class="ciw-surface ciw-card-body">
+        <div class="ciw-card-head">
+          <div>
+            <h3>Ordering Rhythm</h3>
+            <div class="ciw-card-subtitle">{{ (ordering_rhythm or {}).get('narrative') }}</div>
+          </div>
+        </div>
+        <div class="ciw-kv-grid">
+          {{ ui.key_value('Weekday Preference', (ordering_rhythm or {}).get('weekday_preference'), 'text') }}
+          {{ ui.key_value('Weight Weekday', (ordering_rhythm or {}).get('weight_weekday_preference'), 'text') }}
+          {{ ui.key_value('Cadence Median', (ordering_rhythm or {}).get('cadence_median_days'), 'number') }}
+          {{ ui.key_value('Cadence P90', (ordering_rhythm or {}).get('cadence_p90_days'), 'number') }}
+          {{ ui.key_value('Service Rhythm', (ordering_rhythm or {}).get('service_rhythm_score'), 'score') }}
+          {{ ui.key_value('Forecastability', kpis.get('forecastability_score'), 'score') }}
+        </div>
+      </article>
+
+      <article class="ciw-surface ciw-card-body">
+        <div class="ciw-card-head">
+          <div>
+            <h3>Seasonality Summary</h3>
+            <div class="ciw-card-subtitle">Best months and seasonal concentration.</div>
+          </div>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_seasonality_xlsx }}">Export</a>
+        </div>
+        <div class="ciw-kv-grid">
+          {{ ui.key_value('Seasonality Strength', (ordering_rhythm or {}).get('seasonality_strength_score'), 'score') }}
+          {{ ui.key_value('Best Months', ((ordering_rhythm or {}).get('best_months') or [])|join(', '), 'text') }}
+          {{ ui.key_value('Worst Months', ((ordering_rhythm or {}).get('worst_months') or [])|join(', '), 'text') }}
+          {{ ui.key_value('Focus Month', (trend_summary or {}).get('current_best_month'), 'text') }}
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="ciw-two-col">
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-toolbar mb-3">
+        <div>
+          <h3 class="ciw-section-title">Weight & Operational Value</h3>
+          <p class="ciw-section-copy">{{ (weight_analytics or {}).get('narrative') }}</p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ export_weight_xlsx }}">Export Weight</a>
+      </div>
+      <div id="ciwWeightValueChart" class="ciw-chart" aria-label="Weight and value per pound trend">
+        {% if (chart_state_map.get('weight_value') or {}).get('status') == 'empty' %}
+          <div class="ciw-empty">{{ (chart_state_map.get('weight_value') or {}).get('reason') }}</div>
+        {% endif %}
+      </div>
+      <div class="ciw-metric-grid ciw-metric-grid--wide mt-3">
+        {{ ui.metric_card({'label': 'Revenue/lb', 'value': weight_summary.get('revenue_per_lb_window'), 'format': 'currency'}) }}
+        {% if show_costs %}{{ ui.metric_card({'label': 'Profit/lb', 'value': weight_summary.get('profit_per_lb_window'), 'format': 'currency'}) }}{% endif %}
+        {{ ui.metric_card({'label': 'Avg lb / Week', 'value': weight_summary.get('avg_lb_per_week'), 'format': 'weight'}) }}
+        {{ ui.metric_card({'label': 'Heavy Order Concentration', 'value': weight_summary.get('heavy_order_concentration_pct'), 'format': 'percent'}) }}
+      </div>
+      <div class="ciw-detail-grid mt-3">
+        <div class="ciw-surface-soft">
+          <div class="ciw-table-note mb-2">Top Products by Weight</div>
+          <div class="ciw-table-wrap">
+            <table class="table table-sm ciw-table">
+              <thead><tr><th>Product</th><th class="text-end">lb</th><th class="text-end">Weight Share</th><th class="text-end">Revenue Share</th></tr></thead>
+              <tbody>
+                {% for row in weight_top_products[:8] %}
+                  <tr data-drilldown-payload="{{ {'source_page': 'customer_drilldown', 'source_section': 'Weight & Operational Value', 'source_widget': 'Top Products by Weight', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'product', 'clicked_entity_type': 'product', 'clicked_entity_id': row.get('sku') or row.get('product'), 'clicked_entity_label': row.get('product'), 'clicked_metric': 'Weight lb', 'clicked_metric_value': row.get('weight_lb'), 'extra': {'target_filters': {'customer_ids': [customer_id]}}}|tojson|forceescape }}">
+                    <td>{{ row.get('product') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('weight_lb'), 'weight') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('weight_share_pct'), 'percent') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('revenue_share_pct'), 'percent') }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="4" class="text-center text-muted py-3">No weight detail available.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="ciw-surface-soft">
+          <div class="ciw-table-note mb-2">Top Categories by Weight</div>
+          <div class="ciw-table-wrap">
+            <table class="table table-sm ciw-table">
+              <thead><tr><th>Category</th><th class="text-end">lb</th><th class="text-end">Weight Share</th></tr></thead>
+              <tbody>
+                {% for row in weight_top_categories[:8] %}
+                  <tr data-drilldown-payload="{{ {'source_page': 'customer_drilldown', 'source_section': 'Weight & Operational Value', 'source_widget': 'Top Categories by Weight', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Category Weight Share', 'clicked_metric_value': row.get('weight_share_pct'), 'clicked_bucket': row.get('category'), 'extra': {'workspace_kind': 'fact_products', 'category': row.get('category'), 'filter_mode': 'current_window', 'target_filters': {'customer_ids': [customer_id]}}}|tojson|forceescape }}">
+                    <td>{{ row.get('category') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('weight_lb'), 'weight') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('weight_share_pct'), 'percent') }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="3" class="text-center text-muted py-3">No category weight mix available.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="ciw-surface-soft">
+          <div class="ciw-table-note mb-2">Operational Summary</div>
+          <div class="ciw-kv-grid">
+            {{ ui.key_value('Consistency Score', weight_summary.get('operational_consistency_score'), 'score') }}
+            {{ ui.key_value('Weight Volatility', weight_summary.get('weight_volatility_pct'), 'percent') }}
+            {{ ui.key_value('Avg lb / Month', weight_summary.get('avg_lb_per_month'), 'weight') }}
+            {{ ui.key_value('Lifetime lb', weight_summary.get('total_weight_lb_lifetime'), 'weight') }}
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Seasonality Heatmap & Weekday Value</h3>
+          <div class="ciw-card-subtitle">Season-aware planning and weekday execution rhythm.</div>
+        </div>
+      </div>
+      <div id="ciwSeasonalityChart" class="ciw-chart ciw-chart--sm mb-3" aria-label="Seasonality heatmap">
+        {% if (chart_state_map.get('seasonality') or {}).get('status') == 'empty' %}
+          <div class="ciw-empty">{{ (chart_state_map.get('seasonality') or {}).get('reason') }}</div>
+        {% endif %}
+      </div>
+      <div id="ciwWeekdayChart" class="ciw-chart ciw-chart--sm" aria-label="Weekday revenue and weight pattern">
+        {% if (chart_state_map.get('weekday') or {}).get('status') == 'empty' %}
+          <div class="ciw-empty">{{ (chart_state_map.get('weekday') or {}).get('reason') }}</div>
+        {% endif %}
+      </div>
+    </article>
+  </section>
+
+  <section class="ciw-two-col">
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-toolbar mb-3">
+        <div>
+          <h3 class="ciw-section-title">Product & Category Intelligence</h3>
+          <p class="ciw-section-copy">{{ (product_intelligence or {}).get('narrative') }}</p>
+        </div>
+        <div class="ciw-action-row">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_products_xlsx }}">Products XLSX</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_categories_xlsx }}">Categories XLSX</a>
+        </div>
+      </div>
+
+      <div class="ciw-two-col ciw-two-col--balanced mb-3">
+        <div class="ciw-surface-soft p-3">
+          <div class="ciw-card-head">
+            <div>
+              <h4>Top Mix</h4>
+              <div class="ciw-card-subtitle">Switch between revenue, profit, and weight.</div>
+            </div>
+            <select id="ciwMixMode" class="form-select form-select-sm w-auto">
+              {% if show_costs %}<option value="profit">Profit</option>{% endif %}
+              <option value="revenue"{% if not show_costs %} selected{% endif %}>Revenue</option>
+              <option value="weight">Weight</option>
+            </select>
+          </div>
+          <div id="ciwTopMixChart" class="ciw-chart ciw-chart--sm">
+            {% if (chart_state_map.get('top_mix') or {}).get('status') == 'empty' %}
+              <div class="ciw-empty">{{ (chart_state_map.get('top_mix') or {}).get('reason') }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="ciw-surface-soft p-3">
+          <div class="ciw-card-head">
+            <div>
+              <h4>Category Reach</h4>
+              <div class="ciw-card-subtitle">Revenue, weight, and product breadth by family.</div>
+            </div>
+          </div>
+          <div class="ciw-table-wrap">
+            <table class="table table-sm ciw-table">
+              <thead><tr><th>Category</th><th class="text-end">Revenue</th><th class="text-end">Δ Revenue</th><th class="text-end">Weight</th></tr></thead>
+              <tbody>
+                {% for row in (product_intelligence or {}).get('top_categories') or [] %}
+                  <tr data-drilldown-payload="{{ {'source_page': 'customer_drilldown', 'source_section': 'Product & Category Intelligence', 'source_widget': 'Category Reach', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Category Revenue', 'clicked_metric_value': row.get('revenue'), 'clicked_bucket': row.get('category'), 'extra': {'workspace_kind': 'fact_products', 'category': row.get('category'), 'target_filters': {'customer_ids': [customer_id]}}}|tojson|forceescape }}">
+                    <td>{{ row.get('category') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('revenue'), 'currency') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('delta_revenue_pct'), 'percent') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('weight_lb'), 'weight') }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="4" class="text-center text-muted py-3">No category mix available.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="ciw-filterbar">
+        <div>
+          <label class="form-label form-label-sm" for="ciwProductSearch">Search products</label>
+          <input id="ciwProductSearch" class="form-control form-control-sm" type="search" placeholder="Search product">
+        </div>
+        {% if show_costs %}
+          <div class="form-check">
+            <input id="ciwNegativeOnly" class="form-check-input" type="checkbox">
+            <label class="form-check-label" for="ciwNegativeOnly">Negative margin only</label>
+          </div>
+          <div class="form-check">
+            <input id="ciwBelowTargetOnly" class="form-check-input" type="checkbox">
+            <label class="form-check-label" for="ciwBelowTargetOnly">Below {{ config.get('DRILLDOWN_MARGIN_TARGET_PCT', 27) }}% margin</label>
+          </div>
+        {% else %}
+          <div></div><div></div>
+        {% endif %}
+      </div>
+      <div class="ciw-table-note mb-2"><span id="ciwProductCount">{{ product_profit_rows|length }} rows</span></div>
+      <div class="ciw-table-wrap">
+        <table class="table table-sm ciw-table" id="ciwProductTable">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Category</th>
+              <th class="text-end">Revenue</th>
+              <th class="text-end">Δ Revenue</th>
+              <th class="text-end">Weight</th>
+              <th class="text-end">ASP/lb</th>
+              {% if show_costs %}
+                <th class="text-end">Profit</th>
+                <th class="text-end">Margin %</th>
+                <th class="text-end">Contribution/lb</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in product_profit_rows %}
+              <tr data-product="{{ (row.product or '')|lower }}"
+                  data-negative="{{ 1 if (row.margin_pct is not none and row.margin_pct < 0) else 0 }}"
+                  data-below-target="{{ 1 if (row.margin_pct is not none and row.margin_pct < config.get('DRILLDOWN_MARGIN_TARGET_PCT', 27)) else 0 }}"
+                  data-drilldown-payload="{{ {'source_page': 'customer_drilldown', 'source_section': 'Product & Category Intelligence', 'source_widget': 'Product Profitability Table', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'product', 'clicked_entity_type': 'product', 'clicked_entity_id': row.sku or row.product, 'clicked_entity_label': row.product, 'clicked_metric': 'Revenue', 'clicked_metric_value': row.revenue, 'extra': {'target_filters': {'customer_ids': [customer_id]}}}|tojson|forceescape }}">
+                <td>{{ row.product }}</td>
+                <td>{{ row.category or 'Unassigned' }}</td>
+                <td class="text-end">{{ ui.fmt_value(row.revenue, 'currency') }}</td>
+                <td class="text-end">{{ ui.fmt_value(row.delta_revenue_pct, 'percent') }}</td>
+                <td class="text-end">{{ ui.fmt_value(row.weight_lb, 'weight') }}</td>
+                <td class="text-end">{{ ui.fmt_value(row.asp_lb, 'currency') }}</td>
+                {% if show_costs %}
+                  <td class="text-end">{{ ui.fmt_value(row.profit, 'currency') }}</td>
+                  <td class="text-end">{{ ui.fmt_value(row.margin_pct, 'percent') }}</td>
+                  <td class="text-end">{{ ui.fmt_value(row.contribution_lb, 'currency') }}</td>
+                {% endif %}
+              </tr>
+            {% else %}
+              <tr><td colspan="{{ 9 if show_costs else 6 }}" class="text-center text-muted py-3">No product detail available.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Pricing, Margin, and Basket Intelligence</h3>
+          <div class="ciw-card-subtitle">{{ (pricing_intelligence or {}).get('narrative') }} Evidence reflects the active filter window and scoped peer set.</div>
+        </div>
+        <div class="ciw-action-row">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_price_xlsx }}">Pricing XLSX</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_price_csv }}">Pricing CSV</a>
+        </div>
+      </div>
+      <div class="ciw-metric-grid mb-3">
+        {{ ui.metric_card({'label': 'Pricing Quality', 'value': price_summary.get('price_quality_score'), 'format': 'score', 'detail': 'Peer dispersion and outlier control'}) }}
+        {% if show_costs %}{{ ui.metric_card({'label': 'Margin Quality', 'value': price_summary.get('margin_quality_score'), 'format': 'score', 'detail': 'Below-target exposure and leakage'}) }}{% endif %}
+        {{ ui.metric_card({'label': 'Average Basket', 'value': basket_stats.get('median_order_value'), 'format': 'currency', 'detail': 'Median order value'}) }}
+      </div>
+      <div class="ciw-stack">
+        <div class="ciw-surface-soft p-3">
+          <div class="ciw-table-note mb-2">Price Watchlist</div>
+          <div class="ciw-table-wrap">
+            <table class="table table-sm ciw-table">
+              <thead><tr><th>Product</th><th class="text-end">Δ vs Peer</th><th class="text-end">ASP/lb</th></tr></thead>
+              <tbody>
+                {% for row in price_watchlist[:8] %}
+                  <tr data-drilldown-payload="{{ {'source_page': 'customer_drilldown', 'source_section': 'Pricing, Margin, and Basket Intelligence', 'source_widget': 'Price Watchlist', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'product', 'clicked_entity_type': 'product', 'clicked_entity_id': row.get('sku') or row.get('product'), 'clicked_entity_label': row.get('product'), 'clicked_metric': 'Peer Delta', 'clicked_metric_value': row.get('delta_pct'), 'extra': {'target_filters': {'customer_ids': [customer_id]}}}|tojson|forceescape }}">
+                    <td>{{ row.get('product') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('delta_pct'), 'percent') }}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('cust_unit_price'), 'currency') }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="3" class="text-center text-muted py-3">No peer pricing comparisons available.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="ciw-surface-soft p-3">
+          <div class="ciw-table-note mb-2">Average Basket</div>
+          <div class="ciw-kv-grid">
+            {{ ui.key_value('Orders in Window', basket_stats.get('orders'), 'number') }}
+            {{ ui.key_value('Orders Lifetime', basket_stats.get('orders_lifetime'), 'number') }}
+            {{ ui.key_value('Median Lines / Order', basket_stats.get('median_lines_per_order'), 'number') }}
+            {{ ui.key_value('Median Items / Order', basket_stats.get('median_items'), 'number') }}
+            {{ ui.key_value('Median Weight / Order', basket_stats.get('median_weight_lb'), 'weight') }}
+            {{ ui.key_value('AOV Std Dev', basket_stats.get('aov_stddev'), 'currency') }}
+          </div>
+        </div>
+        <div class="ciw-surface-soft p-3">
+          <div class="ciw-table-note mb-2">{% if show_costs %}Margin Leakage Watchlist{% else %}Commercial Watchlist{% endif %}</div>
+          <div class="ciw-table-wrap">
+            <table class="table table-sm ciw-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th class="text-end">{% if show_costs %}Margin %{% else %}Revenue{% endif %}</th>
+                  <th class="text-end">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in (low_margin_watchlist if show_costs else (product_intelligence or {}).get('declining_products'))[:8] %}
+                  <tr>
+                    <td>{{ row.get('product') }}</td>
+                    <td class="text-end">{% if show_costs %}{{ ui.fmt_value(row.get('margin_pct'), 'percent') }}{% else %}{{ ui.fmt_value(row.get('delta_revenue_pct'), 'percent') }}{% endif %}</td>
+                    <td class="text-end">{{ ui.fmt_value(row.get('revenue'), 'currency') }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="3" class="text-center text-muted py-3">No watchlist items.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="ciw-story-grid">
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Cross-sell & Sell Next</h3>
+          <div class="ciw-card-subtitle">Attach-rate opportunities with peer evidence in the current scope.</div>
+        </div>
+        <div class="ciw-action-row">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_cross_sell_xlsx }}">XLSX</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ export_cross_sell_csv }}">CSV</a>
+        </div>
+      </div>
+      <div class="ciw-lane-list">
+        {% for cs in cross_sell[:6] %}
+          <article class="ciw-action-card ciw-tone--info"
+                   data-drilldown-payload="{{ {'source_page': 'customer_drilldown', 'source_section': 'Cross-sell & Sell Next', 'source_widget': 'Cross-sell Card', 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': 'Cross-sell Lift', 'clicked_metric_value': cs.get('lift'), 'clicked_entity_label': cs.get('product'), 'extra': {'workspace_kind': 'narrative', 'detail': cs.get('explanation') or cs.get('reason'), 'confidence': cs.get('confidence_pct'), 'support': cs.get('support_pct'), 'related_products': [cs.get('product')], 'related_categories': [cs.get('category')], 'target_filters': {'customer_ids': [customer_id]}}}|tojson|forceescape }}">
+            <div class="ciw-action-topline">
+              <span class="ciw-action-type">{{ cs.get('category') or 'Cross-sell' }}</span>
+              <span class="ciw-action-urgency">{{ ui.fmt_value(cs.get('lift'), 'number') }}x lift</span>
+            </div>
+            <h4 class="ciw-action-title">{{ cs.get('product') }}</h4>
+            <p class="ciw-action-why">{{ cs.get('explanation') or cs.get('reason') }}</p>
+            <dl class="ciw-action-meta">
+              <div><dt>Confidence</dt><dd>{{ ui.fmt_value(cs.get('confidence_pct'), 'percent') }}</dd></div>
+              <div><dt>Support</dt><dd>{{ ui.fmt_value(cs.get('support_pct'), 'percent') }}</dd></div>
+            </dl>
+          </article>
+        {% else %}
+          <div class="ciw-empty">No strong cross-sell evidence is available for this customer.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Concentration & Dependency</h3>
+          <div class="ciw-card-subtitle">{{ (concentration or {}).get('narrative') }}</div>
+        </div>
+      </div>
+      <div class="ciw-metric-grid">
+        {{ ui.metric_card({'label': 'Top Product Share', 'value': (concentration or {}).get('top_product_share_pct'), 'format': 'percent'}) }}
+        {{ ui.metric_card({'label': 'Top 5 Product Share', 'value': (concentration or {}).get('top5_product_share_pct'), 'format': 'percent'}) }}
+        {{ ui.metric_card({'label': 'Top Category Share', 'value': (concentration or {}).get('top_category_share_pct'), 'format': 'percent'}) }}
+      </div>
+      <div class="ciw-kv-grid mt-3">
+        {{ ui.key_value('Dependency Posture', (concentration or {}).get('dependency_posture'), 'text') }}
+        {{ ui.key_value('Dependency Balance', (concentration or {}).get('dependency_balance_score'), 'score') }}
+        {{ ui.key_value('Top Weight Share', (concentration or {}).get('top_weight_share_pct'), 'percent') }}
+        {{ ui.key_value('Top 5 Weight Share', (concentration or {}).get('top5_weight_share_pct'), 'percent') }}
+      </div>
+    </article>
+
+    <article class="ciw-surface ciw-card-body">
+      <div class="ciw-card-head">
+        <div>
+          <h3>Trust, Coverage, & Snapshot Handling</h3>
+          <div class="ciw-card-subtitle">Relationship ownership, data trust, and release-safe exports.</div>
+        </div>
+      </div>
+      <div class="ciw-kv-grid">
+        {{ ui.key_value('Owner', trust_data.get('owner'), 'text') }}
+        {{ ui.key_value('Coverage', trust_data.get('coverage_posture'), 'text') }}
+        {{ ui.key_value('Trust Posture', trust_data.get('trust_posture'), 'text') }}
+        {{ ui.key_value('Cost Coverage', trust_data.get('cost_coverage_pct'), 'percent') }}
+        {{ ui.key_value('Customers in Scope', trust_data.get('customers_in_scope'), 'number') }}
+        {{ ui.key_value('Customers in Window', trust_data.get('customers_in_window'), 'number') }}
+      </div>
+      <p class="ciw-note mt-3 mb-0">{{ trust_data.get('scope_note') }}</p>
+    </article>
+  </section>
+
+  <section class="ciw-surface ciw-card-body">
+    <div class="ciw-card-head">
+      <div>
+        <h3>CRM Action Workspace</h3>
+        <div class="ciw-card-subtitle">Protect, grow, recover, and monitor the relationship from one workspace. All actions are evidence-based from the active filter context unless explicitly benchmarked.</div>
+      </div>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ export_actions_xlsx }}">Export CRM Actions</a>
+    </div>
+    <div class="ciw-lane-grid">
+      {% for lane_key, lane_label in [('protect_now', 'Protect Now'), ('grow_now', 'Grow Now'), ('recover_now', 'Recover Now'), ('monitor', 'Monitor')] %}
+        <section class="ciw-lane">
+          <div class="ciw-lane-head mb-3">
+            <div class="ciw-lane-title">{{ lane_label }}</div>
+            <span class="ciw-pill ciw-pill--soft">{{ ((crm_workspace or {}).get(lane_key) or [])|length }} actions</span>
+          </div>
+          <div class="ciw-lane-list">
+            {% for action in (crm_workspace or {}).get(lane_key) or [] %}
+              {{ ui.action_card(action, {'source_page': 'customer_drilldown', 'source_section': 'CRM Action Workspace', 'source_widget': lane_label, 'source_entity_type': 'customer', 'source_entity_id': customer_id, 'source_entity_label': hero_data.get('customer_name') or customer_name, 'requested_target': 'workspace', 'clicked_metric': action.get('title'), 'clicked_metric_value': action.get('priority_score'), 'extra': {'workspace_kind': 'narrative', 'detail': action.get('why') or action.get('detail'), 'confidence': action.get('confidence'), 'revenue_upside': action.get('revenue_upside'), 'profit_upside': action.get('profit_upside'), 'related_products': action.get('related_products'), 'related_categories': action.get('related_categories'), 'target_filters': {'customer_ids': [customer_id]}}}) }}
+            {% else %}
+              <div class="ciw-empty">No {{ lane_label|lower }} actions.</div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="ciw-surface ciw-card-body">
+    <div class="ciw-card-head">
+      <div>
+        <h3>Scoped Export Inventory</h3>
+        <div class="ciw-card-subtitle">Production-safe export and snapshot controls for the current visible scope and active filter window.</div>
+      </div>
+    </div>
+    <div class="ciw-footer-meta">
+      <span class="ciw-pill">Snapshot XLSX</span>
+      <span class="ciw-pill">Monthly XLSX</span>
+      <span class="ciw-pill">Product Profitability CSV</span>
+      <span class="ciw-pill">Pricing CSV</span>
+      <span class="ciw-pill">Cadence XLSX</span>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+  <script id="customerWorkspaceData" type="application/json">
+    {{ (workspace_chart_payload or {})|tojson }}
+  </script>
+  <script src="{{ url_for('static', filename='js/customer_drilldown_v2.js') }}?v=incident-20260318-1" defer></script>
+{% endblock %}

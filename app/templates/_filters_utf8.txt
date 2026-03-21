@@ -1,0 +1,720 @@
+{# _filters.html - robust global filters (Bootstrap 5 + vanilla JS) #}
+{% set _form = form if form is defined else None %}
+{% set _filters = filters if filters is defined else {} %}
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-3">
+    <form method="get" action="{{ request.path }}" class="row gx-3 gy-2 align-items-end" id="filtersForm" novalidate>
+      {% if _form %}{{ _form.hidden_tag() }}{% endif %}
+      <input type="hidden" name="_gf" value="1">
+
+      <!-- Dates + Quick ranges + Actions -->
+      <div class="col-12 d-flex flex-wrap gap-2 align-items-end">
+        <div>
+          <label for="fStart" class="form-label mb-1">Start</label>
+          {% if _form and _form.start_date %}
+            {{ _form.start_date(class='form-control form-control-sm', id='fStart', type='date', placeholder='YYYY-MM-DD', aria_label='Start date', autocomplete='off') }}
+          {% else %}
+            <input class="form-control form-control-sm" id="fStart" name="start" type="date" aria-label="Start date" autocomplete="off" value="{{ request.args.get('start','') }}">
+          {% endif %}
+        </div>
+        <div>
+          <label for="fEnd" class="form-label mb-1">End</label>
+          {% if _form and _form.end_date %}
+            {{ _form.end_date(class='form-control form-control-sm', id='fEnd', type='date', placeholder='YYYY-MM-DD', aria_label='End date', autocomplete='off') }}
+          {% else %}
+            <input class="form-control form-control-sm" id="fEnd" name="end" type="date" aria-label="End date" autocomplete="off" value="{{ request.args.get('end','') }}">
+          {% endif %}
+        </div>
+
+        <div class="btn-group btn-group-sm ms-1" role="group" aria-label="Quick ranges">
+          <button class="btn btn-outline-secondary" type="button" data-range="mtd">MTD</button>
+          <button class="btn btn-outline-secondary" type="button" data-range="qtd">QTD</button>
+          <button class="btn btn-outline-secondary" type="button" data-range="ytd">YTD</button>
+          <button class="btn btn-outline-secondary" type="button" data-range="7d">7d</button>
+          <button class="btn btn-outline-secondary" type="button" data-range="30d">30d</button>
+          <button class="btn btn-outline-secondary" type="button" data-range="90d">90d</button>
+          <button class="btn btn-outline-secondary d-none d-sm-inline-block" type="button" data-range="last-month">Last Mo</button>
+          <button class="btn btn-outline-secondary d-none d-sm-inline-block" type="button" data-range="last-quarter">Last Q</button>
+          <button class="btn btn-outline-secondary" type="button" data-range="all">All</button>
+        </div>
+
+        <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-primary btn-sm" type="submit" id="applyFiltersBtn">
+            <span class="spinner-border spinner-border-sm me-1 d-none" role="status" aria-hidden="true"></span>
+            Apply
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" type="button" id="resetFiltersBtn">Reset</button>
+        </div>
+      </div>
+
+      <!-- Regions / Methods / Customers / Suppliers -->
+      <div class="col-12 col-md-6 col-lg-3">
+        <label class="form-label mb-1" for="fRegions">Regions</label>
+        {% if _form and _form.regions %}
+          {{ _form.regions(class='form-select', id='fRegions', multiple=True, size=8, aria_label='Regions', **{'data-msx':'1'}) }}
+        {% else %}
+          <select class="form-select" id="fRegions" name="regions" multiple size="8" aria-label="Regions" data-msx="1">
+            {% for v in request.args.getlist('regions') %}<option selected>{{ v }}</option>{% endfor %}
+          </select>
+        {% endif %}
+        <div class="msx d-none" data-enhance="fRegions"></div>
+      </div>
+
+      <div class="col-12 col-md-6 col-lg-3">
+        <label class="form-label mb-1" for="fMethods">Shipping Methods</label>
+        {% if _form and _form.shipping_methods %}
+          {{ _form.shipping_methods(class='form-select', id='fMethods', multiple=True, size=8, aria_label='Shipping methods', **{'data-msx':'1'}) }}
+        {% else %}
+          <select class="form-select" id="fMethods" name="methods" multiple size="8" aria-label="Shipping methods" data-msx="1">
+            {% for v in request.args.getlist('methods') %}<option selected>{{ v }}</option>{% endfor %}
+          </select>
+        {% endif %}
+        <div class="msx d-none" data-enhance="fMethods"></div>
+      </div>
+
+      <div class="col-12 col-md-6 col-lg-3">
+        <label class="form-label mb-1" for="fCustomers">Customers</label>
+        {% if _form and _form.customers %}
+          {{ _form.customers(class='form-select', id='fCustomers', multiple=True, size=8, aria_label='Customers', **{'data-msx':'1'}) }}
+        {% else %}
+          <select class="form-select" id="fCustomers" name="customers" multiple size="8" aria-label="Customers" data-msx="1">
+            {% for v in request.args.getlist('customers') %}<option selected>{{ v }}</option>{% endfor %}
+          </select>
+        {% endif %}
+        <div class="msx d-none" data-enhance="fCustomers"></div>
+      </div>
+
+      <div class="col-12 col-md-6 col-lg-3">
+        <label class="form-label mb-1" for="fSuppliers">Suppliers</label>
+        {% if _form and _form.suppliers %}
+          {{ _form.suppliers(class='form-select', id='fSuppliers', multiple=True, size=8, aria_label='Suppliers', **{'data-msx':'1'}) }}
+        {% else %}
+          <select class="form-select" id="fSuppliers" name="suppliers" multiple size="8" aria-label="Suppliers" data-msx="1">
+            {% for v in request.args.getlist('suppliers') %}<option selected>{{ v }}</option>{% endfor %}
+          </select>
+        {% endif %}
+        <div class="msx d-none" data-enhance="fSuppliers"></div>
+      </div>
+
+      <!-- Summary pill -->
+      <div class="col-12">
+        <span class="badge rounded-pill bg-secondary-subtle text-secondary-emphasis border" id="filtersSummary"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Saved Views -->
+  <div class="border-top px-3 py-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0 text-muted">Saved Views</h6>
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#savedViewsArea" aria-expanded="true" aria-controls="savedViewsArea">Toggle</button>
+    </div>
+
+    <div class="collapse show" id="savedViewsArea">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-5">
+          <form method="post" action="/views/save" class="row g-2 align-items-end" id="saveViewForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <div class="col-8">
+              <label class="form-label mb-1" for="save_view_name">Save View As</label>
+              <input class="form-control" id="save_view_name" name="name" placeholder="e.g., Q3 West Region" required maxlength="120" autocomplete="off">
+            </div>
+            <div class="col-4">
+              <button class="btn btn-outline-primary w-100" type="submit">Save</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="col-md-7">
+          <form class="row g-2 align-items-end" onsubmit="return false;">
+            <div class="col-8">
+              <label class="form-label mb-1" for="savedViewSelect">Saved Views</label>
+              <select id="savedViewSelect" class="form-select">
+                <option value="">Select a view...</option>
+                {% for v in (g.saved_views | default([])) %}
+                  <option value="{{ v.id }}">{{ v.name }}{% if current_user and current_user.role=='admin' %} (user {{ v.user_id }}){% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-2">
+              <span class="form-label mb-1" aria-hidden="true">&nbsp;</span>
+              <button class="btn btn-outline-secondary w-100" type="button" id="loadViewBtn">Load</button>
+            </div>
+            <div class="col-2">
+              <span class="form-label mb-1" aria-hidden="true">&nbsp;</span>
+              <button class="btn btn-outline-danger w-100" type="button" id="deleteViewBtn">Delete</button>
+            </div>
+            <input type="hidden" id="svNext" value="{{ request.full_path }}">
+            <input type="hidden" id="svCsrf" value="{{ csrf_token() }}">
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* -------- MultiSelectX (progressive enhancement) ---------- */
+class MultiSelectX {
+  constructor(selectEl, mountEl) {
+    this.select = selectEl; this.mount = mountEl;
+    if (!this.select) return;
+
+    this.mount.classList.add('msx-wrap');
+    const baseRaw = this.select.id || this.select.name || 'msx';
+    this.baseId = String(baseRaw || 'msx').replace(/[\s'"<>]+/g, '_');
+    this.formId = `${this.baseId}_proxy_form`;
+    this.ensureProxyForm();
+    const searchId = `${this.baseId}_search`;
+    this.mount.innerHTML = `
+      <div class="msx-header">
+        <div class="msx-chips" aria-live="polite"></div>
+        <div class="msx-controls">
+          <input class="form-control form-control-sm msx-search" type="search" id="${searchId}" name="${searchId}" form="${this.formId}" placeholder="Search..." aria-label="Search options" autocomplete="off">
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-secondary" data-act="all">All</button>
+            <button type="button" class="btn btn-outline-secondary" data-act="none">None</button>
+            <button type="button" class="btn btn-outline-secondary" data-act="invert">Invert</button>
+            <button type="button" class="btn btn-outline-secondary" data-act="visible">Visible</button>
+          </div>
+          <button type="button" class="btn btn-link btn-sm text-decoration-none msx-clear d-none">Clear</button>
+        </div>
+      </div>
+      <div class="msx-list" tabindex="0" role="listbox" aria-multiselectable="true"></div>
+      <div class="msx-footer text-muted small"><span class="msx-count">0</span> selected</div>
+    `;
+    this.searchInput = this.mount.querySelector('.msx-search');
+    this.listEl      = this.mount.querySelector('.msx-list');
+    this.countEl     = this.mount.querySelector('.msx-count');
+    this.chipsEl     = this.mount.querySelector('.msx-chips');
+    this.clearBtn    = this.mount.querySelector('.msx-clear');
+
+    this.valueSet = new Set(Array.from(this.select.options).filter(o => o.selected).map(o => String(o.value)));
+    this.buildRows();
+
+    // events
+    this.listEl.addEventListener('change', (e) => {
+      if (!e.target.matches('input[type="checkbox"]')) return;
+      const row = e.target.closest('.msx-row');
+      const v = row.dataset.value;
+      e.target.checked ? this.valueSet.add(v) : this.valueSet.delete(v);
+      this.syncSelect();
+    });
+    this.mount.querySelectorAll('[data-act]').forEach(btn => {
+      btn.addEventListener('click', () => this.bulkAction(btn.dataset.act));
+    });
+    if (this.clearBtn) {
+      this.clearBtn.addEventListener('click', () => {
+        this.valueSet.clear();
+        this.listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        this.syncSelect();
+      });
+    }
+
+    let t=null;
+    this.searchInput.addEventListener('input', () => {
+      clearTimeout(t); t=setTimeout(()=>this.applyFilter(this.searchInput.value), 100);
+    });
+
+    this.applyFilter('');
+    this.syncSelect();
+    this.attachShim();
+
+    this.mount.classList.remove('d-none');
+    this.select.classList.add('d-none');
+  }
+
+  getValues() {
+    return Array.from(this.valueSet);
+  }
+
+  setValue(values) {
+    const next = new Set((values || []).map(v => String(v)));
+    this.valueSet = next;
+    if (Array.isArray(this.rows)) {
+      this.rows.forEach(row => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = this.valueSet.has(row.dataset.value);
+      });
+    }
+    this.syncSelect();
+  }
+
+  attachShim() {
+    const msx = this;
+    const shim = {
+      setValue(vals) { msx.setValue(Array.isArray(vals) ? vals : [vals]); },
+      clear() { msx.setValue([]); },
+    };
+    Object.defineProperty(shim, 'items', {
+      get() { return msx.getValues(); },
+      configurable: true,
+    });
+    Object.defineProperty(this.select, 'tomselect', {
+      value: shim,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+    this.tomselect = shim;
+  }
+
+  ensureProxyForm() {
+    if (!this.formId) return;
+    if (document.getElementById(this.formId)) return;
+    const proxy = document.createElement('form');
+    proxy.id = this.formId;
+    proxy.hidden = true;
+    proxy.setAttribute('aria-hidden', 'true');
+    const attach = () => {
+      if (document.body) {
+        document.body.appendChild(proxy);
+      } else {
+        window.requestAnimationFrame(attach);
+      }
+    };
+    attach();
+  }
+
+  buildRows() {
+    const frag = document.createDocumentFragment();
+    this.rows = Array.from(this.select.options).map((o, idx) => {
+      const row = document.createElement('label');
+      row.className = 'msx-row';
+      const value = String(o.value ?? '');
+      row.dataset.value = value;
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'form-check-input me-2';
+      checkbox.id = `${this.baseId}_msx_${idx}`;
+      checkbox.name = `${this.baseId}__msx`;
+      checkbox.value = value;
+      checkbox.setAttribute('form', this.formId);
+      if (o.selected) checkbox.checked = true;
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'msx-label';
+      labelSpan.title = o.text;
+      labelSpan.textContent = o.text;
+
+      row.appendChild(checkbox);
+      row.appendChild(labelSpan);
+      frag.appendChild(row);
+      return row;
+    });
+    this.listEl.innerHTML = '';
+    this.listEl.appendChild(frag);
+  }
+
+  applyFilter(q) {
+    const needle = q.trim().toLowerCase();
+    this.rows.forEach(row => {
+      const txt = row.querySelector('.msx-label').textContent.toLowerCase();
+      row.style.display = (!needle || txt.includes(needle)) ? '' : 'none';
+    });
+  }
+
+  bulkAction(act) {
+    const visible = this.rows.filter(r => r.style.display !== 'none');
+    if (act === 'all') {
+      visible.forEach(r => {
+        const cb = r.querySelector('input');
+        if (!cb.checked) { cb.checked = true; }
+        this.valueSet.add(String(r.dataset.value));
+      });
+    } else if (act === 'none') {
+      visible.forEach(r => {
+        const cb = r.querySelector('input');
+        if (cb.checked) { cb.checked = false; }
+        this.valueSet.delete(String(r.dataset.value));
+      });
+    } else if (act === 'invert') {
+      visible.forEach(r => {
+        const cb = r.querySelector('input');
+        cb.checked = !cb.checked;
+        const key = String(r.dataset.value);
+        cb.checked ? this.valueSet.add(key) : this.valueSet.delete(key);
+      });
+    } else if (act === 'visible') {
+      visible.forEach(r => {
+        const cb = r.querySelector('input');
+        if (!cb.checked) { cb.checked = true; }
+        this.valueSet.add(String(r.dataset.value));
+      });
+    }
+    this.syncSelect();
+  }
+
+  renderChips() {
+    const chosen = Array.from(this.select.options).filter(o => this.valueSet.has(o.value));
+    this.chipsEl.innerHTML = '';
+    if (!chosen.length) { this.clearBtn.classList.add('d-none'); return; }
+    const max = 3;
+    chosen.slice(0,max).forEach(o => {
+      const chip = document.createElement('span');
+      chip.className = 'badge rounded-pill text-bg-light border me-1';
+      chip.textContent = o.text;
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'btn-close btn-close-sm ms-1'; x.setAttribute('aria-label', `Remove ${o.text}`);
+      x.addEventListener('click', () => {
+        this.valueSet.delete(o.value);
+        const row = this.rows.find(r => r.dataset.value === o.value);
+        if (row) row.querySelector('input').checked = false;
+        this.syncSelect();
+      });
+      chip.appendChild(x);
+      this.chipsEl.appendChild(chip);
+    });
+    if (chosen.length > max) {
+      const more = document.createElement('span');
+      more.className = 'badge rounded-pill text-bg-light border';
+      more.textContent = `+${chosen.length - max}`;
+      this.chipsEl.appendChild(more);
+    }
+    this.clearBtn.classList.remove('d-none');
+  }
+
+  syncSelect() {
+    Array.from(this.select.options).forEach(o => { o.selected = this.valueSet.has(o.value); });
+    this.countEl.textContent = String(this.valueSet.size);
+    this.renderChips();
+    // fire both change & input so page-specific listeners catch it
+    this.select.dispatchEvent(new Event('change', { bubbles: true }));
+    this.select.dispatchEvent(new Event('input',  { bubbles: true }));
+    if (this.tomselect && typeof this.tomselect.onChange === 'function') {
+      this.tomselect.onChange(this.getValues());
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // --- helpers ---
+  const multiValues = (el) => {
+    if (!el) return [];
+    if (el.tomselect && Array.isArray(el.tomselect.items)) {
+      return [...el.tomselect.items];
+    }
+    if (el._msx && typeof el._msx.getValues === 'function') {
+      try { return el._msx.getValues(); } catch (_) { /* ignore */ }
+    }
+    if (el.multiple) {
+      return Array.from(el.selectedOptions).map(o => String(o.value));
+    }
+    return el.value ? [String(el.value)] : [];
+  };
+
+  const localBuildFilterQS = (extra = {}) => {
+    const params = new URLSearchParams();
+    const start = document.getElementById('fStart')?.value;
+    const end = document.getElementById('fEnd')?.value;
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    multiValues(document.getElementById('fRegions')).forEach(v => params.append('regions', v));
+    multiValues(document.getElementById('fMethods')).forEach(v => params.append('methods', v));
+    multiValues(document.getElementById('fCustomers')).forEach(v => params.append('customers', v));
+    multiValues(document.getElementById('fSuppliers')).forEach(v => params.append('suppliers', v));
+    params.set('_gf', '1');
+    for (const [k, v] of Object.entries(extra || {})) {
+      if (v == null) continue;
+      if (Array.isArray(v)) { v.forEach(item => params.append(k, item)); }
+      else params.set(k, v);
+    }
+    return params.toString();
+  };
+
+  if (typeof window !== 'undefined' && typeof window.buildFilterQS !== 'function') {
+    window.buildFilterQS = localBuildFilterQS;
+  }
+
+  const getFilterQS = (extra = {}) => {
+    try {
+      if (typeof window !== 'undefined' && typeof window.buildFilterQS === 'function') {
+        return window.buildFilterQS(extra);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return localBuildFilterQS(extra);
+  };
+
+  const qs = new URL(location.href).searchParams;
+  const selectedFromQS = (name) => {
+    const out = new Set(qs.getAll(name));
+    if (!out.size) {
+      try {
+        const current = new URLSearchParams(getFilterQS());
+        current.getAll(name).forEach(v => out.add(v));
+        current.getAll(`${name}[]`).forEach(v => out.add(v));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return out;
+  };
+
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  const CACHE_PREFIX = 'ci.filters.';
+
+  function readCache(key) {
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !Array.isArray(data.items)) return null;
+      if (!data.ts || (Date.now() - data.ts) > CACHE_TTL) {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+      return data.items;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeCache(key, items) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), items }));
+    } catch (_) { /* storage quota exceeded or disabled */ }
+  }
+
+  function normalizeItem(item) {
+    if (item == null) return null;
+    if (typeof item === 'object') {
+      const value = item.value ?? item.id ?? item.code ?? item.slug ?? item.name ?? item.label;
+      const label = item.label ?? item.name ?? item.title ?? value;
+      if (value == null) return null;
+      return { value: String(value), label: String(label ?? value) };
+    }
+    return { value: String(item), label: String(item) };
+  }
+
+  function mergeOptions(el, items, wantSelected) {
+    const normalized = Array.isArray(items)
+      ? items.map(normalizeItem).filter(Boolean)
+      : [];
+    const existing = new Map(Array.from(el.options).map(o => [String(o.value), o]));
+    const keep = new Set(['All']);
+    normalized.forEach(({ value }) => keep.add(value));
+    wantSelected.forEach(value => keep.add(value));
+
+    existing.forEach((opt, value) => {
+      if (!keep.has(value)) {
+        opt.remove();
+        existing.delete(value);
+      }
+    });
+
+    const frag = document.createDocumentFragment();
+    normalized.forEach(({ value, label }) => {
+      const opt = existing.get(value);
+      if (opt) {
+        if (wantSelected.has(value)) opt.selected = true;
+        return;
+      }
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = wantSelected.has(value);
+      frag.appendChild(option);
+      existing.set(value, option);
+    });
+
+    if (frag.childNodes.length) {
+      el.appendChild(frag);
+    }
+
+    wantSelected.forEach(value => {
+      const opt = existing.get(value);
+      if (opt) opt.selected = true;
+    });
+  }
+
+  // Populate options (merge + preserve selections; supports strings or {value,label})
+  async function ensureOptions(selectId, url){
+    const el = document.getElementById(selectId);
+    if (!el) return;
+    const qsStr = getFilterQS();
+    const fetchUrl = qsStr ? `${url}?${qsStr}` : url;
+    const cacheKey = `${CACHE_PREFIX}${selectId}:${qsStr || 'default'}`;
+    const wantSelected = selectedFromQS(el.name);
+    Array.from(el.selectedOptions || []).forEach(opt => {
+      if (opt && opt.value) wantSelected.add(String(opt.value));
+    });
+    const cached = readCache(cacheKey);
+    if (cached) {
+      mergeOptions(el, cached, wantSelected);
+    }
+    try {
+      const res = await fetch(fetchUrl, { credentials: 'same-origin' });
+      if (res.status === 204) {
+        mergeOptions(el, [], wantSelected);
+        writeCache(cacheKey, []);
+        return;
+      }
+      if (!res.ok) return;
+      const items = await res.json();
+      mergeOptions(el, items, wantSelected);
+      writeCache(cacheKey, items);
+    } catch(_) {
+      /* ignore fetch errors to avoid blocking */
+    }
+  }
+
+  // Load all lists, then enhance (critical for pages reading selections early)
+  await Promise.all([
+    ensureOptions('fRegions',  '/api/filters/options'),
+    ensureOptions('fMethods',  '/api/filters/options'),
+    ensureOptions('fCustomers','/api/filters/options'),
+    ensureOptions('fSuppliers','/api/filters/options')
+  ]);
+
+  // Enhance selects
+  document.querySelectorAll('select[data-msx]').forEach(sel => {
+    const container = document.querySelector(`.msx[data-enhance="${sel.id}"]`);
+    if (!container) return;
+    try { sel._msx = new MultiSelectX(sel, container); }
+    catch(e) { console.error('MSX init failed', e); }
+  });
+
+  // Signal to pages (Velocity, etc.) that globals are ready & selections are present.
+  ['fRegions','fMethods','fCustomers','fSuppliers','fStart','fEnd'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      // ensure any initial QS selections are observed by listeners
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  document.dispatchEvent(new CustomEvent('filters:ready', { detail:{ ts: Date.now() }}));
+
+  // Saved views helpers
+  const csrf = document.getElementById('svCsrf')?.value || '';
+  const next = document.getElementById('svNext')?.value || window.location.pathname;
+  async function postForm(url, data) {
+    const res = await fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams(data)
+    });
+    if (res.redirected) { window.location = res.url; return; }
+    if (res.ok) { window.location.reload(); } else { console.error('Request failed'); }
+  }
+  document.getElementById('loadViewBtn')?.addEventListener('click', () => {
+    const id = document.getElementById('savedViewSelect').value; if (!id) return;
+    postForm(`/views/load/${id}`, { csrf_token: csrf, next });
+  });
+  document.getElementById('deleteViewBtn')?.addEventListener('click', () => {
+    const id = document.getElementById('savedViewSelect').value; if (!id) return;
+    if (!confirm('Delete this saved view?')) return;
+    postForm(`/views/delete/${id}`, { csrf_token: csrf, next });
+  });
+
+  // Apply feedback; auto re-enable if the page intercepts submit and doesn't navigate
+  const form = document.getElementById('filtersForm');
+  const btn  = document.getElementById('applyFiltersBtn');
+  form?.addEventListener('submit', () => {
+    const before = location.href;
+    btn?.setAttribute('disabled','disabled');
+    btn?.querySelector('.spinner-border')?.classList.remove('d-none');
+    setTimeout(() => {
+      if (location.href === before) { // still on the page (likely handled via AJAX)
+        btn?.removeAttribute('disabled');
+        btn?.querySelector('.spinner-border')?.classList.add('d-none');
+      }
+    }, 1200);
+  });
+
+  // Reset: clear and submit (GET)
+  document.getElementById('resetFiltersBtn')?.addEventListener('click', () => {
+    ['fStart','fEnd'].forEach(id => { const el=document.getElementById(id); if (el) el.value=''; });
+    document.querySelectorAll('select[multiple] option').forEach(o => o.selected = false);
+    document.querySelectorAll('.msx-list input[type="checkbox"]').forEach(cb => cb.checked = false);
+    ['fRegions','fMethods','fCustomers','fSuppliers'].forEach(id => {
+      document.getElementById(id)?.dispatchEvent(new Event('change', { bubbles:true }));
+    });
+    form?.submit();
+  });
+
+  // Quick ranges
+  document.querySelectorAll('[data-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = btn.getAttribute('data-range');
+      const startInput = document.getElementById('fStart');
+      const endInput   = document.getElementById('fEnd');
+      const today = new Date();
+      const pad = (n)=> String(n).padStart(2,'0');
+      const fmt = (d)=> `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+      let s = '', e = '';
+      if (r === 'all') { s=''; e=''; }
+      else if (r === '7d')  { const d=new Date(today); d.setDate(d.getDate()-6); s=fmt(d); e=fmt(today); }
+      else if (r === '30d') { const d=new Date(today); d.setDate(d.getDate()-29); s=fmt(d); e=fmt(today); }
+      else if (r === '90d') { const d=new Date(today); d.setDate(d.getDate()-89); s=fmt(d); e=fmt(today); }
+      else if (r === 'mtd') { s=`${today.getFullYear()}-${pad(today.getMonth()+1)}-01`; e=fmt(today); }
+      else if (r === 'qtd') { const qStart=Math.floor(today.getMonth()/3)*3; s=fmt(new Date(today.getFullYear(),qStart,1)); e=fmt(today); }
+      else if (r === 'ytd') { s=`${today.getFullYear()}-01-01`; e=fmt(today); }
+      else if (r === 'last-month') {
+        const y=today.getFullYear(), m=today.getMonth(); const mPrev=(m+11)%12, yPrev=(m===0?y-1:y);
+        s=fmt(new Date(yPrev,mPrev,1)); e=fmt(new Date(yPrev,mPrev+1,0));
+      }
+      else if (r === 'last-quarter') {
+        const y=today.getFullYear(), q=Math.floor(today.getMonth()/3);
+        const lastQ=(q+3-1)%4; const yQ=(q===0?y-1:y); const mStart=lastQ*3;
+        s=fmt(new Date(yQ,mStart,1)); e=fmt(new Date(yQ,mStart+3,0));
+      }
+
+      if (startInput) startInput.value = s;
+      if (endInput)   endInput.value   = e;
+      // notify listeners & submit
+      startInput?.dispatchEvent(new Event('change', {bubbles:true}));
+      endInput?.dispatchEvent(new Event('change', {bubbles:true}));
+      form?.submit();
+    });
+  });
+
+  // Summary pill
+  function updateSummary() {
+    const start = document.getElementById('fStart')?.value || 'Start';
+    const end = document.getElementById('fEnd')?.value || 'Today';
+    const total = ['fRegions','fMethods','fCustomers','fSuppliers']
+      .map(id => document.getElementById(id)?.selectedOptions?.length || 0)
+      .reduce((a,b)=>a+b,0);
+    const pill = document.getElementById('filtersSummary');
+    if (pill) {
+      const parts = [
+        `${start} -> ${end}`,
+        total ? `${total} list filter${total === 1 ? '' : 's'}` : 'No list filters',
+      ];
+      pill.textContent = parts.join(' | ');
+    }
+  }
+  updateSummary();
+
+  // Keep summary in sync with enhanced selects and date fields
+  ['fStart','fEnd','fRegions','fMethods','fCustomers','fSuppliers'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', updateSummary);
+  });
+});
+</script>
+
+<style>
+.bg-secondary-subtle { background-color: rgba(108,117,125,.12); }
+.text-secondary-emphasis { color: #495057; }
+
+/* MultiSelectX look */
+.msx-wrap { border: 1px solid var(--bs-border-color); border-radius: .5rem; overflow: hidden; background: #fff; display:flex; flex-direction:column; min-height: 240px; }
+.msx-header { display:flex; flex-direction:column; gap:.35rem; padding:.5rem; border-bottom:1px solid var(--bs-border-color); background: #f8f9fa; }
+.msx-controls { display:flex; gap:.5rem; align-items:center; flex-wrap: wrap; }
+.msx-chips { display:flex; flex-wrap:wrap; gap:.25rem; min-height:1rem; }
+.msx-list { max-height: 240px; overflow: auto; padding:.25rem .5rem; }
+.msx-row { display:flex; align-items:center; gap:.5rem; padding:.2rem .25rem; border-radius:.25rem; }
+.msx-row:hover { background: #f1f3f5; }
+.msx-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msx-footer { padding:.35rem .5rem; background:#f8f9fa; border-top:1px solid var(--bs-border-color); }
+
+/* Tiny chip close button */
+.btn-close-sm { width:.6rem; height:.6rem; opacity:.6; }
+.btn-close-sm:hover { opacity:.9; }
+</style>

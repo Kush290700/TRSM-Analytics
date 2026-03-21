@@ -1,0 +1,158 @@
+.salesreps-v2 .sr-exec {
+  background: linear-gradient(140deg, #f6fbff 0%, #f8fff8 100%);
+  border: 1px solid rgba(13, 110, 253, 0.12);
+}
+
+.salesreps-v2 .sr-kpi {
+  background: #fff;
+  border: 1px solid #e8edf4;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  height: 100%;
+}
+
+.salesreps-v2 .sr-kpi .label {
+  color: #5b6676;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.salesreps-v2 .sr-kpi .value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #122033;
+  margin-top: 0.2rem;
+}
+
+.salesreps-v2 .sr-kpi .delta {
+  min-height: 1rem;
+  font-size: 0.8rem;
+  color: #637284;
+  margin-top: 0.35rem;
+}
+
+.salesreps-v2 .delta-up {
+  color: #0f9d58;
+}
+
+.salesreps-v2 .delta-down {
+  color: #c62828;
+}
+
+.salesreps-v2 .sr-table-wrap {
+  max-height: 640px;
+}
+
+.salesreps-v2 #srTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  white-space: nowrap;
+}
+
+.salesreps-v2 #srTable .sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: #fff;
+}
+
+.salesreps-v2 #srTable thead .sticky-col {
+  background: #f8f9fa;
+}
+
+.salesreps-v2 #srTable tbody tr {
+  cursor: pointer;
+}
+
+.salesreps-v2 #srTable tbody tr:hover td {
+  background: rgba(13, 110, 253, 0.04);
+}
+
+.salesreps-v2 #srTable .sortable {
+  cursor: pointer;
+}
+
+.salesreps-v2 #srTable .sortable.asc::after {
+  content: " \2191";
+}
+
+.salesreps-v2 #srTable .sortable.desc::after {
+  content: " \2193";
+}
+
+.salesreps-v2 .risk-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed #e5e9f0;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+}
+
+.salesreps-v2 .risk-item:last-child {
+  border-bottom: 0;
+}
+
+.salesreps-v2 .risk-item .badge {
+  min-width: 2rem;
+}
+
+.salesreps-v2 .chip-danger {
+  background: #fdecec;
+  color: #9c1f1f;
+  border: 1px solid #f3c1c1;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.salesreps-v2 .chip-warn {
+  background: #fff7e6;
+  color: #7a4b00;
+  border: 1px solid #f3d3a0;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.salesreps-v2 .sr-columns {
+  position: relative;
+}
+
+.salesreps-v2 .sr-columns summary {
+  list-style: none;
+}
+
+.salesreps-v2 .sr-columns summary::-webkit-details-marker {
+  display: none;
+}
+
+.salesreps-v2 .sr-columns-menu {
+  position: absolute;
+  right: 0;
+  margin-top: 0.35rem;
+  background: #fff;
+  border: 1px solid #e0e6ef;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  box-shadow: 0 6px 20px rgba(26, 44, 73, 0.12);
+  min-width: 190px;
+  z-index: 30;
+}
+
+.salesreps-v2 .sr-columns-menu label {
+  display: block;
+  font-size: 0.82rem;
+  margin-bottom: 0.35rem;
+}
+
+.salesreps-v2 .sr-columns-menu label:last-child {
+  margin-bottom: 0;
+}
+
+.salesreps-v2 .sr-hidden-col {
+  display: none;
+}

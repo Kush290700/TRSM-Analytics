@@ -95,6 +95,9 @@ ruff check app data_loader.py tests
 black --check app data_loader.py tests
 mypy app data_loader.py tests
 bandit -r app data_loader.py -s B101
+```
+
+Detailed feature runbooks and release notes live in [`docs/`](docs/).
 
 Audit & Parity Runbook
 ----------------------

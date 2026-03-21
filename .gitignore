@@ -43,3 +43,13 @@ tmp_*.parquet
 Thumbs.db
 playwright-report/
 test-results/
+
+/__tmp_*.py
+/tmp_*.py
+/tmp_*.js
+/debug_*.py
+/debug_*.md
+/diagnose_*.py
+/quick_*_check.py
+/simulate_*.py
+/test_*.py

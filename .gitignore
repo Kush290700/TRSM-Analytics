@@ -13,7 +13,10 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+.hypothesis/
 
 node_modules/
 npm-debug.log*
@@ -30,6 +33,11 @@ app/auth/auth_test.db
 
 .artifacts/
 .claude/
+.direnv/
+.envrc
+.python-version
+.vscode/
+.idea/
 .tmp/
 .tmp_test/
 .tmp_test2/
@@ -41,8 +49,28 @@ tmp_*.parquet
 
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*.orig
+*.bak
+*.tmp
+*.log
+*.pid
+*.pid.lock
+*.local
+.ipynb_checkpoints/
+*.ipynb
 playwright-report/
 test-results/
+/scratch/
+/sandbox/
+/local/
+/tmp_*.csv
+/tmp_*.xlsx
+/export_*.csv
+/export_*.xlsx
+/*_export.csv
+/*_export.xlsx
 
 /__tmp_*.py
 /tmp_*.py

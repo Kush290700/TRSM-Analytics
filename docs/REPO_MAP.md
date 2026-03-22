@@ -1,30 +1,13 @@
 # Repo Map
 
+Use this map in order: start with the page/module section, then inspect the shared filters/exports/RBAC sections at the end if the task crosses those boundaries.
+
 ## Shared Runtime and Cross-Cutting Layers
 - App factory and registration: `app/__init__.py`
 - Runtime entrypoints: `wsgi.py`, `run.py`, `manage.py`
 - Config and feature flags: `app/config.py`, `app/core/features.py`, `app/core/branding.py`
 - Core data/query layer: `app/services/fact_store.py`, `data/store.py`, `data_loader.py`, `etl/`
 - Shared bundle plumbing: `app/services/bundle_service.py`, `app/services/bundle_builder.py`, `app/services/bundle_cache.py`
-- Shared filters and saved views:
-  - `app/core/filters.py`
-  - `app/services/filters.py`
-  - `app/services/filters_service.py`
-  - `app/blueprints/filters_api.py`
-  - `app/blueprints/filters_actions.py`
-  - `app/templates/_filters.html`
-  - `app/static/js/global_filters.js`
-  - `app/static/js/filters-enhanced.js`
-- RBAC and access control:
-  - `app/core/access_policy.py`
-  - `app/core/rbac.py`
-  - `app/auth/permissions.py`
-  - `app/blueprints/admin.py`
-  - `app/blueprints/admin_api.py`
-- Export/masking:
-  - `app/core/exports.py`
-  - `app/core/sensitive_data.py`
-  - module-specific export handlers in each blueprint
 
 ## Overview
 - Routes:
@@ -115,6 +98,8 @@
   - `app/static/css/product_drilldown_v2.css`
 - Exports:
   - overview/movers/execution/quadrant/drilldown exports in `app/blueprints/products.py`
+- Variant selection:
+  - `PRODUCTS_V3`, `PRODUCTS_V4`, `PRODUCT_DRILLDOWN_V2`, and `PRODUCT_FORECAST_V1` are resolved in `app/config.py` and `app/blueprints/products.py`
 - Tests:
   - `tests/test_products_bundle_api.py`
   - `tests/test_products_overview_service.py`
@@ -205,6 +190,7 @@
   - `tests/test_labor_blueprint.py`
   - `tests/test_labor_loader.py`
   - `tests/test_labor_store.py`
+  - `tests/test_synerion_client.py`
 
 ## Returns
 - Routes:
@@ -227,6 +213,7 @@
 ## Assistant
 - Routes: `app/assistant/routes.py`
 - Business logic:
+  - `app/assistant/context.py`
   - `app/assistant/service.py`
   - `app/assistant/tools.py`
   - `app/assistant/provider.py`
@@ -240,29 +227,44 @@
   - `tests/test_assistant_feature.py`
   - `tests/test_assistant_provider.py`
 
-## Filters, Exports, and Shared UI
+## Filters and Shared UI
 - Shared shell:
   - `app/templates/base.html`
   - `app/static/css/theme.css`
   - `app/static/js/exports.js`
   - `app/static/js/live-updates.js`
   - `app/static/js/bundle-adapter.js`
+- Shared filters and saved views:
+  - `app/core/filters.py`
+  - `app/services/filters.py`
+  - `app/services/filters_service.py`
+  - `app/blueprints/filters_api.py`
+  - `app/blueprints/filters_actions.py`
+  - `app/templates/_filters.html`
+  - `app/static/js/global_filters.js`
+  - `app/static/js/filters-enhanced.js`
 - Universal drilldowns:
   - `app/blueprints/drilldowns.py`
   - `app/services/drilldown_service.py`
   - `app/templates/drilldowns/workspace.html`
   - `app/static/js/universal_drilldown.js`
   - `app/static/css/universal_drilldown.css`
-- Filter APIs and state:
-  - `app/blueprints/filters_api.py`
-  - `app/blueprints/filters_actions.py`
-  - `app/services/filters.py`
-  - `app/services/filters_service.py`
-- Export helpers and masking:
-  - `app/core/exports.py`
-  - `app/core/sensitive_data.py`
 
-## Auth, Admin, and Permissions
+## Exports and Sensitive Data
+- Core export response helpers:
+  - `app/core/exports.py`
+- Export frame builders:
+  - `app/services/exports.py`
+- Sensitive data masking:
+  - `app/core/sensitive_data.py`
+- Module-specific export handlers:
+  - export endpoints typically live in the owning blueprint, not in standalone exporter modules
+
+## Auth, Admin, and RBAC
+- Access policy and scope:
+  - `app/core/access_policy.py`
+  - `app/core/rbac.py`
+  - `app/core/payload_permissions.py`
 - Auth routes/models:
   - `app/auth/routes.py`
   - `app/auth/models.py`

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${1:-http://127.0.0.1}"
+BASE_URL="${1:-${BASE_URL:-http://127.0.0.1:5000}}"
 
 paths=(
   "/static/css/theme.css"

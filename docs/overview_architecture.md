@@ -35,7 +35,7 @@ Overview is the top-level business performance dashboard. It owns headline KPI w
 - Bundle caching keys include filters, dataset version, and window contract details.
 
 ## Drilldowns and Exports
-- Drilldowns are served from `overview.py` + `overview_v2.py`.
+- Drilldowns are served from `app/blueprints/overview.py` and `app/services/overview_v2.py`.
 - Exports run through `app/core/exports.py`; they should reflect the same scoped dataset the page is showing.
 
 ## Common Risks
@@ -46,5 +46,5 @@ Overview is the top-level business performance dashboard. It owns headline KPI w
 ## Validate After Editing
 - `python3 -m pytest tests/test_overview.py tests/test_overview_api.py tests/test_overview_bundle.py tests/test_overview_metric_contract.py -q`
 - Add `tests/test_overview_forecast.py` if forecast logic changed
-- Add `tests/test_overview_playwright.py` and `bash scripts/check_static_assets.sh` for UI changes
+- Add `tests/test_overview_playwright.py` and `make check-static` for UI changes
 - Run `python3 scripts/overview_golden_smoke.py ...` when KPI semantics or query windows changed and a local dataset is available

@@ -1,5 +1,9 @@
 # Codex Task Conventions
 
+## Fast Start
+- If the task is under-specified, open `CODEX.md`, then `docs/REPO_MAP.md`, then the relevant module note, then `docs/TESTING_MATRIX.md`.
+- If the task touches filters, RBAC, exports, forecasting, or `app/templates/base.html`, call that out explicitly instead of describing it as page-local only.
+
 ## What to Include in Any Task
 - The page/module name and URL path
 - Whether the change touches filters, RBAC, exports, forecasting, or shared UI

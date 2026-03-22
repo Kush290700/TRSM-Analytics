@@ -1,7 +1,8 @@
 PYTHON ?= python3
+BASE_URL ?= http://127.0.0.1:5000
 PY_PATHS := app tests scripts data etl manage.py run.py wsgi.py data_loader.py fact_checkpoints.py worker.py
 
-.PHONY: help run run-full preflight test test-all lint format smoke smoke-rbac smoke-fact test-playwright
+.PHONY: help run run-full preflight test test-all lint format check-static smoke smoke-rbac smoke-fact test-playwright
 
 help:
 	@printf "TRSM Analytics developer commands\n\n"
@@ -12,6 +13,7 @@ help:
 	@printf "  make test-all        Run the full pytest suite\n"
 	@printf "  make lint            Run black --check, ruff, mypy, and bandit\n"
 	@printf "  make format          Fix import ordering and run black\n"
+	@printf "  make check-static    Check key static assets against a running local app\n"
 	@printf "  make smoke           Run parquet smoke checks\n"
 	@printf "  make smoke-rbac      Run auth/RBAC smoke checks\n"
 	@printf "  make smoke-fact      Run DuckDB fact smoke checks\n"
@@ -41,6 +43,9 @@ lint:
 format:
 	$(PYTHON) -m ruff check --select I --fix $(PY_PATHS)
 	$(PYTHON) -m black $(PY_PATHS)
+
+check-static:
+	bash scripts/check_static_assets.sh $(BASE_URL)
 
 smoke:
 	$(PYTHON) scripts/smoke.py

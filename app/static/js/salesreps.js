@@ -1491,13 +1491,19 @@
         repId: series.rep_id,
         metricLabel: viewLabel,
         metaPoints,
-        data: metaPoints.map((point) => point.displayValue),
+        data: metaPoints.map((point) => {
+          const v = point.displayValue;
+          // For absolute revenue view: treat 0 as null so reps start from their
+          // first real order month, not a flat $0 line from period start
+          if (state.trendView === "absolute" && (v === 0 || v === null)) return null;
+          return v ?? null;
+        }),
         borderColor: stableColor(idx),
         backgroundColor: `${stableColor(idx)}22`,
         // ── Phase 2: top rep gets thicker line and larger points ──
         borderWidth: state.trendFocusMode ? 3 : (idx === 0 ? 2.5 : 1.5),
         tension: 0.28,
-        spanGaps: true,
+        spanGaps: false,   // false = show true start date, no phantom line before first order
         pointRadius: state.trendFocusMode ? 3 : (idx === 0 ? 5 : 3),
         pointHoverRadius: 5,
         fill: false,
@@ -1626,12 +1632,16 @@
         weight_lb_yoy: chartData.weight_lb_yoy?.[idx],
       })) : []);
     const labels = rows.map((row) => bucketLabelFromKey(row.bucket, "monthly"));
-    const revenue = rows.map((row) => num(row.revenue));
-    const revenueYoY = rows.map((row) => opt(row.revenue_yoy));
+    const revenue = rows.map((row) => num(row.revenue) || null);   // null skips bar for empty months
+    const revenueYoY = rows.map((row) => {
+      const v = opt(row.revenue_yoy);
+      return v !== null && v > 0 ? v : null;                        // null for missing/zero/negative prior
+    });
     const yoyPct = rows.map((row) => {
       const current = num(row.revenue);
       const prior = opt(row.revenue_yoy);
-      return comparableObservedDays(row.observed_days, row.observed_days_yoy) && prior && prior !== 0
+      // Remove strict comparableObservedDays guard — just require positive prior revenue
+      return prior !== null && prior > 0
         ? ((current - prior) / Math.abs(prior)) * 100
         : null;
     });
@@ -1703,7 +1713,7 @@
             const xScale = chartInst.scales.x;
             const yScale = chartInst.scales.y;
             if (!xScale || !yScale) return;
-            const x = xScale.getPixelForIndex(todayIndex);
+            const x = xScale.getPixelForValue ? xScale.getPixelForValue(todayIndex) : xScale.getPixelForIndex(todayIndex);
             const ctx2 = chartInst.ctx;
             ctx2.save();
             ctx2.beginPath();
@@ -2212,11 +2222,29 @@
     });
   };
 
+  const _custProfitCell = (row) => {
+    if (row.profit == null) return NA;
+    const profitStr = money(row.profit);
+    const rev = num(row.revenue);
+    const derivedMargin = (rev > 0 && row.profit != null)
+      ? (num(row.profit) / rev) * 100
+      : null;
+    if (derivedMargin === null) return profitStr;
+    const TARGET = 29.1, MIN = 20.1;
+    const [bg, fg] = derivedMargin >= TARGET
+      ? ["#d1fae5", "#065f46"]
+      : derivedMargin >= MIN
+        ? ["#fef9c3", "#854d0e"]
+        : ["#fee2e2", "#991b1b"];
+    return `${profitStr}<br><span style="font-size:0.68rem;font-weight:600;padding:1px 6px;border-radius:8px;background:${bg};color:${fg};display:inline-block;margin-top:2px">${fmtPct.format(derivedMargin)}%</span>`;
+  };
+
   const _buildCustomerRowHtml = (row, badge = null) => {
-    const badgeHtml = badge
+    // At-Risk view badge is removed — the Risk column already shows this clearly
+    const badgeHtml = badge && badge.view === "best"
       ? `<span class="sr-cust-badge ${badge.cls}">${badge.text}</span>`
       : "";
-    const yoyBadge = badge && badge.showYoyDrag && opt(row.yoy_revenue_pct) !== null && num(row.yoy_revenue_pct) < -20
+    const yoyBadge = badge && badge.showYoyDrag && opt(row.yoy_revenue_pct) !== null && num(row.yoy_revenue_pct) < -15
       ? `<span class="sr-cust-badge sr-cust-badge-yoy">YoY Drag</span>`
       : "";
     const rowClass = badge
@@ -2253,7 +2281,7 @@
         <td><span class="sr-link"${drillAttr(salesrepPayload({ rep_id: row.account_owner_id || row.account_owner_name, rep_name: row.account_owner_name }, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>${escapeHtml(businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK))}</span></td>
         <td><span class="sr-link"${drillAttr(territoryPayload(row.territory_name, "Customer Intelligence", "Top Customers", "Revenue", row.revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.territory_name || NA)}</span></td>
         <td class="text-end">${money(rev)}${revBarHtml}</td>
-        <td class="text-end">${row.profit == null ? NA : money(row.profit)}</td>
+        <td class="text-end">${_custProfitCell(row)}</td>
         <td class="text-end">${yoyCellHtml}</td>
       </tr>
     `;
@@ -2327,13 +2355,26 @@
     buildOwnerPills(_allCustomerRows);
     _applyCustomerView(_allCustomerRows, _customerViewMode);
 
-    // ── Phase 3F: customer summary line ──
+    // ── Customer summary stat bar ──
     const summaryEl = document.getElementById("srCustSummaryLine");
     if (summaryEl) {
       const totalActive = _allCustomerRows.filter((r) => num(r.revenue ?? r.revenue_last_30) > 0).length;
       const gained      = _allCustomerRows.filter((r) => (r.revenue_prev_30 ?? 0) === 0 && num(r.revenue_last_30 ?? r.revenue) > 0).length;
-      const lost        = lostAccounts.length;
-      summaryEl.textContent = `${fmtInt.format(totalActive)} active customers · ${gained} gained · ${lost} lost · click Best / At-Risk to filter`;
+      const lostN       = lostAccounts.length;
+      const atRisk      = _allCustomerRows.filter((r) => computeCustomerRisk(r).score <= 1).length;
+      const totalRev    = _allCustomerRows.reduce((s, r) => s + num(r.revenue ?? r.revenue_last_30), 0);
+      summaryEl.innerHTML = `
+        <span style="display:inline-flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:0.78rem">
+          <span><span style="color:#965951;font-weight:700">${fmtInt.format(totalActive)}</span> active</span>
+          <span style="color:#d1d5db">|</span>
+          <span style="font-weight:600">${fmtMoney0.format(totalRev)}</span> total rev
+          <span style="color:#d1d5db">|</span>
+          <span style="color:#059669;font-weight:700">+${gained}</span> gained
+          <span style="color:#d1d5db">|</span>
+          <span style="color:#dc2626;font-weight:700">${atRisk}</span> at-risk
+          <span style="color:#d1d5db">|</span>
+          <span style="color:#dc2626;font-weight:700">${lostN}</span> lost
+        </span>`;
     }
   };
 

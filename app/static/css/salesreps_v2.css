@@ -729,9 +729,15 @@
   margin-top: 2px;
 }
 
-/* ── Signal chip click hint (2B) ── */
+/* ── Signal chip click hint (2B / Task 6) ── */
 .salesreps-v2 .sr-chip.is-clickable {
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.salesreps-v2 .sr-chip.is-clickable:hover {
+  background: linear-gradient(180deg, #fff8f7 0%, #fef3ef 100%) !important;
+  border-color: rgba(150, 89, 81, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(150, 89, 81, 0.12);
 }
 .salesreps-v2 .sr-chip.is-clickable:hover .sr-chip-value {
   text-decoration: underline;
@@ -990,4 +996,26 @@
   font-size: 2rem;
   margin-bottom: 0.5rem;
   opacity: 0.4;
+}
+
+/* ── KPI delta pills (Task 3B) ── */
+.sr-kpi-delta {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.sr-kpi-delta--pos {
+  background: #d1fae5;
+  color: #065f46;
+}
+.sr-kpi-delta--neg {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.sr-kpi-delta--neutral {
+  background: #f3f4f6;
+  color: #6b7280;
 }

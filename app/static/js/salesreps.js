@@ -779,11 +779,12 @@
     const n = opt(value);
     el.classList.remove("delta-up", "delta-down");
     if (n === null) {
-      el.textContent = "MoM: N/A";
+      el.innerHTML = `<span class="sr-kpi-delta sr-kpi-delta--neutral">MoM N/A</span>`;
       return;
     }
-    el.classList.add(n >= 0 ? "delta-up" : "delta-down");
-    el.textContent = `MoM ${n >= 0 ? "+" : ""}${fmtPct.format(n)}${suffix}`;
+    const cls = n >= 0 ? "sr-kpi-delta--pos" : "sr-kpi-delta--neg";
+    const sign = n >= 0 ? "+" : "";
+    el.innerHTML = `<span class="sr-kpi-delta ${cls}">${sign}${fmtPct.format(n)}${suffix} MoM</span>`;
   };
 
   const updateColumnLabels = (meta = {}) => {
@@ -1556,7 +1557,12 @@
             },
           },
           tooltip: {
+            filter: (item) => item.parsed?.y != null && item.parsed.y !== 0,
+            itemSort: (a, b) => (b.parsed?.y ?? 0) - (a.parsed?.y ?? 0),
             callbacks: {
+              beforeBody: (items) => {
+                if (items.length > 5) items.splice(5);
+              },
               title: (items) => items?.[0]?.dataset?.metaPoints?.[items?.[0]?.dataIndex]?.label || items?.[0]?.label || "",
               label: (ctx) => {
                 const point = ctx.dataset?.metaPoints?.[ctx.dataIndex];
@@ -2653,8 +2659,18 @@
         ? `<span class="badge bg-danger ms-1" style="font-size:0.65rem">LOST</span>`
         : "";
       const subline = `<div class="sr-mover-subline">Prior: ${money(revPrev)} &rarr; Now: ${money(revNow)}</div>`;
+      let tintStyle = "";
+      if (isDown) {
+        if (isFullyLost) {
+          tintStyle = " style=\"background:rgba(220,38,38,0.07)\"";
+        } else if (pctVal !== null && pctVal <= -50) {
+          tintStyle = " style=\"background:rgba(220,38,38,0.04)\"";
+        } else if (pctVal !== null && pctVal <= -25) {
+          tintStyle = " style=\"background:rgba(245,158,11,0.04)\"";
+        }
+      }
       return `
-        <li${drillAttr(customerPayload(row, "Customer Intelligence", "Customer Movers", "Revenue Delta", row.delta_revenue))}>
+        <li${tintStyle}${drillAttr(customerPayload(row, "Customer Intelligence", "Customer Movers", "Revenue Delta", row.delta_revenue))}>
           <div>
             <div class="sr-list-main">${escapeHtml(row.customer_name || row.customer_id || NA)}${lostBadge}</div>
             <div class="sr-list-sub">${escapeHtml(businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK))}${row.territory_name ? ` · ${escapeHtml(row.territory_name)}` : ""}${row.yoy_revenue != null ? ` · PY ${money(row.yoy_revenue)}` : ""}</div>

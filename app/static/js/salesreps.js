@@ -3367,10 +3367,13 @@
     const rows = Array.isArray(table.rows) ? table.rows : [];
     virtualTable.rows = rows;
     virtualTable.lastRange = "";
+    // ── Phase 6D: empty state ──
+    const emptyEl = document.getElementById("srTableEmpty");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="18" class="text-center text-muted">No data for current filters.</td></tr>';
+      if (emptyEl) emptyEl.style.display = "block";
       if (virtualTable.wrapper) virtualTable.wrapper.scrollTop = 0;
     } else {
+      if (emptyEl) emptyEl.style.display = "none";
       if (virtualTable.wrapper) virtualTable.wrapper.scrollTop = 0;
       renderVirtualTableRows({ force: true });
     }
@@ -3624,6 +3627,27 @@
     if (!lastPayload) return;
     updateExportLinks();
     renderBundle(lastPayload);
+  };
+
+  // ── Phase 5B: KPI card click-to-sort ──
+  const wireKpiSort = () => {
+    document.querySelectorAll(".sr-kpi[data-kpi-sort]").forEach((card) => {
+      card.addEventListener("click", () => {
+        const key = card.dataset.kpiSort;
+        if (!key) return;
+        if (state.sortBy === key) {
+          state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+        } else {
+          state.sortBy = key;
+          state.sortDir = "desc";
+        }
+        state.page = 1;
+        // Scroll to table so the result is visible
+        const tableEl = document.getElementById("srTable");
+        if (tableEl) tableEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        fetchBundle();
+      });
+    });
   };
 
   const wireSorting = () => {
@@ -3935,6 +3959,7 @@
     fetchBundle({ snapshot });
   };
 
+  wireKpiSort();
   wireSorting();
   wirePager();
   wireVirtualTable();

@@ -961,3 +961,33 @@
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ── Phase 6B: consistent section header accent ── */
+.sr-section-header {
+  padding: 0.75rem 1rem 0.75rem 1.15rem;
+  background: #fff;
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+  border-left: 3px solid var(--trsm-primary, #965951);
+}
+.sr-section-header .fw-semibold {
+  font-size: 0.875rem;
+  color: var(--trsm-dark, #111);
+  line-height: 1.2;
+}
+.sr-section-header .text-muted.small {
+  font-size: 0.73rem;
+  margin-top: 0.1rem;
+}
+/* ── Phase 6D: rep table empty state ── */
+#srTableEmpty {
+  display: none;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+#srTableEmpty .sr-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.4;
+}

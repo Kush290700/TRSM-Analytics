@@ -102,29 +102,29 @@
 
   <section class="mb-4">
     <div class="sr-kpi-grid sr-kpi-grid--loading" id="srKpiGrid" aria-live="polite">
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Revenue</div><div class="value" id="kpiRevenue">--</div><div class="delta" id="kpiRevenueDelta">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Profit</div><div class="value" id="kpiProfit">--</div><div class="delta" id="kpiProfitDelta">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Margin %</div><div class="value" id="kpiMargin">--</div><div class="delta" id="kpiMarginDelta">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Shipped LB</div><div class="value" id="kpiWeight">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Orders</div><div class="value" id="kpiOrders">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Customers</div><div class="value" id="kpiCustomers">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Active Customers</div><div class="value" id="kpiActiveCustomers">--</div><div class="delta" id="kpiActiveCustomersDelta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Avg Order Value</div><div class="value" id="kpiAvgOrderValue">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Revenue / Customer</div><div class="value" id="kpiRevenuePerCustomer">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">YoY Revenue</div><div class="value" id="srYoyRevenue">--</div><div class="delta" id="srYoyProfit">--</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="revenue" title="Sort table by Revenue"><div class="label">Revenue</div><div class="value" id="kpiRevenue">--</div><div class="delta" id="kpiRevenueDelta">--</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="profit" title="Sort table by Profit"><div class="label">Profit</div><div class="value" id="kpiProfit">--</div><div class="delta" id="kpiProfitDelta">--</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="margin_pct" title="Sort table by Margin %"><div class="label">Margin %</div><div class="value" id="kpiMargin">--</div><div class="delta" id="kpiMarginDelta">--</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="weight_lb" title="Sort table by Shipped LB"><div class="label">Shipped LB</div><div class="value" id="kpiWeight">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="orders" title="Sort table by Orders"><div class="label">Orders</div><div class="value" id="kpiOrders">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="customers" title="Sort table by Customers"><div class="label">Customers</div><div class="value" id="kpiCustomers">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="active_customers" title="Sort table by Active Customers"><div class="label">Active Customers</div><div class="value" id="kpiActiveCustomers">--</div><div class="delta" id="kpiActiveCustomersDelta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="avg_order_value" title="Sort table by Avg Order Value"><div class="label">Avg Order Value</div><div class="value" id="kpiAvgOrderValue">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="revenue_per_customer" title="Sort table by Revenue per Customer"><div class="label">Revenue / Customer</div><div class="value" id="kpiRevenuePerCustomer">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="yoy_revenue_pct" title="Sort table by YoY Revenue %"><div class="label">YoY Revenue</div><div class="value" id="srYoyRevenue">--</div><div class="delta" id="srYoyProfit">--</div></div>
       <div class="sr-kpi sr-kpi-clickable"><div class="label">YoY Margin Delta</div><div class="value" id="srYoyMargin">--</div><div class="delta" id="srModeNarrative">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Inherited Revenue</div><div class="value" id="kpiInheritedRevenue">--</div><div class="delta" id="kpiInheritedRevenueDelta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">Transferred Accounts</div><div class="value" id="srTransferredAccounts">--</div><div class="delta" id="srTransferredRevenue">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label" id="kpiUnitsLabel">Units</div><div class="value" id="kpiUnits">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label" id="kpiAspLbLabel">ASP / lb</div><div class="value" id="kpiAspLb">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label" id="kpiAspLabel">ASP</div><div class="value" id="kpiAsp">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="inherited_customers" title="Sort table by Inherited Customers"><div class="label">Inherited Revenue</div><div class="value" id="kpiInheritedRevenue">--</div><div class="delta" id="kpiInheritedRevenueDelta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="transferred_in_revenue" title="Sort table by Transferred In Revenue"><div class="label">Transferred Accounts</div><div class="value" id="srTransferredAccounts">--</div><div class="delta" id="srTransferredRevenue">--</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="units" title="Sort table by Units"><div class="label" id="kpiUnitsLabel">Units</div><div class="value" id="kpiUnits">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp_lb" title="Sort table by ASP / lb"><div class="label" id="kpiAspLbLabel">ASP / lb</div><div class="value" id="kpiAspLb">--</div><div class="delta">&nbsp;</div></div>
+      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp" title="Sort table by ASP"><div class="label" id="kpiAspLabel">ASP</div><div class="value" id="kpiAsp">--</div><div class="delta">&nbsp;</div></div>
     </div>
   </section>
 
   <section class="row g-3 mb-4">
     <div class="col-12 col-xl-8">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Insight Strip</div>
           <div class="text-muted small">Fast performance callouts, ownership context, and the strongest signals visible in the current slice.</div>
         </div>
@@ -150,7 +150,7 @@
     </div>
     <div class="col-12 col-xl-4">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Book Composition</div>
           <div class="text-muted small">Direct-owned versus inherited exposure, account-move counts, and concentration readouts.</div>
         </div>
@@ -268,7 +268,7 @@
     </div>
     <div class="col-12 col-xl-4">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Coverage &amp; Exceptions</div>
           <div class="text-muted small">Compact current-owner coverage review with visible fact fallback and exception buckets. Raw owner IDs are never shown here.</div>
         </div>
@@ -414,7 +414,7 @@
   <section class="row g-3 mb-4">
     <div class="col-12 col-xl-4">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Concentration Risk By Rep</div>
           <div class="text-muted small">Top-customer and top-five exposure so leadership can spot fragile books quickly.</div>
         </div>
@@ -425,7 +425,7 @@
     </div>
     <div class="col-12 col-xl-4">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Rep Efficiency</div>
           <div class="text-muted small">Revenue versus customer count, with bubble size reflecting profit contribution.</div>
         </div>
@@ -436,7 +436,7 @@
     </div>
     <div class="col-12 col-xl-4">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Profit Versus Revenue</div>
           <div class="text-muted small">Quadrant view of large books, high-profit books, and underperforming owner portfolios.</div>
         </div>
@@ -525,7 +525,7 @@
     </div>
     <div class="col-12 col-xl-5">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Customer Movers</div>
           <div class="text-muted small">Largest gains and losses versus the prior aligned period. <span id="srMoversStatLine" class="ms-1"></span></div>
         </div>
@@ -577,7 +577,7 @@
   <section class="row g-3 mb-4">
     <div class="col-12 col-xl-5">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Protein / Category Mix</div>
           <div class="text-muted small">Revenue, profit, margin, and YoY contribution shifts by protein.</div>
         </div>
@@ -588,7 +588,7 @@
     </div>
     <div class="col-12 col-xl-7">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Protein Performance</div>
           <div class="text-muted small">Gross profit and variance by protein family.</div>
         </div>
@@ -624,7 +624,7 @@
   <section class="row g-3 mb-4">
     <div class="col-12 col-xl-7">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Revenue Share Concentration</div>
           <div class="text-muted small">Top rep contribution and cumulative concentration under the selected metric.</div>
         </div>
@@ -635,7 +635,7 @@
     </div>
     <div class="col-12 col-xl-5">
       <article class="card shadow-sm border-0 h-100">
-        <div class="card-header bg-white border-0">
+        <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">ASP Leaders</div>
           <div class="text-muted small">Top average selling price leaders across the visible owner book.</div>
         </div>
@@ -737,6 +737,12 @@
         </thead>
         <tbody id="salesreps-table-body"></tbody>
       </table>
+      <!-- Phase 6D: empty state shown when no reps match filters -->
+      <div id="srTableEmpty">
+        <div class="sr-empty-icon">&#128202;</div>
+        <div class="fw-semibold text-secondary">No reps match the current filters</div>
+        <div class="text-muted mt-1">Try widening the date range or clearing the search.</div>
+      </div>
     </div>
 
     <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">

@@ -447,11 +447,22 @@
     </div>
   </section>
 
+  <!-- Phase 3F: upgraded section header -->
   <section class="sr-section-heading mb-3">
     <div>
       <p class="sr-section-kicker mb-1">Customer Intelligence</p>
       <h3 class="mb-1">Top Accounts, Movers, And Owner Context</h3>
-      <p class="text-muted mb-0" id="srSectionCustomerSubtitle">Customer-level contribution, movement, and owner accountability under the current portfolio view.</p>
+      <p class="text-muted mb-0">
+        <span id="srCustSummaryLine">Customer-level contribution, movement, and owner accountability.</span>
+      </p>
+    </div>
+    <div class="d-flex gap-2">
+      <button id="btnExportFollowUpHeader"
+              onclick="exportFollowUpList()"
+              class="btn btn-sm"
+              style="background:var(--trsm-primary);color:#fff;border:none;border-radius:6px;font-size:0.82rem">
+        &#11015; Scott&#8217;s Follow-Up List
+      </button>
     </div>
   </section>
 
@@ -465,6 +476,27 @@
           </div>
         </div>
         <div class="card-body sr-scroll-card">
+          <!-- Phase 3B: search + export toolbar row 1 -->
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <input id="srCustomerSearch" type="text"
+                   class="form-control form-control-sm"
+                   placeholder="&#128269;  Search customers, owners, or territories..."
+                   style="max-width:340px">
+            <button id="btnExportCustCSV"
+                    class="btn btn-sm btn-outline-secondary ms-auto">
+              &#11015; Export View
+            </button>
+            <button id="btnExportFollowUp"
+                    class="btn btn-sm"
+                    onclick="exportFollowUpList()"
+                    style="background:var(--trsm-primary);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:0.82rem">
+              &#11015; Scott&#8217;s Follow-Up List
+            </button>
+          </div>
+          <!-- Phase 3B: owner filter pills row 2 -->
+          <div class="sr-owner-pills mb-2" id="srOwnerPills"></div>
+          <!-- Phase 3B: toast for empty follow-up list -->
+          <div id="srFollowUpToast" class="alert alert-success py-1 px-3 small mb-2" style="display:none"></div>
           <div class="sr-customer-view-toggle mb-2" role="group" aria-label="Customer view">
             <button class="sr-toggle-btn active" data-customer-view="all">All Accounts</button>
             <button class="sr-toggle-btn" data-customer-view="best">&#9733; Top 10 Best</button>
@@ -474,6 +506,9 @@
             <thead class="table-light">
               <tr>
                 <th scope="col" class="sortable" data-top-customers-sort="customer_name" tabindex="0">Customer</th>
+                <th scope="col" class="sortable" data-top-customers-sort="_risk_score" tabindex="0">
+                  Risk <span title="Based on MoM trend, YoY trend, and days since last order" style="cursor:help">&#9432;</span>
+                </th>
                 <th scope="col" class="sortable" data-top-customers-sort="account_owner_name" tabindex="0">Owner</th>
                 <th scope="col" class="sortable" data-top-customers-sort="territory_name" tabindex="0">Territory</th>
                 <th scope="col" class="text-end sortable" data-top-customers-sort="revenue" tabindex="0">Revenue</th>
@@ -482,7 +517,7 @@
               </tr>
             </thead>
             <tbody id="srTopCustomersBody">
-              <tr><td colspan="6" class="text-muted">Loading customers...</td></tr>
+              <tr><td colspan="7" class="text-muted">Loading customers...</td></tr>
             </tbody>
           </table>
         </div>

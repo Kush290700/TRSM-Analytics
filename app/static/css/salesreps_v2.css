@@ -879,6 +879,14 @@
   border-color: var(--trsm-primary, #965951);
 }
 
+/* ── Phase 3B: owner pills container (reuses sr-grain-pill styles) ── */
+.sr-owner-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
 /* ── Phase 3: risk pills ── */
 .sr-risk-pill {
   display: inline-block;

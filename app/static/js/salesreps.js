@@ -2129,6 +2129,28 @@
       .join("");
   };
 
+  // ── Phase 3A: customer risk signal ──
+  const computeCustomerRisk = (row) => {
+    if ((row.revenue_last_30 ?? row.revenue ?? 0) === 0 && (row.revenue_prev_30 ?? 0) > 0)
+      return { signal: "lost",    label: "Lost",     score: 4 };
+    let neg = 0;
+    if ((row.mom_revenue_pct ?? row.vs_prior_pct ?? 0) < -5)  neg++;
+    if ((row.yoy_revenue_pct ?? row.yoy_pct ?? 0) < -10)      neg++;
+    if ((row.days_since_order ?? 0) > 45)                     neg++;
+    if (neg === 0) return { signal: "healthy", label: "Healthy", score: 0 };
+    if (neg === 1) return { signal: "watch",   label: "Watch",   score: 1 };
+    return           { signal: "atrisk",  label: "At Risk", score: 2 };
+  };
+
+  const _riskPillHtml = (risk) => {
+    const cls = { healthy: "sr-risk-healthy", watch: "sr-risk-watch", atrisk: "sr-risk-atrisk", lost: "sr-risk-lost" }[risk.signal] || "";
+    return `<span class="sr-risk-pill ${cls}">${escapeHtml(risk.label)}</span>`;
+  };
+
+  // ── Phase 3B: customer search + owner pill state ──
+  let _customerSearchQ  = "";
+  let _activeOwnerFilter = "";
+
   // ── Customer view toggle state (1A) ──
   let _customerViewMode = "all";
   let _allCustomerRows = [];
@@ -2175,17 +2197,39 @@
     const rowClass = badge
       ? badge.view === "best" ? "sr-cust-best-row" : (num(row.vs_prior_pct ?? row.yoy_revenue_pct) < -15 ? "sr-cust-risk-row" : "")
       : "";
+
+    // ── Phase 3A: risk column ──
+    const risk = computeCustomerRisk(row);
+    const riskHtml = _riskPillHtml(risk);
+
+    // ── Phase 3C: YoY % with colour + icon ──
+    const yoyVal = row.yoy_revenue_pct;
+    let yoyCellHtml = NA;
+    if (yoyVal != null) {
+      const v = num(yoyVal);
+      if (v > 2)       yoyCellHtml = `<span style="color:#198754">&#9650; ${fmtPct.format(v)}%</span>`;
+      else if (v < -2) yoyCellHtml = `<span style="color:#dc3545">&#9660; ${fmtPct.format(Math.abs(v))}%</span>`;
+      else             yoyCellHtml = `<span class="text-muted">&#8776; ${fmtPct.format(v)}%</span>`;
+    }
+
+    // ── Phase 3C: revenue inline mini bar (computed by caller via maxRevenue) ──
+    const rev = num(row.revenue);
+    const maxRev = row._maxRevenue || rev || 1;
+    const barPct = Math.min(100, Math.round((rev / maxRev) * 100));
+    const revBarHtml = `<div style="height:3px;width:${barPct}%;background:rgba(150,89,81,0.35);border-radius:2px;margin-top:2px"></div>`;
+
     return `
       <tr class="${rowClass}"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>
         <td>
           ${badgeHtml}${yoyBadge}
           <span class="sr-link"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>${escapeHtml(row.customer_name || row.customer_id || NA)}</span>
         </td>
+        <td>${riskHtml}</td>
         <td><span class="sr-link"${drillAttr(salesrepPayload({ rep_id: row.account_owner_id || row.account_owner_name, rep_name: row.account_owner_name }, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>${escapeHtml(businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK))}</span></td>
         <td><span class="sr-link"${drillAttr(territoryPayload(row.territory_name, "Customer Intelligence", "Top Customers", "Revenue", row.revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.territory_name || NA)}</span></td>
-        <td class="text-end">${money(row.revenue)}</td>
+        <td class="text-end">${money(rev)}${revBarHtml}</td>
         <td class="text-end">${row.profit == null ? NA : money(row.profit)}</td>
-        <td class="text-end">${row.yoy_revenue_pct == null ? NA : `${fmtPct.format(num(row.yoy_revenue_pct))}%`}</td>
+        <td class="text-end">${yoyCellHtml}</td>
       </tr>
     `;
   };
@@ -2199,24 +2243,51 @@
 
     const render = () => {
       if (!Array.isArray(rows) || !rows.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-muted">No customer activity for the selected filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-muted">No customer activity for the selected filters.</td></tr>';
         return;
       }
 
+      // ── Phase 3B: apply owner filter then search ──
+      let filtered = rows;
+      if (_activeOwnerFilter) {
+        filtered = filtered.filter((r) => (r.account_owner_name || "") === _activeOwnerFilter);
+      }
+      const q = (_customerSearchQ || "").trim().toLowerCase();
+      if (q) {
+        filtered = filtered.filter((r) =>
+          (r.customer_name || "").toLowerCase().includes(q) ||
+          (r.account_owner_name || "").toLowerCase().includes(q) ||
+          (r.territory_name || "").toLowerCase().includes(q)
+        );
+      }
+
+      if (!filtered.length) {
+        const msg = q
+          ? `No customers match &ldquo;${escapeHtml(q)}&rdquo;. Try a shorter search term.`
+          : "No customers match the current filter.";
+        tbody.innerHTML = `<tr><td colspan="7" class="text-muted">${msg}</td></tr>`;
+        tbody.querySelectorAll("tr").forEach((tr) => { tr.style.opacity = "1"; });
+        return;
+      }
+
+      // ── Phase 3C: compute maxRevenue for inline bars ──
+      const maxRevenue = Math.max(...filtered.map((r) => num(r.revenue)), 1);
+
       if (viewMode === "all") {
-        const ranked = sortRows(rows, state.topCustomersSortBy, state.topCustomersSortDir, (row, key) => {
+        const ranked = sortRows(filtered, state.topCustomersSortBy, state.topCustomersSortDir, (row, key) => {
           if (key === "customer_name") return row.customer_name || row.customer_id;
+          if (key === "_risk_score")   return computeCustomerRisk(row).score;
           return row[key];
         });
-        tbody.innerHTML = ranked.map((r) => _buildCustomerRowHtml(r, null)).join("");
+        tbody.innerHTML = ranked.map((r) => _buildCustomerRowHtml({ ...r, _maxRevenue: maxRevenue }, null)).join("");
       } else {
-        const scored = _computeCustomerScores(rows);
+        const scored = _computeCustomerScores(filtered);
         if (viewMode === "best") {
           const top10 = [...scored].sort((a, b) => b._score - a._score).slice(0, 10);
-          tbody.innerHTML = top10.map((r) => _buildCustomerRowHtml(r, { cls: "sr-cust-badge-best", text: "\u2605 Top Performer", view: "best", showYoyDrag: false })).join("");
+          tbody.innerHTML = top10.map((r) => _buildCustomerRowHtml({ ...r, _maxRevenue: maxRevenue }, { cls: "sr-cust-badge-best", text: "\u2605 Top Performer", view: "best", showYoyDrag: false })).join("");
         } else {
           const bottom10 = [...scored].sort((a, b) => a._score - b._score).slice(0, 10);
-          tbody.innerHTML = bottom10.map((r) => _buildCustomerRowHtml(r, { cls: "sr-cust-badge-risk", text: "\u26A0 At-Risk", view: "atrisk", showYoyDrag: true })).join("");
+          tbody.innerHTML = bottom10.map((r) => _buildCustomerRowHtml({ ...r, _maxRevenue: maxRevenue }, { cls: "sr-cust-badge-risk", text: "\u26A0 At-Risk", view: "atrisk", showYoyDrag: true })).join("");
         }
       }
       // Fade in
@@ -2226,9 +2297,19 @@
     setTimeout(render, 150);
   };
 
-  const renderTopCustomers = (rows = []) => {
+  const renderTopCustomers = (rows = [], lostAccounts = []) => {
     _allCustomerRows = Array.isArray(rows) ? rows : [];
+    buildOwnerPills(_allCustomerRows);
     _applyCustomerView(_allCustomerRows, _customerViewMode);
+
+    // ── Phase 3F: customer summary line ──
+    const summaryEl = document.getElementById("srCustSummaryLine");
+    if (summaryEl) {
+      const totalActive = _allCustomerRows.filter((r) => num(r.revenue ?? r.revenue_last_30) > 0).length;
+      const gained      = _allCustomerRows.filter((r) => (r.revenue_prev_30 ?? 0) === 0 && num(r.revenue_last_30 ?? r.revenue) > 0).length;
+      const lost        = lostAccounts.length;
+      summaryEl.textContent = `${fmtInt.format(totalActive)} active customers · ${gained} gained · ${lost} lost · click Best / At-Risk to filter`;
+    }
   };
 
   // Wire up toggle buttons once DOM is ready (called after renderBundle)
@@ -2240,6 +2321,115 @@
         _applyCustomerView(_allCustomerRows, _customerViewMode);
       });
     });
+
+    // ── Phase 3B: search input (debounced 200ms) ──
+    const searchInput = document.getElementById("srCustomerSearch");
+    if (searchInput) {
+      let searchTimer;
+      searchInput.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          _customerSearchQ = searchInput.value;
+          _applyCustomerView(_allCustomerRows, _customerViewMode);
+        }, 200);
+      });
+    }
+
+    // ── Phase 3B: export view CSV ──
+    const btnExportCust = document.getElementById("btnExportCustCSV");
+    if (btnExportCust) {
+      btnExportCust.addEventListener("click", () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const filename = `trsm_customers_${_customerViewMode}_${today}.csv`;
+        const rows = _allCustomerRows
+          .filter((r) => {
+            const q = (_customerSearchQ || "").trim().toLowerCase();
+            if (_activeOwnerFilter && (r.account_owner_name || "") !== _activeOwnerFilter) return false;
+            if (!q) return true;
+            return (r.customer_name || "").toLowerCase().includes(q) ||
+                   (r.account_owner_name || "").toLowerCase().includes(q) ||
+                   (r.territory_name || "").toLowerCase().includes(q);
+          });
+        const header = ["Customer", "Owner", "Territory", "Revenue (30d)", "YoY %", "Risk Signal"];
+        const csvLines = [header.join(","), ...rows.map((r) => {
+          const risk = computeCustomerRisk(r);
+          return [
+            `"${(r.customer_name || r.customer_id || "").replace(/"/g, '""')}"`,
+            `"${(r.account_owner_name || "").replace(/"/g, '""')}"`,
+            `"${(r.territory_name || "").replace(/"/g, '""')}"`,
+            fmtMoney0.format(num(r.revenue)),
+            r.yoy_revenue_pct != null ? `${fmtPct.format(num(r.yoy_revenue_pct))}%` : "",
+            risk.label,
+          ].join(",");
+        })];
+        const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+      });
+    }
+  };
+
+  // ── Phase 3B: owner pills builder (call after customer data loads) ──
+  const buildOwnerPills = (rows) => {
+    const container = document.getElementById("srOwnerPills");
+    if (!container || !Array.isArray(rows)) return;
+    const owners = Array.from(new Set(rows.map((r) => r.account_owner_name || "").filter(Boolean))).sort();
+    if (!owners.length) { container.innerHTML = ""; return; }
+
+    const truncate = (s, n) => s.length > n ? s.slice(0, n) + "…" : s;
+    const allBtn = `<button class="sr-grain-pill active" data-owner-filter="" style="margin-right:4px">All Owners</button>`;
+    const ownerBtns = owners.map((o) =>
+      `<button class="sr-grain-pill" data-owner-filter="${escapeHtml(o)}" title="${escapeHtml(o)}">${escapeHtml(truncate(o, 18))}</button>`
+    ).join("");
+    container.innerHTML = allBtn + ownerBtns;
+
+    container.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-owner-filter]");
+      if (!btn) return;
+      _activeOwnerFilter = btn.dataset.ownerFilter;
+      container.querySelectorAll("[data-owner-filter]").forEach((b) =>
+        b.classList.toggle("active", b === btn)
+      );
+      _applyCustomerView(_allCustomerRows, _customerViewMode);
+    });
+  };
+
+  // ── Phase 3B: Follow-Up List CSV export (global so header button can call it) ──
+  window.exportFollowUpList = () => {
+    const atRisk = _allCustomerRows.filter((r) => {
+      const sig = computeCustomerRisk(r).signal;
+      return sig === "atrisk" || sig === "lost";
+    });
+    const toast = document.getElementById("srFollowUpToast");
+    if (!atRisk.length) {
+      if (toast) { toast.textContent = "✓ No at-risk customers to export"; toast.style.display = "block"; setTimeout(() => { toast.style.display = "none"; }, 3000); }
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const header = ["Customer", "Owner", "Territory", "Last Revenue (prior 30d)", "Risk Signal", "Days Silent", "Suggested Action"];
+    const csvLines = [header.join(","), ...atRisk.map((r) => {
+      const risk = computeCustomerRisk(r);
+      const days = r.days_since_order ?? "";
+      const action = risk.signal === "lost"
+        ? `Re-engagement call — no orders in ${days || "?"} days`
+        : "Account review — declining trend";
+      return [
+        `"${(r.customer_name || r.customer_id || "").replace(/"/g, '""')}"`,
+        `"${(r.account_owner_name || "").replace(/"/g, '""')}"`,
+        `"${(r.territory_name || "").replace(/"/g, '""')}"`,
+        fmtMoney0.format(num(r.revenue_prev_30 ?? r.revenue)),
+        risk.label,
+        days,
+        `"${action}"`,
+      ].join(",");
+    })];
+    const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `trsm_followup_${today}.csv`;
+    a.click();
   };
 
   // ── 4D: Rep Comparison Modal ──
@@ -3226,7 +3416,7 @@
     renderOwnershipHighlights(payload);
     const analysis = payload.analysis || {};
     renderPortfolioSection(payload);
-    renderTopCustomers(analysis.top_customers || []);
+    renderTopCustomers(analysis.top_customers || [], payload.lost_accounts ?? []);
     renderCustomerMovers(analysis);
     renderLostAccountsPanel(payload.lost_accounts ?? []);
     renderProteinTable(analysis.proteins || []);

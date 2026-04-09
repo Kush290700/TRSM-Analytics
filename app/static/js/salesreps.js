@@ -508,7 +508,19 @@
   };
 
   const stableColor = (index) => {
-    const palette = ["#1f5f9a", "#0f8c5a", "#d88b2a", "#8f3f71", "#3f6c8c", "#556270", "#b6551c", "#4f46a5", "#0b7285", "#9c6644"];
+    // ── Phase 2: brand-aligned palette (top rep = brand primary) ──
+    const palette = [
+      "#965951",  // brand primary  (top rep by revenue)
+      "#d39c5f",  // brand gold     (2nd)
+      "#2563eb",  // blue
+      "#16a34a",  // green
+      "#9333ea",  // purple
+      "#0891b2",  // cyan
+      "#ea580c",  // orange
+      "#be123c",  // rose
+      "#4f46e5",  // indigo
+      "#0d9488",  // teal
+    ];
     return palette[index % palette.length];
   };
 
@@ -1188,6 +1200,27 @@
       }
     })();
 
+    // ── Phase 5: populate sticky context bar ──
+    (function () {
+      const stickyRev    = document.getElementById("sStickyRev");
+      const stickyMargin = document.getElementById("sStickyMargin");
+      const stickyReps   = document.getElementById("sStickyReps");
+      if (stickyRev)    stickyRev.textContent    = money(k.revenue);
+      if (stickyMargin) stickyMargin.textContent  = k.margin_pct == null ? "—" : `${fmtPct.format(num(k.margin_pct))}%`;
+      if (stickyReps)   stickyReps.textContent    = `${fmtInt.format(num(k.active_reps || payload.table?.total_rows || 0))} reps`;
+    })();
+
+    // ── Phase 5: show/hide sticky bar on scroll past KPI grid ──
+    (function () {
+      const stickyBar = document.getElementById("srStickyBar");
+      const kpiGrid   = document.getElementById("srKpiGrid");
+      if (stickyBar && kpiGrid) {
+        new IntersectionObserver(([entry]) => {
+          stickyBar.style.transform = entry.isIntersecting ? "translateY(-100%)" : "translateY(0)";
+        }, { threshold: 0 }).observe(kpiGrid);
+      }
+    })();
+
     // ── 2A: KPI micro-sparklines ──
     (function () {
       const mc = payload.charts?.monthly_compare ?? payload.trend?.monthly_compare ?? {};
@@ -1441,10 +1474,11 @@
         data: metaPoints.map((point) => point.displayValue),
         borderColor: stableColor(idx),
         backgroundColor: `${stableColor(idx)}22`,
-        borderWidth: state.trendFocusMode ? 3 : 2,
+        // ── Phase 2: top rep gets thicker line and larger points ──
+        borderWidth: state.trendFocusMode ? 3 : (idx === 0 ? 2.5 : 1.5),
         tension: 0.28,
         spanGaps: true,
-        pointRadius: state.trendFocusMode ? 3 : 2,
+        pointRadius: state.trendFocusMode ? 3 : (idx === 0 ? 5 : 3),
         pointHoverRadius: 5,
         fill: false,
       };
@@ -3508,9 +3542,25 @@
         state.trendGrain = trendGrain.value || "monthly";
         state.trendSelectedReps = [];
         state.trendFocusMode = false;
+        // ── Phase 2: sync grain pills with hidden select ──
+        document.querySelectorAll("#srGrainPills .sr-grain-pill").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.grain === state.trendGrain);
+        });
         rerenderLocalState();
       });
     }
+
+    // ── Phase 2: grain pill buttons sync to hidden srTrendGrain select ──
+    document.querySelectorAll("#srGrainPills .sr-grain-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const grain = btn.dataset.grain;
+        if (!grain) return;
+        if (trendGrain) {
+          trendGrain.value = grain;
+          trendGrain.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+    });
 
     if (trendView) {
       trendView.value = state.trendView;

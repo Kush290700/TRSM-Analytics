@@ -8,6 +8,22 @@
 {% endblock %}
 
 {% block content %}
+<!-- Phase 5: sticky context bar (hidden until user scrolls past scorecard) -->
+<div id="srStickyBar">
+  <span style="color:var(--trsm-accent);font-weight:700;font-size:0.82rem;letter-spacing:0.05em">TRSM SALES</span>
+  <span class="vr" style="background:#444;width:1px;height:16px;display:inline-block"></span>
+  <span style="color:#fff;font-size:0.82rem">
+    Rev: <strong style="color:var(--trsm-accent)" id="sStickyRev">—</strong>
+  </span>
+  <span style="color:#fff;font-size:0.82rem">
+    Margin: <strong style="color:var(--trsm-accent)" id="sStickyMargin">—</strong>
+  </span>
+  <span style="color:#9ca3af;font-size:0.82rem" id="sStickyReps">— reps</span>
+  <button onclick="window.scrollTo({top:0,behavior:'smooth'})"
+          style="margin-left:auto;background:none;border:1px solid #444;color:#9ca3af;border-radius:10px;padding:2px 10px;font-size:0.75rem;cursor:pointer">
+    &#8593; Top
+  </button>
+</div>
 <div id="SalesRepsApp"
      class="salesreps-v2"
      data-page="salesreps"
@@ -336,8 +352,14 @@
               <option value="customers">Customers</option>
               <option value="weight_lb">Shipped LB</option>
             </select>
-            <label for="srTrendGrain" class="small text-muted">Grain</label>
-            <select id="srTrendGrain" class="form-select form-select-sm" aria-label="Trend time grain">
+            <span class="small text-muted">Grain</span>
+            <!-- Phase 2: pill toggle syncs with hidden select -->
+            <div class="sr-grain-pills" id="srGrainPills" role="group" aria-label="Trend time grain">
+              <button type="button" class="sr-grain-pill active" data-grain="monthly">Monthly</button>
+              <button type="button" class="sr-grain-pill" data-grain="quarterly">Quarterly</button>
+              <button type="button" class="sr-grain-pill" data-grain="ttm">Trailing 12M</button>
+            </div>
+            <select id="srTrendGrain" class="form-select form-select-sm sr-chart-select" aria-label="Trend time grain" style="display:none">
               <option value="monthly" selected>Monthly</option>
               <option value="quarterly">Quarterly</option>
               <option value="yearly">Yearly</option>

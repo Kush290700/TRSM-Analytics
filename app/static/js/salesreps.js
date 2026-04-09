@@ -283,17 +283,36 @@
     return parts.join(" · ");
   };
   const marginCellHtml = (row = {}) => {
-    const status = marginStatusLabel(row);
-    const context = marginContextText(row);
-    const critical = isCriticalMargin(row);
-    const pill = status
-      ? critical
-        ? '<span class="chip-danger critical">Critical</span>'
-        : `<span class="sr-status-pill ${marginStatusClass(row.status_key)}">${escapeHtml(status)}</span>`
-      : "";
+    const marginPct   = opt(row.margin_pct);
+    const targetMgn   = opt(row.target_margin_pct);
+    const minMgn      = opt(row.minimum_margin_pct);
+    const context     = marginContextText(row);
+    const critical    = isCriticalMargin(row);
+
+    // ── Phase 4A: threshold-based pill (replaces generic "Needs review") ──
+    let pill = "";
+    if (marginPct != null && (targetMgn != null || minMgn != null)) {
+      const t = targetMgn ?? Infinity;
+      const m = minMgn  ?? -Infinity;
+      if (marginPct >= t) {
+        pill = '<span class="sr-margin-pill sr-margin-above">&#10003; On target</span>';
+      } else if (marginPct >= m) {
+        pill = '<span class="sr-margin-pill sr-margin-mid">&#9888; Below target</span>';
+      } else {
+        pill = '<span class="sr-margin-pill sr-margin-low">&#10007; Below min</span>';
+      }
+    } else if (critical) {
+      pill = '<span class="sr-margin-pill sr-margin-low">&#10007; Critical</span>';
+    } else {
+      const status = marginStatusLabel(row);
+      if (status && status !== "Needs review") {
+        pill = `<span class="sr-status-pill ${marginStatusClass(row.status_key)}">${escapeHtml(status)}</span>`;
+      }
+    }
+
     return `
       <div class="sr-metric-stack sr-metric-stack-end">
-        <div>${pct(row.margin_pct, false)}</div>
+        <div>${pct(marginPct, false)}</div>
         ${context || pill ? `<div class="sr-metric-sub">${pill}${context ? `${pill ? " " : ""}<span>${escapeHtml(context)}</span>` : ""}</div>` : ""}
       </div>
     `;
@@ -3372,8 +3391,14 @@
       const wMarginNum = marginRows.reduce((s, r) => s + num(r.revenue) * num(r.margin_pct), 0);
       const wMarginRev = marginRows.reduce((s, r) => s + num(r.revenue), 0);
       const weightedMargin = wMarginRev > 0 ? wMarginNum / wMarginRev : null;
-      summaryText += ` · Total: ${fmtMoney0.format(totalRev)} revenue`;
-      if (weightedMargin !== null) summaryText += ` · Avg margin: ${fmtPct.format(weightedMargin)}%`;
+      // ── Phase 4C: add avg health score (revenue-weighted) ──
+      const healthRows = rows.filter(r => r.health_score != null);
+      const avgHealth = healthRows.length
+        ? Math.round(healthRows.reduce((s, r) => s + num(r.health_score), 0) / healthRows.length)
+        : null;
+      summaryText += ` · Total Rev: ${fmtMoney0.format(totalRev)}`;
+      if (weightedMargin !== null) summaryText += ` · Avg Margin: ${fmtPct.format(weightedMargin)}%`;
+      if (avgHealth !== null)      summaryText += ` · Avg Health: ${avgHealth}/100`;
     }
     setText("salesrepsPagerSummary", focusedText ? `Sales rep focus: ${focusedText} · ${summaryText}` : summaryText);
     setText("salesrepsPagerIndicator", `Page ${page} of ${totalPages}`);
@@ -3396,6 +3421,31 @@
       });
     });
   };
+
+  // ── Phase 4D: column presets ──
+  const COLUMN_PRESETS = {
+    "Full View":    null,   // all visible
+    "Executive":    ["revenue", "profit", "margin_pct", "active_customers", "health", "quartile"],
+    "Risk View":    ["health", "quartile", "revenue", "yoy_revenue_pct", "margin_pct", "flags"],
+    "Scott's View": ["revenue", "active_customers", "yoy_revenue_pct", "margin_pct", "top_customer"],
+  };
+  const ALL_COLUMN_KEYS = Object.keys(DEFAULT_COLUMN_VISIBILITY);
+
+  const applyColumnPreset = (presetName) => {
+    const cols = COLUMN_PRESETS[presetName];
+    const labelEl = document.getElementById("srColumnPresetLabel");
+    if (labelEl) labelEl.textContent = `${presetName} ▾`;
+    sessionStorage.setItem("trsm_col_preset", presetName);
+    ALL_COLUMN_KEYS.forEach((key) => {
+      columnVisibility[key] = cols === null ? (DEFAULT_COLUMN_VISIBILITY[key] ?? true) : cols.includes(key);
+    });
+    applyColumnVisibility();
+    renderVirtualTableRows({ force: true });
+  };
+
+  document.querySelectorAll("[data-col-preset]").forEach((btn) => {
+    btn.addEventListener("click", () => applyColumnPreset(btn.dataset.colPreset));
+  });
 
   const syncSortClasses = () => {
     document.querySelectorAll("#srTable .sortable").forEach((th) => {
@@ -3837,6 +3887,10 @@
         persistColumnVisibility(columnVisibility);
         applyColumnVisibility();
         scheduleVirtualTableRender({ force: true });
+        // ── Phase 4D: manual toggle resets preset label to "Custom" ──
+        const labelEl = document.getElementById("srColumnPresetLabel");
+        if (labelEl) labelEl.textContent = "Custom ▾";
+        sessionStorage.removeItem("trsm_col_preset");
       });
     });
 

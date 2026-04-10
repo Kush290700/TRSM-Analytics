@@ -2390,11 +2390,15 @@
     const analysis = payload.analysis || {};
     const territories = Array.isArray(analysis.territories) ? analysis.territories : [];
     const territoryTrend = analysis.territory_trend || {};
+    const spotlight = document.getElementById("srTerritorySpotlight");
+    const monthSummary = document.getElementById("srTerritoryMonthSummary");
     const chips = document.getElementById("srTerritorySummaryChips");
+    const series = Array.isArray(territoryTrend.series) ? territoryTrend.series.slice(0, 5) : [];
+    const targetFallbacks = series.filter((row) => !row.has_prior_year).length;
+
     if (chips && territories.length) {
       const topT = territories[0] || {};
       const mostReps = [...territories].sort((a, b) => num(b.rep_count ?? b.reps) - num(a.rep_count ?? a.reps))[0] || {};
-      const targetFallbacks = (territoryTrend.series || []).filter((row) => !row.has_prior_year).length;
       chips.innerHTML = [
         `<span class="sr-badge-neutral">Territories: ${territories.length}</span>`,
         topT.territory_name ? `<span class="sr-badge-neutral">Top: ${escapeHtml(topT.territory_name)}</span>` : "",
@@ -2402,12 +2406,149 @@
         mostReps.territory_name ? `<span class="sr-badge-neutral">Most reps: ${escapeHtml(mostReps.territory_name)} (${fmtInt.format(num(mostReps.rep_count ?? mostReps.reps))})</span>` : "",
         targetFallbacks ? `<span class="sr-badge-neutral">${fmtInt.format(targetFallbacks)} target fallback${targetFallbacks !== 1 ? "s" : ""}</span>` : "",
       ].filter(Boolean).join("");
+    } else if (chips) {
+      chips.innerHTML = "";
     }
 
     const list = document.getElementById("srTerritoryList");
     const labels = Array.isArray(territoryTrend.labels) ? territoryTrend.labels : [];
-    const series = Array.isArray(territoryTrend.series) ? territoryTrend.series.slice(0, 5) : [];
     const hasTrendData = labels.length > 0 && series.some((row) => (row.revenue || []).some((value) => num(value) > 0));
+    const territoryMeta = new Map(
+      territories.map((row) => [String(row.territory_name || "").trim(), row]),
+    );
+    const lastActiveIndex = (values = []) => {
+      for (let idx = values.length - 1; idx >= 0; idx -= 1) {
+        if (num(values[idx]) > 0) return idx;
+      }
+      return values.length ? values.length - 1 : -1;
+    };
+    const signalForTerritory = (latest, previous, prior, hasPriorYear) => {
+      if (!hasPriorYear || prior === null || prior <= 0) {
+        return {
+          label: "Target",
+          className: "is-fallback",
+          note: growthPct !== null
+            ? `Target line using ${growthPct >= 0 ? "+" : ""}${fmtPct.format(growthPct)}% team growth`
+            : "Target line shown because prior-year actuals are unavailable",
+        };
+      }
+      const yoyPct = ((latest - prior) / Math.abs(prior)) * 100;
+      if (yoyPct >= 6) {
+        return {
+          label: "Ahead",
+          className: "is-strong",
+          note: `YoY ${yoyPct >= 0 ? "+" : ""}${fmtPct.format(yoyPct)}% versus prior year`,
+        };
+      }
+      if (yoyPct <= -6) {
+        return {
+          label: "Soft",
+          className: "is-soft",
+          note: `YoY ${yoyPct >= 0 ? "+" : ""}${fmtPct.format(yoyPct)}% versus prior year`,
+        };
+      }
+      const momPct = previous > 0 ? ((latest - previous) / Math.abs(previous)) * 100 : null;
+      return {
+        label: "Steady",
+        className: "is-steady",
+        note: momPct === null
+          ? `YoY ${yoyPct >= 0 ? "+" : ""}${fmtPct.format(yoyPct)}% versus prior year`
+          : `MoM ${momPct >= 0 ? "+" : ""}${fmtPct.format(momPct)}% with YoY ${yoyPct >= 0 ? "+" : ""}${fmtPct.format(yoyPct)}%`,
+      };
+    };
+    const growthPct = opt(payload.kpis?.revenue_yoy_pct);
+
+    if (monthSummary) {
+      if (!hasTrendData) {
+        monthSummary.innerHTML = "";
+      } else {
+        let latestStackIndex = labels.length - 1;
+        for (let idx = labels.length - 1; idx >= 0; idx -= 1) {
+          const stackedTotal = series.reduce((sum, row) => sum + num(row.revenue?.[idx]), 0);
+          if (stackedTotal > 0) {
+            latestStackIndex = idx;
+            break;
+          }
+        }
+        const priorStackIndex = latestStackIndex > 0 ? latestStackIndex - 1 : null;
+        const latestStackTotal = series.reduce((sum, row) => sum + num(row.revenue?.[latestStackIndex]), 0);
+        const priorStackTotal = priorStackIndex === null
+          ? null
+          : series.reduce((sum, row) => sum + num(row.revenue?.[priorStackIndex]), 0);
+        const stackDeltaPct = priorStackTotal && priorStackTotal > 0
+          ? ((latestStackTotal - priorStackTotal) / Math.abs(priorStackTotal)) * 100
+          : null;
+        const strongestTerritory = [...series].sort((a, b) => num(b.total_revenue) - num(a.total_revenue))[0] || {};
+        const mostReps = [...territories].sort((a, b) => num(b.rep_count ?? b.reps) - num(a.rep_count ?? a.reps))[0] || {};
+        monthSummary.innerHTML = `
+          <div class="sr-territory-month-card">
+            <span class="sr-territory-month-label">Latest Fiscal Month</span>
+            <span class="sr-territory-month-value">${escapeHtml(bucketLabelFromKey(labels[latestStackIndex], "monthly"))}</span>
+            <span class="sr-territory-month-note">${fmtInt.format(series.length)} territories contributing to the visible stack</span>
+          </div>
+          <div class="sr-territory-month-card">
+            <span class="sr-territory-month-label">Stack Total</span>
+            <span class="sr-territory-month-value">${money(latestStackTotal)}</span>
+            <span class="sr-territory-month-note ${stackDeltaPct !== null ? (stackDeltaPct >= 0 ? "is-positive" : "is-negative") : ""}">${stackDeltaPct === null ? "No prior fiscal month in view" : `${stackDeltaPct >= 0 ? "+" : ""}${fmtPct.format(stackDeltaPct)}% versus prior fiscal month`}</span>
+          </div>
+          <div class="sr-territory-month-card">
+            <span class="sr-territory-month-label">Territory Callout</span>
+            <span class="sr-territory-month-value">${escapeHtml(strongestTerritory.territory_name || mostReps.territory_name || NA)}</span>
+            <span class="sr-territory-month-note">${targetFallbacks ? `${fmtInt.format(targetFallbacks)} territory target fallback${targetFallbacks !== 1 ? "s" : ""}` : `Most reps: ${escapeHtml(mostReps.territory_name || NA)} (${fmtInt.format(num(mostReps.rep_count ?? mostReps.reps))})`}</span>
+          </div>
+        `;
+      }
+    }
+
+    if (spotlight) {
+      if (!hasTrendData) {
+        spotlight.innerHTML = '<div class="sr-territory-empty">No fiscal territory trend is visible for the selected filters.</div>';
+      } else {
+        const scopedTotalRevenue = Math.max(series.reduce((sum, row) => sum + num(row.total_revenue), 0), 1);
+        spotlight.innerHTML = series.map((row, idx) => {
+          const territoryName = String(row.territory_name || "").trim();
+          const color = stableColor(idx);
+          const meta = territoryMeta.get(territoryName) || {};
+          const activeIndex = Math.max(lastActiveIndex(row.revenue || []), 0);
+          const latestRevenue = num(row.revenue?.[activeIndex]);
+          const previousRevenue = activeIndex > 0 ? num(row.revenue?.[activeIndex - 1]) : 0;
+          const priorRevenue = opt(row.revenue_yoy?.[activeIndex]);
+          const signal = signalForTerritory(latestRevenue, previousRevenue, priorRevenue, !!row.has_prior_year);
+          const shareRatio = opt(meta.revenue_share_pct);
+          const sharePct = shareRatio !== null
+            ? (shareRatio <= 1.01 ? shareRatio * 100 : shareRatio)
+            : (num(row.total_revenue) / scopedTotalRevenue) * 100;
+          const territoryLabel = bucketLabelFromKey(labels[activeIndex], "monthly");
+          const customerCount = num(meta.customer_count ?? row.customer_count);
+          const repCount = num(meta.rep_count ?? row.rep_count);
+          const inheritedRevenue = num(meta.inherited_revenue);
+          const drill = territoryPayload(territoryName, "Ownership & Portfolio", "Top Territories", "Revenue", meta.revenue ?? row.total_revenue, {
+            filter_mode: "current_window",
+            detail: "Territory performance spotlight from the stacked fiscal trend.",
+          });
+          return `
+            <div class="sr-territory-card ${idx === 0 ? "is-active" : ""}" style="--territory-swatch:${color}"${drillAttr(drill)}>
+              <div class="sr-territory-card-head">
+                <div class="sr-territory-card-title">
+                  <span class="sr-territory-swatch" aria-hidden="true"></span>
+                  <div>
+                    <div class="sr-list-main">${escapeHtml(territoryName || NA)}</div>
+                    <div class="sr-list-sub">${fmtInt.format(repCount)} reps · ${fmtInt.format(customerCount)} customers · ${pct(sharePct)}</div>
+                  </div>
+                </div>
+                <div class="sr-territory-card-metric">${money(meta.revenue ?? row.total_revenue)}</div>
+              </div>
+              <div class="sr-territory-share"><span style="width:${Math.max(8, Math.min(100, sharePct)).toFixed(1)}%"></span></div>
+              <div class="sr-territory-card-foot">
+                <span class="sr-territory-signal ${signal.className}">${escapeHtml(signal.label)}</span>
+                <div class="sr-list-sub">Latest ${escapeHtml(territoryLabel)}: ${money(latestRevenue)} · Inherited ${money(inheritedRevenue)}</div>
+                <div class="sr-list-sub">${escapeHtml(signal.note)}</div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
 
     destroyChart("territory");
     if (!ChartLib || !hasTrendData) {
@@ -2421,7 +2562,6 @@
       return;
     }
 
-    const growthPct = opt(payload.kpis?.revenue_yoy_pct);
     const datasets = [];
     series.forEach((row, idx) => {
       const color = stableColor(idx);
@@ -2439,13 +2579,28 @@
           rep_count: row.rep_count,
         })),
         borderColor: color,
-        backgroundColor: alphaColor(color, 0.18),
-        borderWidth: 2,
-        fill: true,
+        backgroundColor: (context) => {
+          const chart = context.chart;
+          const area = chart?.chartArea;
+          if (!area) return alphaColor(color, 0.18);
+          const gradient = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+          gradient.addColorStop(0, alphaColor(color, idx === 0 ? 0.34 : 0.26));
+          gradient.addColorStop(0.58, alphaColor(color, 0.12));
+          gradient.addColorStop(1, alphaColor(color, 0.02));
+          return gradient;
+        },
+        borderWidth: 2.35,
+        fill: idx === 0 ? "origin" : "-1",
         stack: "territory-revenue",
-        tension: 0.28,
-        pointRadius: 2,
+        tension: 0.3,
+        cubicInterpolationMode: "monotone",
+        pointRadius: 0,
         pointHoverRadius: 4,
+        pointHitRadius: 18,
+        pointBackgroundColor: color,
+        pointBorderColor: "#ffffff",
+        pointBorderWidth: 1.2,
+        spanGaps: true,
       });
 
       if (!row.has_prior_year && growthPct !== null) {
@@ -2480,15 +2635,17 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: "index",
+          intersect: false,
+        },
         plugins: {
           legend: {
-            position: "bottom",
-            labels: {
-              filter: (item) => !String(item.text || "").endsWith(" Target"),
-            },
+            display: false,
           },
           tooltip: {
             callbacks: {
+              title: (items) => items?.[0]?.label || "",
               label: (ctx) => {
                 const point = ctx.raw || {};
                 if (String(ctx.dataset.label || "").endsWith(" Target")) {
@@ -2514,19 +2671,38 @@
                 }
                 return lines;
               },
+              footer: (items) => {
+                const stackTotal = (items || [])
+                  .filter((item) => !String(item.dataset?.label || "").endsWith(" Target"))
+                  .reduce((sum, item) => sum + num(item.parsed?.y), 0);
+                return [`Stack total: ${money(stackTotal)}`];
+              },
             },
           },
         },
         scales: {
           x: {
             stacked: true,
-            grid: { display: false },
+            grid: {
+              display: false,
+            },
+            ticks: {
+              maxTicksLimit: 8,
+              maxRotation: 0,
+              color: "#60758c",
+            },
           },
           y: {
             stacked: true,
+            beginAtZero: true,
+            grid: {
+              color: "rgba(148, 163, 184, 0.16)",
+              drawBorder: false,
+            },
             ticks: {
               callback: (value) => fmtMoney0.format(value),
               maxTicksLimit: 5,
+              color: "#60758c",
             },
           },
         },

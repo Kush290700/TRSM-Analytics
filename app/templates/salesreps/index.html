@@ -3,7 +3,7 @@
 {% block title %}Sales Reps Performance{% endblock %}
 
 {% block head_extras %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260410-v6') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260410-v7') }}">
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" defer></script>
 {% endblock %}
 
@@ -257,10 +257,16 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                   <div class="sr-subpanel-title mb-0">Top Territories</div>
                 </div>
-                <div id="srTerritorySummaryChips" class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.75rem"></div>
-                <div class="text-muted small mb-2">Fiscal revenue stacked by the top five territories in scope.</div>
-                <div class="sr-territory-stage">
-                  <canvas id="srTerritoryChart" style="width:100%;height:100%"></canvas>
+                <div class="sr-territory-workbench">
+                  <div class="sr-territory-chart-shell">
+                    <div id="srTerritorySummaryChips" class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.75rem"></div>
+                    <div class="text-muted small mb-2">Fiscal revenue stacked by the top five territories in scope, with target overlays when prior-year history is missing.</div>
+                    <div class="sr-territory-stage">
+                      <canvas id="srTerritoryChart" style="width:100%;height:100%"></canvas>
+                    </div>
+                    <div id="srTerritoryMonthSummary" class="sr-territory-month-summary"></div>
+                  </div>
+                  <div class="sr-territory-spotlight" id="srTerritorySpotlight"></div>
                 </div>
                 <ul class="sr-list d-none" id="srTerritoryList"></ul>
               </div>

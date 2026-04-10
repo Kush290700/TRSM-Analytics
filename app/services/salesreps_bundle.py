@@ -2538,6 +2538,18 @@ def _analysis_sql(cte_sql: str) -> str:
     return f"""
         WITH
         {cte_sql},
+        analysis_ref AS (
+            SELECT
+                DATE_TRUNC(
+                    'month',
+                    COALESCE(
+                        MAX(CASE WHEN is_current_window = 1 THEN order_date END),
+                        MAX(order_date),
+                        CURRENT_DATE
+                    )
+                ) AS ref_month
+            FROM attributed_base
+        ),
         customer_scope AS (
             SELECT
                 customer_id,
@@ -2625,6 +2637,37 @@ def _analysis_sql(cte_sql: str) -> str:
             FROM customer_scope
             WHERE revenue <> 0 OR prior_revenue <> 0
         ),
+        customer_velocity AS (
+            SELECT
+                customer_id,
+                SUM(
+                    CASE
+                        WHEN is_current_window = 1
+                             AND DATE_TRUNC('month', order_date) = (SELECT ref_month FROM analysis_ref) - INTERVAL 2 MONTH
+                        THEN revenue
+                        ELSE 0
+                    END
+                ) AS revenue_month_1,
+                SUM(
+                    CASE
+                        WHEN is_current_window = 1
+                             AND DATE_TRUNC('month', order_date) = (SELECT ref_month FROM analysis_ref) - INTERVAL 1 MONTH
+                        THEN revenue
+                        ELSE 0
+                    END
+                ) AS revenue_month_2,
+                SUM(
+                    CASE
+                        WHEN is_current_window = 1
+                             AND DATE_TRUNC('month', order_date) = (SELECT ref_month FROM analysis_ref)
+                        THEN revenue
+                        ELSE 0
+                    END
+                ) AS revenue_month_3
+            FROM attributed_base
+            WHERE customer_id IS NOT NULL AND customer_id <> ''
+            GROUP BY 1
+        ),
         protein_scope AS (
             SELECT
                 COALESCE(protein_family, category_name, 'Unassigned') AS protein_family,
@@ -2677,6 +2720,7 @@ def _analysis_sql(cte_sql: str) -> str:
         territory_scope AS (
             SELECT
                 COALESCE(territory_name, territory_id, 'Unassigned') AS territory_name,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN COALESCE(current_owner_id, current_owner_name) END) AS rep_count,
                 COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS customer_count,
                 COUNT(DISTINCT CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN customer_id END) AS inherited_customer_count,
                 SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
@@ -2694,6 +2738,37 @@ def _analysis_sql(cte_sql: str) -> str:
                 ROW_NUMBER() OVER (ORDER BY revenue DESC, territory_name) AS rn
             FROM territory_scope
             WHERE revenue > 0
+        ),
+        territory_top AS (
+            SELECT *
+            FROM territory_ranked
+            WHERE rn <= 5
+        ),
+        territory_month_rows AS (
+            SELECT
+                COALESCE(territory_name, territory_id, 'Unassigned') AS territory_name,
+                DATE_TRUNC('month', order_date) AS aligned_month,
+                CAST(revenue AS DOUBLE) AS revenue_current,
+                NULL::DOUBLE AS revenue_yoy
+            FROM attributed_base
+            WHERE is_current_window = 1
+            UNION ALL
+            SELECT
+                COALESCE(territory_name, territory_id, 'Unassigned') AS territory_name,
+                DATE_TRUNC('month', order_date + INTERVAL 1 YEAR) AS aligned_month,
+                NULL::DOUBLE AS revenue_current,
+                CAST(revenue AS DOUBLE) AS revenue_yoy
+            FROM attributed_base
+            WHERE is_yoy_window = 1
+        ),
+        territory_month_scope AS (
+            SELECT
+                territory_name,
+                aligned_month,
+                SUM(revenue_current) AS revenue,
+                SUM(revenue_yoy) AS revenue_yoy
+            FROM territory_month_rows
+            GROUP BY 1, 2
         ),
         dq_scope AS (
             SELECT
@@ -2739,14 +2814,15 @@ def _analysis_sql(cte_sql: str) -> str:
             CASE WHEN prior_revenue > 0 THEN (revenue - prior_revenue) / prior_revenue * 100 ELSE NULL END AS metric_3,
             yoy_revenue AS metric_4,
             CAST(orders AS DOUBLE) AS metric_5,
-            NULL::DOUBLE AS metric_6,
-            NULL::DOUBLE AS metric_7,
-            NULL::DOUBLE AS metric_8,
+            velocity.revenue_month_1 AS metric_6,
+            velocity.revenue_month_2 AS metric_7,
+            velocity.revenue_month_3 AS metric_8,
             NULL::DOUBLE AS metric_9,
             territory_name AS text_1,
             current_owner_id AS text_2,
             NULL::VARCHAR AS last_order_date
         FROM customer_movers_pos
+        LEFT JOIN customer_velocity velocity USING (customer_id)
         WHERE rn <= 8
         UNION ALL
         SELECT
@@ -2759,14 +2835,15 @@ def _analysis_sql(cte_sql: str) -> str:
             CASE WHEN prior_revenue > 0 THEN (revenue - prior_revenue) / prior_revenue * 100 ELSE NULL END AS metric_3,
             yoy_revenue AS metric_4,
             CAST(orders AS DOUBLE) AS metric_5,
-            NULL::DOUBLE AS metric_6,
-            NULL::DOUBLE AS metric_7,
-            NULL::DOUBLE AS metric_8,
+            velocity.revenue_month_1 AS metric_6,
+            velocity.revenue_month_2 AS metric_7,
+            velocity.revenue_month_3 AS metric_8,
             NULL::DOUBLE AS metric_9,
             territory_name AS text_1,
             current_owner_id AS text_2,
             NULL::VARCHAR AS last_order_date
         FROM customer_movers_neg
+        LEFT JOIN customer_velocity velocity USING (customer_id)
         WHERE rn <= 8
         UNION ALL
         SELECT
@@ -2822,7 +2899,7 @@ def _analysis_sql(cte_sql: str) -> str:
             revenue_share_pct AS metric_3,
             inherited_revenue AS metric_4,
             CAST(inherited_customer_count AS DOUBLE) AS metric_5,
-            NULL::DOUBLE AS metric_6,
+            CAST(rep_count AS DOUBLE) AS metric_6,
             NULL::DOUBLE AS metric_7,
             NULL::DOUBLE AS metric_8,
             NULL::DOUBLE AS metric_9,
@@ -2831,6 +2908,27 @@ def _analysis_sql(cte_sql: str) -> str:
             NULL::VARCHAR AS last_order_date
         FROM territory_ranked
         WHERE rn <= 6
+        UNION ALL
+        SELECT
+            'territory_month' AS dataset,
+            territory_top.territory_name AS key,
+            territory_top.territory_name AS label,
+            strftime('%Y-%m', territory_month_scope.aligned_month) AS secondary_label,
+            territory_month_scope.revenue AS metric_1,
+            territory_month_scope.revenue_yoy AS metric_2,
+            territory_top.revenue_share_pct AS metric_3,
+            territory_top.revenue AS metric_4,
+            territory_top.inherited_revenue AS metric_5,
+            CAST(territory_top.customer_count AS DOUBLE) AS metric_6,
+            CAST(territory_top.rep_count AS DOUBLE) AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            strftime('%Y-%m', territory_month_scope.aligned_month) AS text_1,
+            NULL::VARCHAR AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM territory_month_scope
+        INNER JOIN territory_top
+          ON territory_top.territory_name = territory_month_scope.territory_name
         UNION ALL
         SELECT
             'dq' AS dataset,
@@ -3038,8 +3136,10 @@ def _build_analysis_sections(analysis_df, rollup_rows: List[Dict[str, Any]]) -> 
         "proteins": [],
         "replacement_pairs": [],
         "territories": [],
+        "territory_trend": {"labels": [], "series": []},
         "data_quality": [],
     }
+    territory_trend_points: Dict[str, List[Dict[str, Any]]] = {}
     for rec in records:
         dataset = str(rec.get("dataset") or "").strip().lower()
         key = rec.get("key")
@@ -3091,6 +3191,7 @@ def _build_analysis_sections(analysis_df, rollup_rows: List[Dict[str, Any]]) -> 
                     "delta_pct": metric_3,
                     "territory_name": text_1,
                     "yoy_revenue": metric_4,
+                    "velocity_points": [_clean_float(metric_6), _clean_float(metric_7), _clean_float(metric_8)],
                 }
             )
         elif dataset == "customer_mover_down":
@@ -3106,6 +3207,7 @@ def _build_analysis_sections(analysis_df, rollup_rows: List[Dict[str, Any]]) -> 
                     "delta_pct": metric_3,
                     "territory_name": text_1,
                     "yoy_revenue": metric_4,
+                    "velocity_points": [_clean_float(metric_6), _clean_float(metric_7), _clean_float(metric_8)],
                 }
             )
         elif dataset == "protein":
@@ -3143,6 +3245,21 @@ def _build_analysis_sections(analysis_df, rollup_rows: List[Dict[str, Any]]) -> 
                     "revenue_share_pct": metric_3,
                     "inherited_revenue": metric_4,
                     "inherited_customer_count": _clean_int(metric_5),
+                    "rep_count": _clean_int(metric_6),
+                }
+            )
+        elif dataset == "territory_month":
+            bucket = secondary or text_1
+            territory_trend_points.setdefault(str(label), []).append(
+                {
+                    "bucket": bucket,
+                    "revenue": _clean_float(metric_1),
+                    "revenue_yoy": _clean_optional(metric_2),
+                    "revenue_share_pct": metric_3,
+                    "total_revenue": metric_4,
+                    "inherited_revenue": metric_5,
+                    "customer_count": _clean_int(metric_6),
+                    "rep_count": _clean_int(metric_7),
                 }
             )
         elif dataset == "dq":
@@ -3179,6 +3296,38 @@ def _build_analysis_sections(analysis_df, rollup_rows: List[Dict[str, Any]]) -> 
         profit_key="profit",
         margin_key="margin_pct",
     )
+    territory_labels = sorted(
+        {
+            str(point.get("bucket") or "").strip()
+            for points in territory_trend_points.values()
+            for point in points
+            if str(point.get("bucket") or "").strip()
+        },
+        key=_month_bucket_sort_key,
+    )
+    territory_series: List[Dict[str, Any]] = []
+    for territory_name, points in territory_trend_points.items():
+        by_bucket = {str(point.get("bucket") or ""): point for point in points}
+        series_points = [by_bucket.get(bucket, {}) for bucket in territory_labels]
+        total_revenue = sum(_clean_float(point.get("revenue")) for point in points)
+        total_revenue_yoy = sum(_clean_float(point.get("revenue_yoy")) for point in points)
+        territory_series.append(
+            {
+                "territory_name": territory_name,
+                "revenue": [_clean_float(point.get("revenue")) for point in series_points],
+                "revenue_yoy": [_clean_optional(point.get("revenue_yoy")) for point in series_points],
+                "customer_count": max((_clean_int(point.get("customer_count")) for point in points), default=0),
+                "rep_count": max((_clean_int(point.get("rep_count")) for point in points), default=0),
+                "total_revenue": total_revenue,
+                "total_revenue_yoy": total_revenue_yoy,
+                "has_prior_year": total_revenue_yoy > 0,
+            }
+        )
+    territory_series.sort(key=lambda row: (-_clean_float(row.get("total_revenue")), str(row.get("territory_name") or "")))
+    sections["territory_trend"] = {
+        "labels": territory_labels,
+        "series": territory_series,
+    }
     top_rep = rollup_rows[0] if rollup_rows else {}
     sections["portfolio"] = {
         "visible_rep_count": len(rollup_rows),
@@ -4689,6 +4838,218 @@ def build_salesreps_export_frame(filters: Any, scope: Dict[str, Any], args: Any)
     ]
     export_df = work.reindex(columns=[src for src, _ in ordered]).rename(columns={src: dst for src, dst in ordered})
     return export_df
+
+
+def _build_salesreps_visible_rollup_frame(filters: Any, scope: Dict[str, Any], args: Any) -> pd.DataFrame:
+    context = _salesrep_attribution_context(filters, scope, args)
+    if context.get("error"):
+        raise RuntimeError(context["error"]["message"])
+
+    rollup_df = fact_store.execute_sql_df(
+        _rollup_sql(context["cte_sql"]),
+        context["params"],
+        tag="salesreps.export.rollup_visible",
+    )
+    rollup_df = _normalize_frame(rollup_df)
+    if rollup_df.empty:
+        return rollup_df
+
+    work = _apply_search_filter(rollup_df, _search_term(args))
+    work = _sort_rollup_df(work, *_sort_params(args))
+    if work is None or work.empty:
+        return pd.DataFrame()
+    return work.reset_index(drop=True)
+
+
+def _clean_excel_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return frame if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    out = frame.copy()
+    for column in out.columns:
+        series = out[column]
+        if pd.api.types.is_numeric_dtype(series):
+            out[column] = pd.to_numeric(series, errors="coerce").fillna(0)
+            continue
+        cleaned = series.apply(
+            lambda value: None
+            if value is None
+            or (isinstance(value, float) and pd.isna(value))
+            or str(value).strip().lower() in {"", "n/a", "na", "none", "nan", "—"}
+            else value
+        )
+        out[column] = cleaned.where(pd.notna(cleaned), None)
+    return out
+
+
+def _safe_excel_sheet_name(raw_name: Any, seen: set[str]) -> str:
+    base = re.sub(r"[\[\]\:\*\?/\\]", " ", str(raw_name or "").strip())
+    base = re.sub(r"\s+", " ", base).strip() or "Rep"
+    candidate = base[:31]
+    if candidate not in seen:
+        seen.add(candidate)
+        return candidate
+    suffix_idx = 2
+    while True:
+        suffix = f" ({suffix_idx})"
+        next_candidate = f"{base[: max(1, 31 - len(suffix))].rstrip()}{suffix}"
+        if next_candidate not in seen:
+            seen.add(next_candidate)
+            return next_candidate
+        suffix_idx += 1
+
+
+def _customer_export_risk_signal(row: Dict[str, Any], ref_date: pd.Timestamp) -> tuple[str, int]:
+    last_order = pd.to_datetime(row.get("last_order_date"), errors="coerce")
+    days_silent = None if pd.isna(last_order) else max(int((ref_date - last_order).days), 0)
+    mom_pct = _clean_optional(row.get("mom_revenue_pct"))
+    yoy_pct = _clean_optional(row.get("yoy_revenue_pct"))
+    revenue_last_30 = _clean_float(row.get("revenue_last_30"))
+    revenue_prev_30 = _clean_float(row.get("revenue_prev_30"))
+
+    if days_silent is not None and days_silent > 30 and mom_pct is not None and mom_pct < -20:
+        return "CRITICAL", 4
+    if revenue_last_30 == 0.0 and revenue_prev_30 > 0.0:
+        return "LOST", 3
+
+    negative_signals = 0
+    if mom_pct is not None and mom_pct < -5:
+        negative_signals += 1
+    if yoy_pct is not None and yoy_pct < -10:
+        negative_signals += 1
+    if days_silent is not None and days_silent > 45:
+        negative_signals += 1
+
+    if negative_signals >= 2:
+        return "AT RISK", 2
+    if negative_signals == 1:
+        return "WATCH", 1
+    return "HEALTHY", 0
+
+
+def _build_salesrep_customer_export_sheet(
+    rep_id: str,
+    rep_name: str,
+    filters: Any,
+    scope: Dict[str, Any],
+    args: Any,
+) -> pd.DataFrame:
+    customers_df = build_salesrep_export_dataset(rep_id, filters, scope, args, dataset="customers")
+    customers_df = _normalize_frame(customers_df)
+    if customers_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Customer ID",
+                "Customer",
+                "Owner",
+                "Revenue",
+                "Profit",
+                "Margin %",
+                "Orders",
+                "Products",
+                "Weight (lb)",
+                "ASP/LB",
+                "Last Invoice Date",
+                "Silent Days",
+                "Revenue Last 30",
+                "Revenue Prior 30",
+                "MoM Revenue %",
+                "YoY Revenue %",
+                "Risk Signal",
+                "Risk Priority",
+                "Inherited Book",
+                "Owner Source",
+            ]
+        )
+
+    ref_date = pd.Timestamp.utcnow().normalize()
+    work = customers_df.copy()
+    work["owner"] = rep_name
+    work["silent_days"] = work.get("last_order_date", pd.Series(dtype="datetime64[ns]")).apply(
+        lambda value: (
+            None
+            if pd.isna(pd.to_datetime(value, errors="coerce"))
+            else max(int((ref_date - pd.to_datetime(value, errors="coerce")).days), 0)
+        )
+    )
+    risk_pairs = [
+        _customer_export_risk_signal(row, ref_date)
+        for row in work.to_dict(orient="records")
+    ]
+    work["risk_signal"] = [item[0] for item in risk_pairs]
+    work["risk_priority"] = [item[1] for item in risk_pairs]
+    work["inherited_book"] = work.get("inherited_flag", pd.Series(dtype="int64")).apply(
+        lambda value: "Yes" if _clean_int(value) == 1 else None
+    )
+
+    ordered = work.reindex(
+        columns=[
+            "customer_id",
+            "customer_name",
+            "owner",
+            "revenue",
+            "profit",
+            "margin_pct",
+            "orders",
+            "products",
+            "weight_lb",
+            "asp_lb",
+            "last_order_date",
+            "silent_days",
+            "revenue_last_30",
+            "revenue_prev_30",
+            "mom_revenue_pct",
+            "yoy_revenue_pct",
+            "risk_signal",
+            "risk_priority",
+            "inherited_book",
+            "owner_source",
+        ]
+    ).rename(
+        columns={
+            "customer_id": "Customer ID",
+            "customer_name": "Customer",
+            "owner": "Owner",
+            "revenue": "Revenue",
+            "profit": "Profit",
+            "margin_pct": "Margin %",
+            "orders": "Orders",
+            "products": "Products",
+            "weight_lb": "Weight (lb)",
+            "asp_lb": "ASP/LB",
+            "last_order_date": "Last Invoice Date",
+            "silent_days": "Silent Days",
+            "revenue_last_30": "Revenue Last 30",
+            "revenue_prev_30": "Revenue Prior 30",
+            "mom_revenue_pct": "MoM Revenue %",
+            "yoy_revenue_pct": "YoY Revenue %",
+            "risk_signal": "Risk Signal",
+            "risk_priority": "Risk Priority",
+            "inherited_book": "Inherited Book",
+            "owner_source": "Owner Source",
+        }
+    )
+    return _clean_excel_frame(ordered)
+
+
+def build_salesreps_export_workbook_sheets(filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, pd.DataFrame]:
+    summary_df = _clean_excel_frame(build_salesreps_export_frame(filters, scope, args))
+    visible_rollup = _build_salesreps_visible_rollup_frame(filters, scope, args)
+
+    sheets: Dict[str, pd.DataFrame] = {
+        "Portfolio Summary": summary_df,
+    }
+    seen_sheet_names = {"Portfolio Summary"}
+    if visible_rollup.empty:
+        return sheets
+
+    for rec in _rollup_records(visible_rollup):
+        rep_id = str(rec.get("rep_id") or rec.get("rep_key") or "").strip()
+        if not rep_id:
+            continue
+        rep_name = _business_rep_name(rec.get("rep_name"), rep_id)
+        sheet_name = _safe_excel_sheet_name(rep_name, seen_sheet_names)
+        sheets[sheet_name] = _build_salesrep_customer_export_sheet(rep_id, rep_name, filters, scope, args)
+    return sheets
 
 
 def build_salesrep_history_frame(rep_id: str, filters: Any, scope: Dict[str, Any], args: Any):

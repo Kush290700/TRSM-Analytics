@@ -1047,12 +1047,12 @@ def export_xlsx():
         filters = filters_service.default_filters(current_user)
     scope = filters_service.scope_from_user(current_user)
     try:
-        frame = salesreps_bundle.build_salesreps_export_frame(filters, scope, request.args)
+        sheets = salesreps_bundle.build_salesreps_export_workbook_sheets(filters, scope, request.args)
     except Exception as exc:  # pragma: no cover - defensive
         current_app.logger.exception("salesreps.export.failed", extra={"format": "xlsx"})
         return jsonify({"error": {"message": str(exc)}}), 503
     filename = _salesreps_export_filename(filters, "xlsx")
-    return dataframes_to_xlsx_response({"Sales_Reps": frame}, filename=filename)
+    return dataframes_to_xlsx_response(sheets, filename=filename)
 
 
 @bp.get("/export.csv")

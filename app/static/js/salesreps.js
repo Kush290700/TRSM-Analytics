@@ -15,6 +15,7 @@
   const PAGE_CACHE_POLICY = { freshMs: 90 * 1000, maxAgeMs: 20 * 60 * 1000 };
   const LOCALE = "en-CA";
   const CURRENCY = "CAD";
+  document.getElementById("GlobalFilters")?.classList.add("sr-global-filters");
 
   const NA = "—";
   const fmtMoney0 = new Intl.NumberFormat(LOCALE, { style: "currency", currency: CURRENCY, maximumFractionDigits: 0 });
@@ -259,8 +260,7 @@
   };
 
   const referenceDate = () => {
-    const raw = lastPayload?.meta?.last_refresh;
-    const dt = raw ? new Date(raw) : new Date();
+    const dt = new Date();
     return Number.isNaN(dt.valueOf()) ? new Date() : dt;
   };
 
@@ -283,8 +283,9 @@
 
   const silentTone = (days) => {
     if (days == null) return "is-fresh";
-    if (days > 45) return "is-critical";
-    if (days >= 7) return "is-watch";
+    if (days > 60) return "is-critical";
+    if (days >= 31) return "is-warning";
+    if (days >= 15) return "is-watch";
     return "is-fresh";
   };
 
@@ -678,6 +679,93 @@
       "#0d9488",  // teal
     ];
     return palette[index % palette.length];
+  };
+
+  const alphaColor = (value, alpha = 0.18) => {
+    const parsed = parseCssColor(value);
+    if (!parsed) return value;
+    return `rgba(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)}, ${alpha})`;
+  };
+
+  const sparklineSvg = (values = []) => {
+    const points = (Array.isArray(values) ? values : []).map((value) => Math.max(0, num(value)));
+    if (!points.length || points.every((value) => value === 0)) {
+      return `
+        <svg class="sr-sparkline sr-sparkline-flat" viewBox="0 0 78 24" aria-hidden="true" focusable="false">
+          <polyline points="4,16 37,16 74,16"></polyline>
+        </svg>
+      `;
+    }
+    const maxValue = Math.max(...points, 1);
+    const minValue = Math.min(...points, 0);
+    const range = Math.max(maxValue - minValue, 1);
+    const step = points.length === 1 ? 0 : 70 / (points.length - 1);
+    const linePoints = points
+      .map((value, idx) => {
+        const x = 4 + (idx * step);
+        const y = 20 - (((value - minValue) / range) * 14);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+    const first = points[0] || 0;
+    const last = points[points.length - 1] || 0;
+    const tone = last > first ? "up" : last < first ? "down" : "flat";
+    return `
+      <svg class="sr-sparkline sr-sparkline-${tone}" viewBox="0 0 78 24" aria-hidden="true" focusable="false">
+        <polyline points="${linePoints}"></polyline>
+      </svg>
+    `;
+  };
+
+  const showInlineToast = (message) => {
+    const toast = document.getElementById("srFollowUpToast");
+    if (!toast) {
+      showActionPlaceholder(message);
+      return;
+    }
+    toast.textContent = message;
+    toast.style.display = "block";
+    window.clearTimeout(showInlineToast._timer);
+    showInlineToast._timer = window.setTimeout(() => {
+      toast.style.display = "none";
+    }, 2600);
+  };
+
+  const copyTextToClipboard = async (text, successMessage) => {
+    const payload = String(text || "").trim();
+    if (!payload) {
+      showActionPlaceholder("No action context is available for this row.");
+      return false;
+    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+        showInlineToast(successMessage);
+        return true;
+      }
+    } catch (_err) {
+      /* clipboard fallback below */
+    }
+    const input = document.createElement("textarea");
+    input.value = payload;
+    input.setAttribute("readonly", "readonly");
+    input.style.position = "absolute";
+    input.style.left = "-9999px";
+    document.body.appendChild(input);
+    input.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch (_err) {
+      copied = false;
+    }
+    document.body.removeChild(input);
+    if (copied) {
+      showInlineToast(successMessage);
+      return true;
+    }
+    showActionPlaceholder("Clipboard access is unavailable in this browser session.");
+    return false;
   };
 
   const monthKeyToDate = (bucket) => {
@@ -2297,68 +2385,159 @@
     holder.innerHTML = rows.map(renderItem).join("");
   };
 
-  // ── 3A+3B: Territory bar chart & summary chips ──
-  const renderTerritoryChart = (territories = []) => {
+  // ── 3A+3B: Territory stacked area chart & summary chips ──
+  const renderTerritoryChart = (payload = {}) => {
+    const analysis = payload.analysis || {};
+    const territories = Array.isArray(analysis.territories) ? analysis.territories : [];
+    const territoryTrend = analysis.territory_trend || {};
     const chips = document.getElementById("srTerritorySummaryChips");
     if (chips && territories.length) {
       const topT = territories[0] || {};
       const mostReps = [...territories].sort((a, b) => num(b.rep_count ?? b.reps) - num(a.rep_count ?? a.reps))[0] || {};
+      const targetFallbacks = (territoryTrend.series || []).filter((row) => !row.has_prior_year).length;
       chips.innerHTML = [
         `<span class="sr-badge-neutral">Territories: ${territories.length}</span>`,
         topT.territory_name ? `<span class="sr-badge-neutral">Top: ${escapeHtml(topT.territory_name)}</span>` : "",
         topT.revenue ? `<span class="sr-badge-neutral">Largest: ${money(topT.revenue)}</span>` : "",
         mostReps.territory_name ? `<span class="sr-badge-neutral">Most reps: ${escapeHtml(mostReps.territory_name)} (${fmtInt.format(num(mostReps.rep_count ?? mostReps.reps))})</span>` : "",
+        targetFallbacks ? `<span class="sr-badge-neutral">${fmtInt.format(targetFallbacks)} target fallback${targetFallbacks !== 1 ? "s" : ""}</span>` : "",
       ].filter(Boolean).join("");
     }
 
-    if (!ChartLib || !territories.length) return;
-    const sorted = [...territories].sort((a, b) => num(b.revenue) - num(a.revenue)).slice(0, 10);
-    const maxRev = Math.max(...sorted.map((t) => num(t.revenue)));
-    const resolved = resolveChartCanvas("srTerritoryChart");
-    if (!resolved) return;
+    const list = document.getElementById("srTerritoryList");
+    const labels = Array.isArray(territoryTrend.labels) ? territoryTrend.labels : [];
+    const series = Array.isArray(territoryTrend.series) ? territoryTrend.series.slice(0, 5) : [];
+    const hasTrendData = labels.length > 0 && series.some((row) => (row.revenue || []).some((value) => num(value) > 0));
+
     destroyChart("territory");
+    if (!ChartLib || !hasTrendData) {
+      if (list) list.classList.remove("d-none");
+      return;
+    }
+
+    const resolved = resolveChartCanvas("srTerritoryChart");
+    if (!resolved) {
+      if (list) list.classList.remove("d-none");
+      return;
+    }
+
+    const growthPct = opt(payload.kpis?.revenue_yoy_pct);
+    const datasets = [];
+    series.forEach((row, idx) => {
+      const color = stableColor(idx);
+      datasets.push({
+        type: "line",
+        label: row.territory_name || `Territory ${idx + 1}`,
+        data: labels.map((bucket, pointIdx) => ({
+          x: bucketLabelFromKey(bucket, "monthly"),
+          y: num(row.revenue?.[pointIdx]),
+          rawBucket: bucket,
+          territory_name: row.territory_name,
+          revenue_yoy: row.revenue_yoy?.[pointIdx],
+          has_prior_year: !!row.has_prior_year,
+          customer_count: row.customer_count,
+          rep_count: row.rep_count,
+        })),
+        borderColor: color,
+        backgroundColor: alphaColor(color, 0.18),
+        borderWidth: 2,
+        fill: true,
+        stack: "territory-revenue",
+        tension: 0.28,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+      });
+
+      if (!row.has_prior_year && growthPct !== null) {
+        datasets.push({
+          type: "line",
+          label: `${row.territory_name} Target`,
+          data: labels.map((bucket, pointIdx) => ({
+            x: bucketLabelFromKey(bucket, "monthly"),
+            y: num(row.revenue?.[pointIdx]) * (1 + (growthPct / 100)),
+            rawBucket: bucket,
+            territory_name: row.territory_name,
+            target_growth_pct: growthPct,
+          })),
+          borderColor: color,
+          backgroundColor: "transparent",
+          borderDash: [7, 4],
+          borderWidth: 1.8,
+          fill: false,
+          tension: 0.2,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        });
+      }
+    });
+
     charts["territory"] = new ChartLib(resolved.ctx, {
-      type: "bar",
+      type: "line",
       data: {
-        labels: sorted.map((t) => t.territory_name || NA),
-        datasets: [{
-          label: "Revenue",
-          data: sorted.map((t) => num(t.revenue)),
-          backgroundColor: sorted.map((t) => num(t.revenue) === maxRev ? "rgba(150,89,81,1.0)" : "rgba(150,89,81,0.65)"),
-          borderRadius: 3,
-        }],
+        labels: labels.map((bucket) => bucketLabelFromKey(bucket, "monthly")),
+        datasets,
       },
       options: {
-        indexAxis: "y",
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { display: false },
+          legend: {
+            position: "bottom",
+            labels: {
+              filter: (item) => !String(item.text || "").endsWith(" Target"),
+            },
+          },
           tooltip: {
             callbacks: {
               label: (ctx) => {
-                const t = sorted[ctx.dataIndex] || {};
-                const reps = t.rep_count ?? t.reps ?? 0;
-                const custs = t.customer_count ?? 0;
-                return `${money(ctx.parsed.x)} · ${reps} rep${reps !== 1 ? "s" : ""} · ${fmtInt.format(num(custs))} customers`;
+                const point = ctx.raw || {};
+                if (String(ctx.dataset.label || "").endsWith(" Target")) {
+                  const growthLabel = point.target_growth_pct == null ? NA : `${point.target_growth_pct >= 0 ? "+" : ""}${fmtPct.format(point.target_growth_pct)}%`;
+                  return `${ctx.dataset.label}: ${money(ctx.parsed.y)} at team growth (${growthLabel})`;
+                }
+                return `${ctx.dataset.label}: ${money(ctx.parsed.y)}`;
+              },
+              afterLabel: (ctx) => {
+                const point = ctx.raw || {};
+                if (String(ctx.dataset.label || "").endsWith(" Target")) return [];
+                const lines = [];
+                if (opt(point.revenue_yoy) !== null && opt(point.revenue_yoy) > 0) {
+                  const prior = num(point.revenue_yoy);
+                  const deltaPct = ((num(ctx.parsed.y) - prior) / Math.abs(prior)) * 100;
+                  lines.push(`Prior year: ${money(prior)}`);
+                  lines.push(`YoY: ${deltaPct >= 0 ? "+" : ""}${fmtPct.format(deltaPct)}%`);
+                } else {
+                  lines.push("Prior year: target fallback");
+                }
+                if (point.rep_count != null || point.customer_count != null) {
+                  lines.push(`${fmtInt.format(num(point.rep_count))} rep${num(point.rep_count) !== 1 ? "s" : ""} · ${fmtInt.format(num(point.customer_count))} customers`);
+                }
+                return lines;
               },
             },
           },
         },
         scales: {
-          x: { ticks: { callback: (v) => fmtMoney0.format(v), maxTicksLimit: 4 } },
-          y: { ticks: { font: { size: 11 } } },
+          x: {
+            stacked: true,
+            grid: { display: false },
+          },
+          y: {
+            stacked: true,
+            ticks: {
+              callback: (value) => fmtMoney0.format(value),
+              maxTicksLimit: 5,
+            },
+          },
         },
       },
     });
-    // Hide fallback list since chart is rendering
-    const list = document.getElementById("srTerritoryList");
     if (list) list.classList.add("d-none");
   };
 
   const renderPortfolioSection = (payload = {}) => {
     const analysis = payload.analysis || {};
-    renderTerritoryChart(analysis.territories || []);
+    renderTerritoryChart(payload);
     // Keep fallback list for no-chart scenarios
     renderSimpleList("srTerritoryList", analysis.territories || [], (row) => `
       <li${drillAttr(territoryPayload(row.territory_name, "Ownership & Portfolio", "Top Territories", "Revenue", row.revenue, {
@@ -2766,42 +2945,17 @@
       });
     }
 
-    // ── Phase 3B: export view CSV ──
+    // ── Export workbook view ──
     const btnExportCust = document.getElementById("btnExportCustCSV");
     if (btnExportCust) {
       btnExportCust.addEventListener("click", () => {
-        const today = new Date().toISOString().slice(0, 10);
-        const filename = `trsm_customers_${_customerViewMode}_${today}.csv`;
-        const rows = Array.isArray(customerVirtualTable.rows) ? customerVirtualTable.rows : [];
-        const header = ["Customer", "Risk", "Owner", "Territory", "Revenue", "Profit", "YoY Delta", "YoY %", "MoM Velocity", "Gap Analysis", "Silent"];
-        const csvLines = [header.join(","), ...rows.map((r) => {
-          const risk = computeCustomerRisk(r);
-          const silentDays = customerSilentDays(r);
-          const momPct = customerMoMValue(r);
-          const gapLabel = num(r.beef_revenue) > 0 && num(r.poultry_revenue) === 0 && num(r.revenue) >= num(r._gapHighValueThreshold)
-            ? "Poultry cross-sell"
-            : num(r.poultry_revenue) > 0
-              ? "Poultry active"
-              : "";
-          return [
-            `"${(r.customer_name || r.customer_id || "").replace(/"/g, '""')}"`,
-            `"${risk.label}"`,
-            `"${(r.account_owner_name || "").replace(/"/g, '""')}"`,
-            `"${(r.territory_name || "").replace(/"/g, '""')}"`,
-            `"${money(r.revenue)}"`,
-            `"${money(r.profit)}"`,
-            `"${money(r.yoy_delta_revenue)}"`,
-            `"${customerYoYValue(r) != null ? `${customerYoYValue(r) >= 0 ? "+" : ""}${fmtPct.format(num(customerYoYValue(r)))}%` : NA}"`,
-            `"${momPct != null ? `${momPct >= 0 ? "+" : ""}${fmtPct.format(num(momPct))}%` : NA}"`,
-            `"${gapLabel}"`,
-            `"${silentDays == null ? NA : `${silentDays}d`}"`,
-          ].join(",");
-        })];
-        const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
+        updateExportLinks();
+        const href = exportXlsx?.getAttribute("href") || root.dataset.exportXlsx || "";
+        if (!href) {
+          showActionPlaceholder("Workbook export is not available for this page.");
+          return;
+        }
+        window.location.assign(href);
       });
     }
   };
@@ -2869,6 +3023,49 @@
     a.href = URL.createObjectURL(blob);
     a.download = `trsm_followup_${today}.csv`;
     a.click();
+  };
+
+  const buildLostAccountActionText = (account = {}) => {
+    const days = account.days_since_order != null ? `${account.days_since_order} days` : "an unknown number of days";
+    const territory = account.territory_name ? ` Territory: ${account.territory_name}.` : "";
+    const lastDate = account.last_order_date || "unknown";
+    const revenueText = money(account.revenue_prev_30 ?? 0);
+    return {
+      emailSubject: `Re-engagement: ${account.customer_name || account.customer_id || "Customer"} — ${days} silent`,
+      emailBody:
+        `Hi ${account.account_owner_name || "Team"},\n\n` +
+        `${account.customer_name || account.customer_id || "Customer"} has been silent for ${days} (last invoice: ${lastDate}).` +
+        `${territory}\n\n` +
+        `Trailing prior-30-day revenue was ${revenueText}. Please review for a same-day follow-up.\n\nThanks`,
+      callBrief:
+        `${account.customer_name || account.customer_id || "Customer"} is ${days} silent. ` +
+        `Last invoice: ${lastDate}. Prior 30-day revenue: ${revenueText}.` +
+        `${account.territory_name ? ` Territory: ${account.territory_name}.` : ""}`,
+      noteText:
+        `Follow-up note: ${account.customer_name || account.customer_id || "Customer"} is ${days} silent, ` +
+        `last invoice ${lastDate}, prior 30-day revenue ${revenueText}.`,
+    };
+  };
+
+  const bindLostAccountQuickActions = () => {
+    const body = document.getElementById("lostAccountsBody");
+    if (!body || body.dataset.quickActionsBound === "1") return;
+    body.dataset.quickActionsBound = "1";
+    body.addEventListener("click", async (evt) => {
+      const button = evt.target.closest("[data-followup-action]");
+      if (!button) return;
+      evt.preventDefault();
+      const action = button.getAttribute("data-followup-action") || "";
+      const encoded = button.getAttribute("data-followup-text") || "";
+      const text = encoded ? decodeURIComponent(encoded) : "";
+      if (action === "call") {
+        await copyTextToClipboard(text, "Call brief copied");
+        return;
+      }
+      if (action === "note") {
+        await copyTextToClipboard(text, "Follow-up note copied");
+      }
+    });
   };
 
   // ── 4D: Rep Comparison Modal ──
@@ -3034,16 +3231,11 @@
       const owner     = a.account_owner_name || "\u2014";
       const territory = a.territory_name     || "\u2014";
       const lastDate  = a.last_order_date    || "\u2014";
-
-      const subject = encodeURIComponent(`Re-engagement: ${a.customer_name} — ${days !== null ? days + " days" : "no recent"} since last order`);
-      const bodyText = encodeURIComponent(
-        `Hi ${owner !== "\u2014" ? owner : "Team"},\n\n` +
-        `${a.customer_name} has not placed an order in ${days !== null ? days + " days" : "some time"} ` +
-        `(last order: ${lastDate}).` +
-        `${territory !== "\u2014" ? " Territory: " + territory + "." : ""}\n\n` +
-        `Their trailing 30-day revenue was ${money(a.revenue_prev_30 ?? 0)}. ` +
-        `This account may need a follow-up to re-engage.\n\nPlease action when possible.\n\nThank you`
-      );
+      const actionText = buildLostAccountActionText(a);
+      const subject = encodeURIComponent(actionText.emailSubject);
+      const bodyText = encodeURIComponent(actionText.emailBody);
+      const callText = encodeURIComponent(actionText.callBrief);
+      const noteText = encodeURIComponent(actionText.noteText);
 
       return `<tr style="${rowBg}">
         <td style="font-weight:500">${urgencyEmoji} ${escapeHtml(a.customer_name || a.customer_id || NA)}</td>
@@ -3052,7 +3244,19 @@
         <td class="text-end" style="font-variant-numeric:tabular-nums">${money(a.revenue_prev_30 ?? 0)}</td>
         <td style="color:#6b7280;font-size:0.82rem">${escapeHtml(lastDate)}</td>
         <td style="font-weight:${days !== null && days > 60 ? "700" : days !== null && days > 30 ? "600" : "400"};color:${days !== null && days > 60 ? "#dc2626" : days !== null && days > 30 ? "#d97706" : "#6b7280"}">${daysStr}</td>
-        <td><a href="mailto:?subject=${subject}&body=${bodyText}" class="btn btn-sm" style="background:var(--trsm-primary);color:#fff;font-size:0.78rem;padding:2px 10px">Follow-up &rarr;</a></td>
+        <td>
+          <div class="sr-quick-actions">
+            <a href="mailto:?subject=${subject}&body=${bodyText}" class="sr-quick-action" title="Email follow-up" aria-label="Email follow-up">
+              <i class="bi bi-envelope"></i>
+            </a>
+            <button type="button" class="sr-quick-action" data-followup-action="call" data-followup-text="${callText}" title="Copy call brief" aria-label="Copy call brief">
+              <i class="bi bi-telephone"></i>
+            </button>
+            <button type="button" class="sr-quick-action" data-followup-action="note" data-followup-text="${noteText}" title="Copy note" aria-label="Copy note">
+              <i class="bi bi-journal-text"></i>
+            </button>
+          </div>
+        </td>
       </tr>`;
     }).join("");
 
@@ -3076,7 +3280,7 @@
               <th class="text-end">Last 30d Rev</th>
               <th>Last Order</th>
               <th>Days Silent</th>
-              <th>Action</th>
+              <th>Quick Action</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -3087,6 +3291,7 @@
         Sorted by days silent — most urgent first. Use Follow-up to pre-fill a contextual email.
       </p>
     `;
+    bindLostAccountQuickActions();
   };
 
   // Toggle lost accounts panel open/closed
@@ -3109,23 +3314,24 @@
       const delta   = opt(row.delta_revenue) ?? 0;
       const revPrev = revNow - delta;
       const pctVal  = opt(row.delta_pct);
-      let pctStr;
-      if (revPrev === 0) {
-        pctStr = "(new)";
-      } else if (pctVal !== null) {
-        pctStr = `(${pctVal >= 0 ? "+" : ""}${fmtPct.format(pctVal)}%)`;
-      } else {
-        pctStr = "";
-      }
+      const isNew = !isDown && revPrev <= 0 && revNow > 0;
+      const isLost = isDown && revNow === 0 && revPrev > 0;
+      const badge = isNew
+        ? '<span class="sr-mover-badge is-new">NEW</span>'
+        : isLost
+          ? '<span class="sr-mover-badge is-lost">LOST</span>'
+          : "";
+      const pctStr = revPrev === 0
+        ? "(new)"
+        : pctVal !== null
+          ? `(${pctVal >= 0 ? "+" : ""}${fmtPct.format(pctVal)}%)`
+          : "";
       const deltaClass = isDown ? "delta-down" : "delta-up";
-      const isFullyLost = isDown && revNow === 0;
-      const lostBadge = isFullyLost
-        ? `<span class="badge bg-danger ms-1" style="font-size:0.65rem">LOST</span>`
-        : "";
       const subline = `<div class="sr-mover-subline">Prior: ${money(revPrev)} &rarr; Now: ${money(revNow)}</div>`;
+      const velocity = sparklineSvg(row.velocity_points || []);
       let tintStyle = "";
       if (isDown) {
-        if (isFullyLost) {
+        if (isLost) {
           tintStyle = " style=\"background:rgba(220,38,38,0.07)\"";
         } else if (pctVal !== null && pctVal <= -50) {
           tintStyle = " style=\"background:rgba(220,38,38,0.04)\"";
@@ -3136,9 +3342,19 @@
       return `
         <li${tintStyle}${drillAttr(customerPayload(row, "Customer Intelligence", "Customer Movers", "Revenue Delta", row.delta_revenue))}>
           <div>
-            <div class="sr-list-main">${escapeHtml(row.customer_name || row.customer_id || NA)}${lostBadge}</div>
+            <div class="sr-mover-header">
+              <div class="sr-list-main">${escapeHtml(row.customer_name || row.customer_id || NA)}</div>
+              ${badge}
+            </div>
             <div class="sr-list-sub">${escapeHtml(businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK))}${row.territory_name ? ` · ${escapeHtml(row.territory_name)}` : ""}${row.yoy_revenue != null ? ` · PY ${money(row.yoy_revenue)}` : ""}</div>
             ${subline}
+            <div class="sr-mover-meta">
+              <div class="sr-list-sub">${isNew ? "New revenue win in the visible book." : isLost ? "Lost account: no current revenue in the selected period." : "Three-month velocity leading into the change."}</div>
+              <div class="sr-mover-velocity">
+                <span class="sr-mover-velocity-label">Velocity</span>
+                ${velocity}
+              </div>
+            </div>
           </div>
           <div class="sr-list-metric ${deltaClass}">${money(row.delta_revenue)} ${pctStr ? `<span style="font-weight:400;font-size:0.8em">${pctStr}</span>` : ""}</div>
         </li>
@@ -3784,14 +4000,14 @@
         <td class="text-end col-margin_pct">${marginCellHtml(row)}</td>
         <td class="text-end col-silent_days ${(() => {
           const lastOrder = row.last_order_date ? new Date(row.last_order_date) : null;
-          const refDate = lastPayload?.meta?.last_refresh ? new Date(lastPayload.meta.last_refresh) : new Date();
+          const refDate = referenceDate();
           const silentDays = lastOrder ? Math.floor((refDate - lastOrder) / (1000 * 60 * 60 * 24)) : null;
           if (silentDays > 60) return "text-danger fw-bold";
           if (silentDays > 30) return "text-warning";
           return "";
         })()}">${(() => {
           const lastOrder = row.last_order_date ? new Date(row.last_order_date) : null;
-          const refDate = lastPayload?.meta?.last_refresh ? new Date(lastPayload.meta.last_refresh) : new Date();
+          const refDate = referenceDate();
           return lastOrder ? Math.floor((refDate - lastOrder) / (1000 * 60 * 60 * 24)) : NA;
         })()}</td>
         <td class="text-end col-mom_revenue_delta">${money(row.mom_revenue_delta)}</td>
@@ -3809,7 +4025,7 @@
         <td class="col-top_customer" title="${escapeHtml(row.top_customer_name || NA)}"><span class="sr-link"${drillAttr(repWorkspacePayload(row, "Detailed Table", "Top Customer", "Revenue", row.top_customer_revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.top_customer_name || NA)}</span></td>
         <td class="col-top_protein"><span class="sr-link"${drillAttr(proteinPayload(row.top_protein_family, "Detailed Table", "Top Protein", "Revenue", row.top_protein_revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.top_protein_family || NA)}</span></td>
         <td class="col-flags">${signals || '<span class="text-muted small">--</span>'}</td>
-        <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="${href}" aria-label="Open drilldown for ${repName}">View</a></td>
+        <td class="text-end"><a class="btn btn-sm btn-outline-primary sr-row-open" href="${href}" aria-label="Open detail for ${repName}">&#8599;</a></td>
       </tr>
     `;
   };

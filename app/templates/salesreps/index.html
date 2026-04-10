@@ -3,7 +3,7 @@
 {% block title %}Sales Reps Performance{% endblock %}
 
 {% block head_extras %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260409-v5') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260410-v6') }}">
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" defer></script>
 {% endblock %}
 
@@ -257,13 +257,11 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                   <div class="sr-subpanel-title mb-0">Top Territories</div>
                 </div>
-                <!-- Territory micro-stats -->
                 <div id="srTerritorySummaryChips" class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.75rem"></div>
-                <!-- Territory bar chart replaces text list -->
-                <div style="position:relative;min-height:140px">
-                  <canvas id="srTerritoryChart" style="width:100%;max-height:200px"></canvas>
+                <div class="text-muted small mb-2">Fiscal revenue stacked by the top five territories in scope.</div>
+                <div class="sr-territory-stage">
+                  <canvas id="srTerritoryChart" style="width:100%;height:100%"></canvas>
                 </div>
-                <!-- Fallback text list (hidden when chart renders) -->
                 <ul class="sr-list d-none" id="srTerritoryList"></ul>
               </div>
             </div>
@@ -546,19 +544,19 @@
       <article class="card shadow-sm border-0 h-100">
         <div class="card-header bg-white border-0 sr-section-header">
           <div class="fw-semibold">Customer Movers</div>
-          <div class="text-muted small">Largest gains and losses versus the prior aligned period. <span id="srMoversStatLine" class="ms-1"></span></div>
+          <div class="text-muted small">Side-by-side movement scan with momentum context for the biggest book changes. <span id="srMoversStatLine" class="ms-1"></span></div>
         </div>
-        <div class="card-body">
+        <div class="card-body sr-movers-body">
           <div class="row g-3">
-            <div class="col-6">
-              <div class="sr-subpanel">
-                <div class="sr-subpanel-title">Up</div>
+            <div class="col-12 col-lg-6">
+              <div class="sr-subpanel sr-movers-panel">
+                <div class="sr-subpanel-title">New / Expanding</div>
                 <ul class="sr-list" id="srCustomerMoversUp"></ul>
               </div>
             </div>
-            <div class="col-6">
-              <div class="sr-subpanel">
-                <div class="sr-subpanel-title">Down</div>
+            <div class="col-12 col-lg-6">
+              <div class="sr-subpanel sr-movers-panel">
+                <div class="sr-subpanel-title">Lost / Contracting</div>
                 <ul class="sr-list" id="srCustomerMoversDown"></ul>
               </div>
             </div>
@@ -754,7 +752,7 @@
             <th scope="col" class="col-top_customer">Top Customer</th>
             <th scope="col" class="col-top_protein">Top Protein</th>
             <th scope="col" class="col-flags">Flags</th>
-            <th scope="col" class="text-end">Drilldown</th>
+            <th scope="col" class="text-end">Open</th>
           </tr>
         </thead>
         <tbody id="salesreps-table-body"></tbody>

@@ -670,6 +670,140 @@ def seed_salesreps_multi_year_trend_overlap(tmp_path, monkeypatch):
     fact_store.reset_duckdb_state()
 
 
+@pytest.fixture
+def seed_salesreps_territory_trend(tmp_path, monkeypatch):
+    rows = [
+        {
+            "Date": "2024-04-12",
+            "DateExpected": "2024-04-12",
+            "SalesRepId": "R1",
+            "SalesRepName": "Alex",
+            "OrderId": "TT-001",
+            "CustomerId": "TC-001",
+            "CustomerName": "North One",
+            "ProductId": "TP-001",
+            "ProductName": "North Product",
+            "TerritoryName": "North",
+            "OrderStatus": "packed",
+            "Revenue": 120.0,
+            "Cost": 72.0,
+            "QuantityOrdered": 2,
+            "WeightLb": 8.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 2.0,
+            "pack_weight_lb_sum": 8.0,
+            "pack_count": 1,
+            "Price": 60.0,
+            "CostPrice": 36.0,
+        },
+        {
+            "Date": "2024-04-18",
+            "DateExpected": "2024-04-18",
+            "SalesRepId": "R2",
+            "SalesRepName": "Bea",
+            "OrderId": "TT-002",
+            "CustomerId": "TC-002",
+            "CustomerName": "North Two",
+            "ProductId": "TP-002",
+            "ProductName": "North Product 2",
+            "TerritoryName": "North",
+            "OrderStatus": "packed",
+            "Revenue": 80.0,
+            "Cost": 48.0,
+            "QuantityOrdered": 2,
+            "WeightLb": 7.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 2.0,
+            "pack_weight_lb_sum": 7.0,
+            "pack_count": 1,
+            "Price": 40.0,
+            "CostPrice": 24.0,
+        },
+        {
+            "Date": "2025-04-10",
+            "DateExpected": "2025-04-10",
+            "SalesRepId": "R1",
+            "SalesRepName": "Alex",
+            "OrderId": "TT-003",
+            "CustomerId": "TC-001",
+            "CustomerName": "North One",
+            "ProductId": "TP-001",
+            "ProductName": "North Product",
+            "TerritoryName": "North",
+            "OrderStatus": "packed",
+            "Revenue": 150.0,
+            "Cost": 90.0,
+            "QuantityOrdered": 3,
+            "WeightLb": 9.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 3.0,
+            "pack_weight_lb_sum": 9.0,
+            "pack_count": 1,
+            "Price": 50.0,
+            "CostPrice": 30.0,
+        },
+        {
+            "Date": "2025-04-15",
+            "DateExpected": "2025-04-15",
+            "SalesRepId": "R2",
+            "SalesRepName": "Bea",
+            "OrderId": "TT-004",
+            "CustomerId": "TC-002",
+            "CustomerName": "North Two",
+            "ProductId": "TP-002",
+            "ProductName": "North Product 2",
+            "TerritoryName": "North",
+            "OrderStatus": "packed",
+            "Revenue": 110.0,
+            "Cost": 66.0,
+            "QuantityOrdered": 3,
+            "WeightLb": 8.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 3.0,
+            "pack_weight_lb_sum": 8.0,
+            "pack_count": 1,
+            "Price": 36.67,
+            "CostPrice": 22.0,
+        },
+        {
+            "Date": "2025-05-03",
+            "DateExpected": "2025-05-03",
+            "SalesRepId": "R3",
+            "SalesRepName": "Carl",
+            "OrderId": "TT-005",
+            "CustomerId": "TC-003",
+            "CustomerName": "West One",
+            "ProductId": "TP-003",
+            "ProductName": "West Product",
+            "TerritoryName": "West",
+            "OrderStatus": "packed",
+            "Revenue": 210.0,
+            "Cost": 126.0,
+            "QuantityOrdered": 4,
+            "WeightLb": 10.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 4.0,
+            "pack_weight_lb_sum": 10.0,
+            "pack_count": 1,
+            "Price": 52.5,
+            "CostPrice": 31.5,
+        },
+    ]
+
+    parquet_path = tmp_path / "fact_salesreps_territory_trend.parquet"
+    pd.DataFrame(rows).to_parquet(parquet_path)
+
+    monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    monkeypatch.delenv("CUSTOMER_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("TERRITORY_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("CUSTOMER_TERRITORY_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("SALESREP_SUCCESSION_PATH", raising=False)
+    fact_store.reset_duckdb_state()
+    fact_store.init_views()
+    yield parquet_path
+    fact_store.reset_duckdb_state()
+
+
 def test_salesreps_multi_year_trend_keeps_current_revenue_in_original_month(
     seed_salesreps_multi_year_trend_overlap,
 ):
@@ -704,3 +838,32 @@ def test_salesreps_multi_year_trend_keeps_current_revenue_in_original_month(
     assert monthly_detail["2024-06"]["revenue_yoy"] == pytest.approx(50.0, abs=0.01)
     assert monthly_detail["2025-06"]["revenue"] == pytest.approx(200.0, abs=0.01)
     assert monthly_detail["2025-06"]["revenue_yoy"] == pytest.approx(100.0, abs=0.01)
+
+
+def test_salesreps_territory_trend_rolls_up_top_territories_and_flags_missing_prior(
+    seed_salesreps_territory_trend,
+):
+    filters = filters_service.resolve_effective_filters(
+        {"start": "2025-04-01", "end": "2025-05-31"},
+        session_obj={},
+        user_id=None,
+        sticky_enabled=False,
+    )
+    payload = salesreps_bundle.build_salesreps_bundle(
+        filters,
+        {"is_admin": True},
+        {"page_size": "25", "top_n": "5"},
+    )
+
+    territory_trend = (payload.get("analysis") or {}).get("territory_trend") or {}
+    assert territory_trend.get("labels") == ["2025-04", "2025-05"]
+    series = {
+        str(row.get("territory_name") or ""): row
+        for row in (territory_trend.get("series") or [])
+    }
+    assert series["North"]["revenue"] == pytest.approx([260.0, 0.0], abs=0.01)
+    assert series["North"]["revenue_yoy"][0] == pytest.approx(200.0, abs=0.01)
+    assert series["North"]["revenue_yoy"][1] is None
+    assert series["North"]["has_prior_year"] is True
+    assert series["West"]["revenue"] == pytest.approx([0.0, 210.0], abs=0.01)
+    assert series["West"]["has_prior_year"] is False

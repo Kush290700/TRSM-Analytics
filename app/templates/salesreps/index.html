@@ -3,27 +3,12 @@
 {% block title %}Sales Reps Performance{% endblock %}
 
 {% block head_extras %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260408-salesreps-live-v2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260409-v5') }}">
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" defer></script>
 {% endblock %}
 
 {% block content %}
-<!-- Phase 5: sticky context bar (hidden until user scrolls past scorecard) -->
-<div id="srStickyBar">
-  <span style="color:var(--trsm-accent);font-weight:700;font-size:0.82rem;letter-spacing:0.05em">TRSM SALES</span>
-  <span class="vr" style="background:#444;width:1px;height:16px;display:inline-block"></span>
-  <span style="color:#fff;font-size:0.82rem">
-    Rev: <strong style="color:var(--trsm-accent)" id="sStickyRev">—</strong>
-  </span>
-  <span style="color:#fff;font-size:0.82rem">
-    Margin: <strong style="color:var(--trsm-accent)" id="sStickyMargin">—</strong>
-  </span>
-  <span style="color:#9ca3af;font-size:0.82rem" id="sStickyReps">— reps</span>
-  <button onclick="window.scrollTo({top:0,behavior:'smooth'})"
-          style="margin-left:auto;background:none;border:1px solid #444;color:#9ca3af;border-radius:10px;padding:2px 10px;font-size:0.75rem;cursor:pointer">
-    &#8593; Top
-  </button>
-</div>
+
 <div id="SalesRepsApp"
      class="salesreps-v2"
      data-page="salesreps"
@@ -52,6 +37,9 @@
           <span class="badge text-bg-light border" id="srBridgeChip">Ownership bridge: --</span>
           <span class="badge text-bg-light border" id="srActiveRepsChip">Visible reps: --</span>
           <span class="badge text-bg-light border" id="srCoverageChip">Coverage: --</span>
+          <button type="button" class="btn btn-outline-secondary btn-sm sr-health-btn" id="srSystemHealthBtn" data-bs-toggle="popover" data-bs-trigger="focus" data-bs-html="true" title="System Health">
+            System Health
+          </button>
           <span class="text-muted small" id="srLastRefresh">Last refresh: --</span>
           <div class="dropdown">
             <button class="btn btn-primary btn-sm dropdown-toggle" type="button" id="salesrepsActionsMenu" data-bs-toggle="dropdown" aria-expanded="false">
@@ -101,23 +89,46 @@
   </section>
 
   <section class="mb-4">
-    <div class="sr-kpi-grid sr-kpi-grid--loading" id="srKpiGrid" aria-live="polite">
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="revenue" title="Sort table by Revenue"><div class="label">Revenue</div><div class="value" id="kpiRevenue">--</div><div class="delta" id="kpiRevenueDelta">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="profit" title="Sort table by Profit"><div class="label">Profit</div><div class="value" id="kpiProfit">--</div><div class="delta" id="kpiProfitDelta">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="margin_pct" title="Sort table by Margin %"><div class="label">Margin %</div><div class="value" id="kpiMargin">--</div><div class="delta" id="kpiMarginDelta">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="weight_lb" title="Sort table by Shipped LB"><div class="label">Shipped LB</div><div class="value" id="kpiWeight">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="orders" title="Sort table by Orders"><div class="label">Orders</div><div class="value" id="kpiOrders">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="customers" title="Sort table by Customers"><div class="label">Customers</div><div class="value" id="kpiCustomers">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="active_customers" title="Sort table by Active Customers"><div class="label">Active Customers</div><div class="value" id="kpiActiveCustomers">--</div><div class="delta" id="kpiActiveCustomersDelta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="avg_order_value" title="Sort table by Avg Order Value"><div class="label">Avg Order Value</div><div class="value" id="kpiAvgOrderValue">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="revenue_per_customer" title="Sort table by Revenue per Customer"><div class="label">Revenue / Customer</div><div class="value" id="kpiRevenuePerCustomer">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="yoy_revenue_pct" title="Sort table by YoY Revenue %"><div class="label">YoY Revenue</div><div class="value" id="srYoyRevenue">--</div><div class="delta" id="srYoyProfit">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable"><div class="label">YoY Margin Delta</div><div class="value" id="srYoyMargin">--</div><div class="delta" id="srModeNarrative">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="inherited_customers" title="Sort table by Inherited Customers"><div class="label">Inherited Revenue</div><div class="value" id="kpiInheritedRevenue">--</div><div class="delta" id="kpiInheritedRevenueDelta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="transferred_in_revenue" title="Sort table by Transferred In Revenue"><div class="label">Transferred Accounts</div><div class="value" id="srTransferredAccounts">--</div><div class="delta" id="srTransferredRevenue">--</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="units" title="Sort table by Units"><div class="label" id="kpiUnitsLabel">Units</div><div class="value" id="kpiUnits">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp_lb" title="Sort table by ASP / lb"><div class="label" id="kpiAspLbLabel">ASP / lb</div><div class="value" id="kpiAspLb">--</div><div class="delta">&nbsp;</div></div>
-      <div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp" title="Sort table by ASP"><div class="label" id="kpiAspLabel">ASP</div><div class="value" id="kpiAsp">--</div><div class="delta">&nbsp;</div></div>
+    <div class="row g-3 scorecard-v2" id="srKpiGrid" aria-live="polite">
+      <!-- Primary: Revenue / Profit -->
+      <div class="col-12 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm scorecard-column primary-column">
+          <div class="card-header bg-primary text-white py-1 fw-bold small">PRIMARY: REVENUE / PROFIT</div>
+          <div class="card-body p-2">
+            <div class="row g-2">
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="revenue"><div class="label">Revenue <span id="statusRevenue" class="status-dot"></span></div><div class="value" id="kpiRevenue"><span class="skeleton"></span></div><div class="delta" id="kpiRevenueDelta"><span class="skeleton" style="width:40px"></span></div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="profit"><div class="label">Profit</div><div class="value" id="kpiProfit"><span class="skeleton"></span></div><div class="delta" id="kpiProfitDelta"><span class="skeleton" style="width:40px"></span></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Efficiency: Margin / ASP -->
+      <div class="col-12 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm scorecard-column efficiency-column">
+          <div class="card-header bg-success text-white py-1 fw-bold small">EFFICIENCY: MARGIN / ASP</div>
+          <div class="card-body p-2">
+            <div class="row g-2">
+              <div class="col-12"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="margin_pct"><div class="label">Margin % <span id="statusMargin" class="status-dot"></span></div><div class="value" id="kpiMargin"><span class="skeleton"></span></div><div class="delta" id="kpiMarginDelta"><span class="skeleton" style="width:40px"></span></div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp"><div class="label" id="kpiAspLabel">ASP</div><div class="value" id="kpiAsp"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp_lb"><div class="label" id="kpiAspLbLabel">ASP / lb</div><div class="value" id="kpiAspLb"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Portfolio: Customers / Volume -->
+      <div class="col-12 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm scorecard-column portfolio-column">
+          <div class="card-header bg-info text-white py-1 fw-bold small">PORTFOLIO: CUSTOMERS / VOLUME</div>
+          <div class="card-body p-2">
+            <div class="row g-2">
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="customers"><div class="label">Customers</div><div class="value" id="kpiCustomers"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="orders"><div class="label">Orders</div><div class="value" id="kpiOrders"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="weight_lb"><div class="label">Weight (LB)</div><div class="value" id="kpiWeight"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="units"><div class="label" id="kpiUnitsLabel">Units</div><div class="value" id="kpiUnits"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -309,7 +320,7 @@
         </div>
         <div class="card-body">
           <div class="position-relative">
-            <div style="height:320px" class="sr-chart-shell sr-chart-shell--loading"><canvas id="monthlyCompareChart"></canvas></div>
+            <div style="height:320px" class="sr-chart-shell sr-chart-shell--loading sr-chart-shell--line"><canvas id="monthlyCompareChart"></canvas></div>
             <button id="btnMonthlyComparePng"
                     class="btn btn-sm btn-outline-secondary sr-chart-dl-btn"
                     title="Download chart as PNG"
@@ -329,7 +340,7 @@
           </div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="transferChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bar"><canvas id="transferChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -382,7 +393,7 @@
         </div>
         <div class="card-body">
           <div class="small text-muted mb-2" id="srTrendSelectionSummary">Showing the top visible reps under the current filter set.</div>
-          <div class="ratio ratio-16x9 sr-chart-shell sr-chart-shell--loading"><canvas id="trendChart"></canvas></div>
+          <div class="ratio ratio-16x9 sr-chart-shell sr-chart-shell--loading sr-chart-shell--line"><canvas id="trendChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -402,10 +413,14 @@
               <option value="customers">Customers</option>
               <option value="weight_lb">Shipped LB</option>
             </select>
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="srLeaderboardDirectOnly">
+              <label class="form-check-label small" for="srLeaderboardDirectOnly">Direct-only</label>
+            </div>
           </div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="topRepsChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bar"><canvas id="topRepsChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -419,7 +434,7 @@
           <div class="text-muted small">Top-customer and top-five exposure so leadership can spot fragile books quickly.</div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="concentrationChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bar"><canvas id="concentrationChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -430,7 +445,7 @@
           <div class="text-muted small">Revenue versus customer count, with bubble size reflecting profit contribution.</div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="effChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bubble"><canvas id="effChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -441,7 +456,7 @@
           <div class="text-muted small">Quadrant view of large books, high-profit books, and underperforming owner portfolios.</div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="profitRevenueChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bubble"><canvas id="profitRevenueChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -451,7 +466,7 @@
   <section class="sr-section-heading mb-3">
     <div>
       <p class="sr-section-kicker mb-1">Customer Intelligence</p>
-      <h3 class="mb-1">Top Accounts, Movers, And Owner Context</h3>
+      <h3 class="mb-1">All Accounts, Movers, And Owner Context</h3>
       <p class="text-muted mb-0">
         <span id="srCustSummaryLine">Customer-level contribution, movement, and owner accountability.</span>
       </p>
@@ -475,51 +490,55 @@
             <div class="text-muted small">Revenue, profit, and YoY movement for the customers inside the visible current-owner portfolio.</div>
           </div>
         </div>
-        <div class="card-body sr-scroll-card">
-          <!-- Phase 3B: search + export toolbar row 1 -->
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <input id="srCustomerSearch" type="text"
-                   class="form-control form-control-sm"
-                   placeholder="&#128269;  Search customers, owners, or territories..."
-                   style="max-width:340px">
-            <button id="btnExportCustCSV"
-                    class="btn btn-sm btn-outline-secondary ms-auto">
-              &#11015; Export View
-            </button>
-            <button id="btnExportFollowUp"
-                    class="btn btn-sm"
-                    onclick="exportFollowUpList()"
-                    style="background:var(--trsm-primary);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:0.82rem">
-              &#11015; Scott&#8217;s Follow-Up List
-            </button>
+        <div class="card-body sr-top-customers-card">
+          <div class="sr-customer-toolbar" id="srCustomerToolbar">
+            <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+              <input id="srCustomerSearch" type="text"
+                     class="form-control form-control-sm"
+                     placeholder="&#128269; Search customers, owners, or territories..."
+                     style="max-width:340px">
+              <button id="btnExportCustCSV"
+                      class="btn btn-sm btn-outline-secondary ms-auto">
+                &#11015; Export View
+              </button>
+              <button id="btnExportFollowUp"
+                      class="btn btn-sm"
+                      onclick="exportFollowUpList()"
+                      style="background:var(--trsm-primary);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:0.82rem">
+                &#11015; Scott&#8217;s Follow-Up List
+              </button>
+            </div>
+            <div class="sr-owner-pills mb-2" id="srOwnerPills"></div>
+            <div id="srFollowUpToast" class="alert alert-success py-1 px-3 small mb-2" style="display:none"></div>
+            <div class="sr-customer-view-toggle mb-2" role="group" aria-label="Customer view">
+              <button class="sr-toggle-btn active" data-customer-view="all">All Accounts</button>
+              <button class="sr-toggle-btn" data-customer-view="best">&#9733; Top 10 Best</button>
+              <button class="sr-toggle-btn" data-customer-view="atrisk">&#9888; Top 10 At-Risk</button>
+            </div>
           </div>
-          <!-- Phase 3B: owner filter pills row 2 -->
-          <div class="sr-owner-pills mb-2" id="srOwnerPills"></div>
-          <!-- Phase 3B: toast for empty follow-up list -->
-          <div id="srFollowUpToast" class="alert alert-success py-1 px-3 small mb-2" style="display:none"></div>
-          <div class="sr-customer-view-toggle mb-2" role="group" aria-label="Customer view">
-            <button class="sr-toggle-btn active" data-customer-view="all">All Accounts</button>
-            <button class="sr-toggle-btn" data-customer-view="best">&#9733; Top 10 Best</button>
-            <button class="sr-toggle-btn" data-customer-view="atrisk">&#9888; Top 10 At-Risk</button>
+          <div class="sr-top-customers-wrap" id="srTopCustomersWrap">
+            <table class="table table-sm align-middle mb-0" id="srTopCustomersTable">
+              <thead class="table-light">
+                <tr>
+                  <th scope="col" class="sortable" data-top-customers-sort="customer_name" tabindex="0">Customer</th>
+                  <th scope="col" class="sortable" data-top-customers-sort="_risk_score" tabindex="0">
+                    Risk <span title="Critical = Silent &gt; 30d and MoM revenue &lt; -20%" style="cursor:help">&#9432;</span>
+                  </th>
+                  <th scope="col" class="sortable" data-top-customers-sort="account_owner_name" tabindex="0">Owner</th>
+                  <th scope="col" class="sortable" data-top-customers-sort="territory_name" tabindex="0">Territory</th>
+                  <th scope="col" class="text-end sortable" data-top-customers-sort="revenue" tabindex="0">Revenue</th>
+                  <th scope="col" class="text-end sortable" data-top-customers-sort="profit" tabindex="0">Profit</th>
+                  <th scope="col" class="text-end sortable" data-top-customers-sort="yoy_delta_revenue" tabindex="0">YoY Delta</th>
+                  <th scope="col" class="text-end sortable" data-top-customers-sort="mom_revenue_pct" tabindex="0">MoM Velocity</th>
+                  <th scope="col" class="text-center">Gap Analysis</th>
+                  <th scope="col" class="text-end sortable" data-top-customers-sort="last_order_date" tabindex="0" title="Time since the last order">Silent <span style="cursor:help">&#9432;</span></th>
+                </tr>
+              </thead>
+              <tbody id="srTopCustomersBody">
+                <tr><td colspan="10" class="text-muted">Loading customers...</td></tr>
+              </tbody>
+            </table>
           </div>
-          <table class="table table-sm align-middle mb-0" id="srTopCustomersTable">
-            <thead class="table-light">
-              <tr>
-                <th scope="col" class="sortable" data-top-customers-sort="customer_name" tabindex="0">Customer</th>
-                <th scope="col" class="sortable" data-top-customers-sort="_risk_score" tabindex="0">
-                  Risk <span title="Based on MoM trend, YoY trend, and days since last order" style="cursor:help">&#9432;</span>
-                </th>
-                <th scope="col" class="sortable" data-top-customers-sort="account_owner_name" tabindex="0">Owner</th>
-                <th scope="col" class="sortable" data-top-customers-sort="territory_name" tabindex="0">Territory</th>
-                <th scope="col" class="text-end sortable" data-top-customers-sort="revenue" tabindex="0">Revenue</th>
-                <th scope="col" class="text-end sortable" data-top-customers-sort="profit" tabindex="0">Profit</th>
-                <th scope="col" class="text-end sortable" data-top-customers-sort="yoy_revenue_pct" tabindex="0">YoY %</th>
-              </tr>
-            </thead>
-            <tbody id="srTopCustomersBody">
-              <tr><td colspan="7" class="text-muted">Loading customers...</td></tr>
-            </tbody>
-          </table>
         </div>
       </article>
     </div>
@@ -582,7 +601,7 @@
           <div class="text-muted small">Revenue, profit, margin, and YoY contribution shifts by protein.</div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="srProteinChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bar"><canvas id="srProteinChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -629,7 +648,7 @@
           <div class="text-muted small">Top rep contribution and cumulative concentration under the selected metric.</div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-16x9 sr-chart-shell sr-chart-shell--loading"><canvas id="revenueShareChart"></canvas></div>
+          <div class="ratio ratio-16x9 sr-chart-shell sr-chart-shell--loading sr-chart-shell--line"><canvas id="revenueShareChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -640,7 +659,7 @@
           <div class="text-muted small">Top average selling price leaders across the visible owner book.</div>
         </div>
         <div class="card-body">
-          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading"><canvas id="aspChart"></canvas></div>
+          <div class="ratio ratio-4x3 sr-chart-shell sr-chart-shell--loading sr-chart-shell--bar"><canvas id="aspChart"></canvas></div>
         </div>
       </article>
     </div>
@@ -710,7 +729,7 @@
 
     <div class="table-responsive sr-table-wrap" id="srTableWrap">
       <table class="table table-sm table-hover table-striped align-middle mb-0" id="srTable">
-        <thead class="table-light">
+        <thead class="table-light sticky-header">
           <tr>
             <th scope="col" class="col-select text-center"><input type="checkbox" id="srSelectAll" class="form-check-input" title="Select top 4 reps for comparison" aria-label="Select top 4 reps"></th>
             <th scope="col" class="sticky-col sortable" tabindex="0" data-sort-key="rep_name">Rep</th>
@@ -719,6 +738,9 @@
             <th scope="col" class="text-end sortable col-revenue" tabindex="0" data-sort-key="revenue">Revenue</th>
             <th scope="col" class="text-end sortable col-profit" tabindex="0" data-sort-key="profit">Profit</th>
             <th scope="col" class="text-end sortable col-margin_pct" tabindex="0" data-sort-key="margin_pct">Margin %</th>
+            <th scope="col" class="text-end sortable col-silent_days" tabindex="0" data-sort-key="last_order_date">Silent (Days)</th>
+            <th scope="col" class="text-end sortable col-mom_revenue_delta" tabindex="0" data-sort-key="mom_revenue_delta">MoM Delta</th>
+            <th scope="col" class="text-end sortable col-yoy_revenue_delta" tabindex="0" data-sort-key="yoy_revenue_delta">YoY Delta</th>
             <th scope="col" class="text-end sortable col-weight_lb" tabindex="0" data-sort-key="weight_lb">Shipped LB</th>
             <th scope="col" class="text-end sortable col-active_customers" tabindex="0" data-sort-key="active_customers">Active Cust.</th>
             <th scope="col" class="text-end sortable col-current_owned_customers" tabindex="0" data-sort-key="current_owned_customers">Current Owned</th>
@@ -777,5 +799,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/salesreps.js', v='20260408-salesreps-live-v2') }}" defer></script>
+<script src="{{ url_for('static', filename='js/salesreps.js', v='20260409-v5') }}" defer></script>
 {% endblock %}

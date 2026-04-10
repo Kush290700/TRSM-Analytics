@@ -47,6 +47,10 @@ def seed_salesreps_v2(tmp_path, monkeypatch):
     df.to_parquet(parquet_path)
 
     monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    monkeypatch.delenv("CUSTOMER_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("TERRITORY_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("CUSTOMER_TERRITORY_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("SALESREP_SUCCESSION_PATH", raising=False)
     fact_store.reset_duckdb_state()
     fact_store.init_views()
     yield parquet_path
@@ -102,7 +106,8 @@ def test_sales_scope_table_and_export_only_allowed_reps(app_client, seed_salesre
     )
     assert export.status_code == 200
     export_df = _csv_frame(export)
-    assert set(export_df["Rep ID"].tolist()) == {"R001", "R002"}
+    assert "Rep ID" not in export_df.columns
+    assert set(export_df["Rep Name"].tolist()) == {"Rep 001", "Rep 002"}
 
 
 def test_admin_scope_sees_all_reps_table_and_export(app_client, seed_salesreps_v2, monkeypatch):
@@ -179,11 +184,22 @@ def test_salesreps_page_renders_with_flag_on_off(app_client, monkeypatch):
     assert legacy.status_code == 200
     legacy_body = legacy.get_data(as_text=True)
     assert "Unified KPIs, drilldowns, and trends" in legacy_body
-    assert "Ranking &amp; Performance" not in legacy_body
+    assert "Current Owner Roll-Up" not in legacy_body
 
     monkeypatch.setitem(app_client.application.config, "SALESREPS_V2", True)
     v2 = app_client.get("/salesreps/")
     assert v2.status_code == 200
     v2_body = v2.get_data(as_text=True)
-    assert "Ranking &amp; Performance" in v2_body
+    assert "Current Owner Roll-Up" in v2_body
+    assert "Ownership &amp; Portfolio Summary" in v2_body
     assert "id=\"srMetricToggle\"" in v2_body
+    assert "id=\"srAttributionMode\"" in v2_body
+    assert "id=\"salesrepsActionsMenu\"" in v2_body
+    assert "id=\"srSummaryNarrative\"" in v2_body
+    assert "id=\"srSystemHealthBtn\"" in v2_body
+    assert "id=\"srLeaderboardDirectOnly\"" in v2_body
+    assert "YoY Delta" in v2_body
+    assert "MoM Velocity" in v2_body
+    assert "Gap Analysis" in v2_body
+    assert "Rep Roster" not in v2_body
+    assert "Transferred Accounts Only" not in v2_body

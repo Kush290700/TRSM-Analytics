@@ -13,6 +13,11 @@
       panel.classList.add("d-none");
       return;
     }
+    const salesrepsPage = !!document.getElementById("SalesRepsApp");
+    if (salesrepsPage && pct != null && !Number.isNaN(Number(pct)) && Number(pct) >= 95) {
+      panel.classList.add("d-none");
+      return;
+    }
     panel.classList.remove("d-none");
     const fmt = new Intl.NumberFormat();
     if (countsEl) {

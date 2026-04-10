@@ -16,7 +16,7 @@
   const LOCALE = "en-CA";
   const CURRENCY = "CAD";
 
-  const NA = "N/A";
+  const NA = "—";
   const fmtMoney0 = new Intl.NumberFormat(LOCALE, { style: "currency", currency: CURRENCY, maximumFractionDigits: 0 });
   const fmtMoney2 = new Intl.NumberFormat(LOCALE, { style: "currency", currency: CURRENCY, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtInt = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
@@ -48,6 +48,9 @@
     transferred_in_revenue: true,
     transferred_out_revenue: true,
     yoy_revenue_pct: true,
+    silent_days: true,
+    mom_revenue_delta: true,
+    yoy_revenue_delta: true,
     territory_count: true,
     replaced_reps: false,
     top_territory: false,
@@ -71,6 +74,80 @@
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
+  const parseCssColor = (value) => {
+    const input = String(value || "").trim();
+    if (!input) return null;
+    const rgbMatch = input.match(
+      /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*[,/]\s*([0-9.]+))?\s*\)$/i,
+    );
+    if (rgbMatch) {
+      return {
+        r: Number(rgbMatch[1]),
+        g: Number(rgbMatch[2]),
+        b: Number(rgbMatch[3]),
+        a: rgbMatch[4] == null ? 1 : Number(rgbMatch[4]),
+      };
+    }
+    const hexMatch = input.match(/^#([0-9a-f]{3,8})$/i);
+    if (!hexMatch) return null;
+    const hex = hexMatch[1];
+    if (hex.length === 3 || hex.length === 4) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16),
+        a: hex.length === 4 ? parseInt(hex[3] + hex[3], 16) / 255 : 1,
+      };
+    }
+    if (hex.length === 6 || hex.length === 8) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+        a: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1,
+      };
+    }
+    return null;
+  };
+
+  const compositeColor = (fg, bg = { r: 255, g: 255, b: 255, a: 1 }) => {
+    const alpha = fg.a + bg.a * (1 - fg.a);
+    if (alpha <= 0) return { r: 255, g: 255, b: 255, a: 0 };
+    return {
+      r: Math.round((fg.r * fg.a + bg.r * bg.a * (1 - fg.a)) / alpha),
+      g: Math.round((fg.g * fg.a + bg.g * bg.a * (1 - fg.a)) / alpha),
+      b: Math.round((fg.b * fg.a + bg.b * bg.a * (1 - fg.a)) / alpha),
+      a: alpha,
+    };
+  };
+
+  const luminance = (color) =>
+    [color.r, color.g, color.b]
+      .map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.03928
+          ? normalized / 12.92
+          : Math.pow((normalized + 0.055) / 1.055, 2.4);
+      })
+      .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
+
+  const contrastRatio = (foreground, background) => {
+    const lighter = Math.max(luminance(foreground), luminance(background));
+    const darker = Math.min(luminance(foreground), luminance(background));
+    return (lighter + 0.05) / (darker + 0.05);
+  };
+
+  const readableBadgeForeground = (background) => {
+    const parsed = parseCssColor(background) || parseCssColor("#6c757d");
+    const resolvedBackground = compositeColor(parsed, { r: 255, g: 255, b: 255, a: 1 });
+    const light = { r: 255, g: 255, b: 255, a: 1 };
+    const dark = { r: 19, g: 32, b: 51, a: 1 };
+    return contrastRatio(light, resolvedBackground) >= contrastRatio(dark, resolvedBackground) ? "#ffffff" : "#132033";
+  };
+
+  const healthBadgeStyle = (background, fontSize = "0.72rem") =>
+    `background:${escapeHtml(background || "#6c757d")};color:${readableBadgeForeground(background)};font-size:${fontSize};font-weight:700;`;
+
   const state = {
     qs: "",
     page: 1,
@@ -92,6 +169,7 @@
     attributionMode: "current_owner",
     rosterMode: "current_only",
     transferOnly: false,
+    leaderboardScope: "all",
     focusedRepIds: [],
     focusedRepLabels: [],
     scrollToFocusedRep: false,
@@ -119,6 +197,17 @@
     lastRange: "",
     scheduled: false,
   };
+  const customerVirtualTable = {
+    wrapper: null,
+    tbody: null,
+    rows: [],
+    rowHeight: 74,
+    overscan: 8,
+    lastRange: "",
+    scheduled: false,
+    emptyMessage: "",
+  };
+  let systemHealthPopover = null;
 
   const emptyMessage = "No data for selected filters.";
 
@@ -129,7 +218,7 @@
     margin_pct: { label: "Margin %", fmt: (v) => `${fmtPct.format(num(v))}%`, value: (r) => num(r.margin_pct) },
     orders: { label: "Orders", fmt: (v) => fmtInt.format(num(v)), value: (r) => num(r.orders) },
     customers: { label: "Customers", fmt: (v) => fmtInt.format(num(v)), value: (r) => num(r.customers) },
-    weight_lb: { label: "Weight (lb)", fmt: (v) => fmtInt.format(num(v)), value: (r) => num(r.weight_lb) },
+    weight_lb: { label: "Weight (LB)", fmt: (v) => fmtInt.format(num(v)), value: (r) => num(r.weight_lb) },
   };
 
   const num = (v, fallback = 0) => {
@@ -160,6 +249,53 @@
     const n = opt(v);
     if (n === null) return NA;
     return compact ? fmtMoney0.format(n) : fmtMoney2.format(n);
+  };
+
+  const formatDateCA = (raw) => {
+    if (!raw) return NA;
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.valueOf())) return String(raw);
+    return dt.toLocaleDateString(LOCALE, { year: "numeric", month: "2-digit", day: "2-digit" });
+  };
+
+  const referenceDate = () => {
+    const raw = lastPayload?.meta?.last_refresh;
+    const dt = raw ? new Date(raw) : new Date();
+    return Number.isNaN(dt.valueOf()) ? new Date() : dt;
+  };
+
+  const silentAge = (rawDate, explicitDays = null) => {
+    const direct = opt(explicitDays);
+    if (direct !== null) {
+      return {
+        days: Math.max(Math.round(direct), 0),
+        dateLabel: rawDate ? formatDateCA(rawDate) : null,
+      };
+    }
+    if (!rawDate) return { days: null, dateLabel: null };
+    const dt = new Date(rawDate);
+    if (Number.isNaN(dt.valueOf())) return { days: null, dateLabel: null };
+    return {
+      days: Math.max(Math.floor((referenceDate() - dt) / 86400000), 0),
+      dateLabel: formatDateCA(rawDate),
+    };
+  };
+
+  const silentTone = (days) => {
+    if (days == null) return "is-fresh";
+    if (days > 45) return "is-critical";
+    if (days >= 7) return "is-watch";
+    return "is-fresh";
+  };
+
+  const silentCellHtml = (rawDate, explicitDays = null) => {
+    const meta = silentAge(rawDate, explicitDays);
+    if (meta.days == null) return `<span class="sr-silent-chip is-fresh">${NA}</span>`;
+    return `
+      <span class="sr-silent-cell" title="Last order ${escapeHtml(meta.dateLabel || NA)}">
+        <span class="sr-silent-chip ${silentTone(meta.days)}">${meta.days}d</span>
+      </span>
+    `;
   };
 
   const setScorecardLoading = (loading) => {
@@ -401,6 +537,7 @@
     transfer_only: !!state.transferOnly,
     metric: state.metric,
     leaderboard_metric: state.metric,
+    leaderboard_scope: state.leaderboardScope,
     trend_metric: state.trendMetric,
     trend_grain: state.trendGrain,
     trend_view: state.trendView,
@@ -779,7 +916,7 @@
     const n = opt(value);
     el.classList.remove("delta-up", "delta-down");
     if (n === null) {
-      el.innerHTML = `<span class="sr-kpi-delta sr-kpi-delta--neutral">MoM N/A</span>`;
+      el.innerHTML = `<span class="sr-kpi-delta sr-kpi-delta--neutral">MoM ${NA}</span>`;
       return;
     }
     const cls = n >= 0 ? "sr-kpi-delta--pos" : "sr-kpi-delta--neg";
@@ -790,7 +927,7 @@
   const updateColumnLabels = (meta = {}) => {
     const units = meta.units_label || root.dataset.unitsLabel || "Units";
     const asp = meta.asp_label || root.dataset.aspLabel || "ASP";
-    const aspLb = meta.asp_lb_label || root.dataset.aspLbLabel || "ASP / lb";
+    const aspLb = meta.asp_lb_label || root.dataset.aspLbLabel || "ASP / LB";
     setText("kpiUnitsLabel", units);
     setText("kpiAspLabel", asp);
     setText("kpiAspLbLabel", aspLb);
@@ -801,6 +938,16 @@
 
   const syncStateFromQS = (qs) => {
     const params = new URLSearchParams(String(qs || "").replace(/^\?/, ""));
+    const page = Number(params.get("page"));
+    if (Number.isFinite(page) && page > 0) state.page = page;
+    const pageSize = Number(params.get("page_size"));
+    if (Number.isFinite(pageSize) && pageSize > 0) state.pageSize = pageSize;
+    const sortBy = params.get("sort");
+    if (sortBy) state.sortBy = sortBy;
+    const sortDir = params.get("dir");
+    if (sortDir) state.sortDir = sortDir === "asc" ? "asc" : "desc";
+    const search = params.get("q");
+    if (search != null) state.search = search;
     const mode = params.get("attribution_mode");
     if (mode) state.attributionMode = mode;
     const roster = params.get("roster_mode");
@@ -817,6 +964,10 @@
     if (trendView && ["absolute", "yoy_delta", "index"].includes(trendView)) state.trendView = trendView;
     const topN = Number(params.get("top_n") || params.get("topN"));
     if (Number.isFinite(topN) && topN > 0) state.topN = topN;
+    const leaderboardScope = params.get("leaderboard_scope");
+    if (leaderboardScope && ["all", "direct_only"].includes(leaderboardScope)) {
+      state.leaderboardScope = leaderboardScope;
+    }
   };
 
   const baseQuery = () => {
@@ -832,6 +983,7 @@
     params.set("top_n", String(state.topN));
     params.set("attribution_mode", state.attributionMode);
     params.set("roster_mode", state.rosterMode);
+    params.set("leaderboard_scope", state.leaderboardScope);
     if (state.transferOnly) params.set("transfer_only", "1");
     else params.delete("transfer_only");
     if (state.search) params.set("q", state.search);
@@ -840,6 +992,18 @@
   };
 
   const buildQueryString = () => baseQuery().toString();
+
+  const syncBrowserUrl = () => {
+    const nextQs = buildQueryString();
+    state.qs = nextQs;
+    if (!window.history?.replaceState) return nextQs;
+    const nextUrl = `${window.location.pathname}${nextQs ? `?${nextQs}` : ""}${window.location.hash || ""}`;
+    const currentUrl = `${window.location.pathname}${window.location.search || ""}${window.location.hash || ""}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state || null, "", nextUrl);
+    }
+    return nextQs;
+  };
 
   const updateExportLinks = () => {
     const exportParams = baseQuery();
@@ -860,6 +1024,7 @@
 
   const syncControlsFromState = () => {
     const metricToggle = document.getElementById("srMetricToggle");
+    const leaderboardDirectOnly = document.getElementById("srLeaderboardDirectOnly");
     const trendMetric = document.getElementById("srTrendMetric");
     const trendGrain = document.getElementById("srTrendGrain");
     const trendView = document.getElementById("srTrendView");
@@ -871,6 +1036,7 @@
     const transferOnly = document.getElementById("srTransferOnly");
 
     if (metricToggle) metricToggle.value = state.metric;
+    if (leaderboardDirectOnly) leaderboardDirectOnly.checked = state.leaderboardScope === "direct_only";
     if (trendMetric) trendMetric.value = state.trendMetric;
     if (trendGrain) trendGrain.value = state.trendGrain;
     if (trendView) trendView.value = state.trendView;
@@ -902,6 +1068,7 @@
     attributionMode: state.attributionMode,
     rosterMode: state.rosterMode,
     transferOnly: !!state.transferOnly,
+    leaderboardScope: state.leaderboardScope,
   });
 
   const applySnapshotUiState = (uiState = {}) => {
@@ -925,12 +1092,17 @@
     if (uiState.attributionMode) state.attributionMode = String(uiState.attributionMode);
     if (uiState.rosterMode) state.rosterMode = String(uiState.rosterMode);
     state.transferOnly = !!uiState.transferOnly;
+    if (uiState.leaderboardScope && ["all", "direct_only"].includes(String(uiState.leaderboardScope))) {
+      state.leaderboardScope = String(uiState.leaderboardScope);
+    }
   };
 
   const persistSnapshot = (payload = lastPayload) => {
-    if (!pageCache || !payload || !state.qs) return false;
+    if (!pageCache || !payload) return false;
+    const fullQs = buildQueryString();
+    if (!fullQs) return false;
     return pageCache.saveSnapshot(PAGE_CACHE_ID, {
-      qs: state.qs,
+      qs: fullQs,
       payload,
       uiState: snapshotUiState(),
       scrollY: window.scrollY || 0,
@@ -962,6 +1134,66 @@
   const sortedByMetric = (rows, metric) => {
     const list = Array.isArray(rows) ? [...rows] : [];
     return list.sort((a, b) => rowMetricValue(b, metric) - rowMetricValue(a, metric));
+  };
+
+  const setScorecardBorder = (valueId, tone = "") => {
+    const card = document.getElementById(valueId)?.closest(".sr-kpi");
+    if (!card) return;
+    card.classList.remove("sr-kpi--status-green", "sr-kpi--status-yellow", "sr-kpi--status-red");
+    if (tone) card.classList.add(`sr-kpi--status-${tone}`);
+  };
+
+  const renderSystemHealth = (payload = {}) => {
+    const button = document.getElementById("srSystemHealthBtn");
+    if (!button) return;
+    const k = payload.kpis || {};
+    const packs = payload.meta?.packs_coverage || {};
+    const warnings = Array.isArray(payload.warnings) ? payload.warnings.filter(Boolean) : [];
+    const ownershipCoverage = opt(k.ownership_coverage_pct);
+    const costCoverage = opt(k.cost_coverage_pct);
+    const packsCoverage = opt(k.packs_coverage_pct ?? packs.packs_coverage_pct);
+    const hasRisk = [ownershipCoverage, costCoverage, packsCoverage].some((value) => value !== null && value < 95)
+      || warnings.length > 0;
+    const hasWatch = !hasRisk && [ownershipCoverage, costCoverage, packsCoverage].some((value) => value !== null && value < 98);
+    button.classList.remove("is-good", "is-watch", "is-risk");
+    button.classList.add(hasRisk ? "is-risk" : hasWatch ? "is-watch" : "is-good");
+
+    const notes = warnings.slice(0, 3).map((msg) => `<li>${escapeHtml(msg)}</li>`).join("");
+    const content = `
+      <div class="sr-system-health">
+        <div class="sr-system-health__metric">
+          <span class="sr-system-health__label">Ownership Coverage</span>
+          <span class="sr-system-health__value">${ownershipCoverage === null ? NA : `${fmtPct.format(ownershipCoverage)}%`}</span>
+        </div>
+        <div class="sr-system-health__metric">
+          <span class="sr-system-health__label">Cost Coverage</span>
+          <span class="sr-system-health__value">${costCoverage === null ? NA : `${fmtPct.format(costCoverage)}%`}</span>
+        </div>
+        <div class="sr-system-health__metric">
+          <span class="sr-system-health__label">Packs Coverage</span>
+          <span class="sr-system-health__value">${packsCoverage === null ? NA : `${fmtPct.format(packsCoverage)}%`}</span>
+        </div>
+        ${
+          notes
+            ? `<ul class="sr-system-health__notes">${notes}</ul>`
+            : `<div class="text-muted small">No active data-trust warnings in the current slice.</div>`
+        }
+      </div>
+    `;
+
+    if (window.bootstrap?.Popover) {
+      if (systemHealthPopover) systemHealthPopover.dispose();
+      systemHealthPopover = new window.bootstrap.Popover(button, {
+        html: true,
+        sanitize: false,
+        customClass: "sr-system-health-popover",
+        title: "System Health",
+        content,
+        placement: "bottom",
+      });
+    } else {
+      button.setAttribute("title", `Ownership ${ownershipCoverage ?? NA} | Cost ${costCoverage ?? NA} | Packs ${packsCoverage ?? NA}`);
+    }
   };
 
   const renderExecutive = (payload = {}) => {
@@ -1045,14 +1277,64 @@
     );
 
     const coverage = opt(k.ownership_coverage_pct);
-    setText("srCoverageChip", coverage == null ? "Coverage: N/A" : `Coverage: ${fmtPct.format(coverage)}%`);
+    const coverageEl = document.getElementById("srCoverageChip");
+    if (coverageEl) {
+      if (coverage !== null && num(coverage) >= 95) {
+        coverageEl.classList.add("d-none");
+        console.log(`[Data Health] Ownership coverage: ${fmtPct.format(coverage)}%`);
+      } else {
+        coverageEl.classList.remove("d-none");
+        setText("srCoverageChip", coverage == null ? `Coverage: ${NA}` : `Coverage: ${fmtPct.format(coverage)}%`);
+      }
+    }
+    renderSystemHealth(payload);
 
     setText("srLastRefresh", `Last refresh: ${isoDateLabel(meta.last_refresh || k.last_refresh || meta.dataset_version)}`);
-    setText("srWhatChanged", `What changed: ${k.what_changed || "No major change detected."}`);
+
+    const whatChangedEl = document.getElementById("srWhatChanged");
+    if (whatChangedEl) {
+      const insights = Array.isArray(k.what_changed) ? k.what_changed : [k.what_changed || "No major change detected."];
+      whatChangedEl.innerHTML = `<ul class="mb-0 ps-3"><li>${insights.join("</li><li>")}</li></ul>`;
+    }
+
+    const setStatus = (id, color) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.className = "status-dot " + color;
+      }
+    };
+
+    const margin = num(k.margin_pct);
+    if (k.margin_pct != null) {
+      if (margin >= 30) setStatus("statusMargin", "green");
+      else if (margin >= 27) setStatus("statusMargin", "yellow");
+      else setStatus("statusMargin", "red");
+    } else {
+      setStatus("statusMargin", "");
+    }
+    const marginGap = opt(k.target_gap_pct_points);
+    const marginTone = marginGap === null
+      ? (k.margin_pct == null ? "" : margin >= 30 ? "green" : margin >= 27 ? "yellow" : "red")
+      : marginGap >= 0 ? "green" : marginGap >= -2 ? "yellow" : "red";
+    setScorecardBorder("kpiMargin", marginTone);
+
+    const revVariance = opt(k.revenue_yoy_pct) ?? opt(k.revenue_mom_pct);
+    const revMom = num(k.revenue_mom_pct);
+    if (k.revenue_mom_pct != null) {
+      if (revMom > 0) setStatus("statusRevenue", "green");
+      else if (revMom >= -5) setStatus("statusRevenue", "yellow");
+      else setStatus("statusRevenue", "red");
+    } else {
+      setStatus("statusRevenue", "");
+    }
+    const revenueTone = revVariance === null ? "" : revVariance >= 0 ? "green" : revVariance >= -5 ? "yellow" : "red";
+    setScorecardBorder("kpiRevenue", revenueTone);
     const attributionSelect = document.getElementById("srAttributionMode");
     if (attributionSelect) attributionSelect.value = state.attributionMode;
     const metricToggle = document.getElementById("srMetricToggle");
     if (metricToggle) metricToggle.value = state.metric;
+    const leaderboardDirectOnly = document.getElementById("srLeaderboardDirectOnly");
+    if (leaderboardDirectOnly) leaderboardDirectOnly.checked = state.leaderboardScope === "direct_only";
     const trendMetric = document.getElementById("srTrendMetric");
     if (trendMetric) trendMetric.value = state.trendMetric;
     const trendGrain = document.getElementById("srTrendGrain");
@@ -1073,7 +1355,7 @@
     setText("srUnassignedCustomers", fmtInt.format(num(k.unassigned_customers)));
     setText("srUnassignedRevenueNote", k.unassigned_revenue == null ? NA : money(k.unassigned_revenue));
     setText("srYoyRevenue", k.revenue_yoy_pct == null ? NA : `${fmtPct.format(num(k.revenue_yoy_pct))}%`);
-    setText("srYoyProfit", k.profit_yoy_pct == null ? "Profit YoY: N/A" : `Profit YoY: ${fmtPct.format(num(k.profit_yoy_pct))}%`);
+    setText("srYoyProfit", k.profit_yoy_pct == null ? `Profit YoY: ${NA}` : `Profit YoY: ${fmtPct.format(num(k.profit_yoy_pct))}%`);
     setText("srYoyMargin", k.margin_yoy_delta == null ? NA : `${fmtPct.format(num(k.margin_yoy_delta))} pts`);
     setText(
       "srModeNarrative",
@@ -1220,27 +1502,6 @@
       }
     })();
 
-    // ── Phase 5: populate sticky context bar ──
-    (function () {
-      const stickyRev    = document.getElementById("sStickyRev");
-      const stickyMargin = document.getElementById("sStickyMargin");
-      const stickyReps   = document.getElementById("sStickyReps");
-      if (stickyRev)    stickyRev.textContent    = money(k.revenue);
-      if (stickyMargin) stickyMargin.textContent  = k.margin_pct == null ? "—" : `${fmtPct.format(num(k.margin_pct))}%`;
-      if (stickyReps)   stickyReps.textContent    = `${fmtInt.format(num(k.active_reps || payload.table?.total_rows || 0))} reps`;
-    })();
-
-    // ── Phase 5: show/hide sticky bar on scroll past KPI grid ──
-    (function () {
-      const stickyBar = document.getElementById("srStickyBar");
-      const kpiGrid   = document.getElementById("srKpiGrid");
-      if (stickyBar && kpiGrid) {
-        new IntersectionObserver(([entry]) => {
-          stickyBar.style.transform = entry.isIntersecting ? "translateY(-100%)" : "translateY(0)";
-        }, { threshold: 0 }).observe(kpiGrid);
-      }
-    })();
-
     // ── 2A: KPI micro-sparklines ──
     (function () {
       const mc = payload.charts?.monthly_compare ?? payload.trend?.monthly_compare ?? {};
@@ -1339,12 +1600,23 @@
     const kpis = payload.kpis || {};
     const insights = payload.analysis?.insights || {};
     const proteins = Array.isArray(payload.analysis?.proteins) ? payload.analysis.proteins : [];
+    const avgMarginPct = opt(payload.benchmarks?.avg_margin_pct);
     const revenueMoM = opt(kpis.revenue_mom_pct);
     const highestGrowth = (insights.chips || []).find((chip) => chip.key === "highest_growth_rep");
     const biggestDrag = (insights.chips || []).find((chip) => chip.key === "biggest_yoy_drag");
-    const criticalProtein = proteins
-      .filter((row) => isCriticalMargin(row))
-      .sort((a, b) => num(b.revenue) - num(a.revenue))[0];
+    const proteinDrag = avgMarginPct == null
+      ? null
+      : proteins
+        .map((row) => {
+          const marginPct = opt(row.margin_pct);
+          if (marginPct == null) return null;
+          const gapPts = avgMarginPct - marginPct;
+          return gapPts > 0
+            ? { ...row, gap_pts: gapPts, drag_score: gapPts * Math.max(num(row.revenue), 1) }
+            : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => num(b.drag_score) - num(a.drag_score))[0];
 
     const parts = [];
     if (revenueMoM !== null) {
@@ -1353,9 +1625,9 @@
       parts.push("Comparable MoM revenue is unavailable for the current window");
     }
 
-    if (criticalProtein?.protein_family) {
+    if (proteinDrag?.protein_family) {
       parts.push(
-        `${criticalProtein.protein_family} is below the minimum margin guardrail at ${pct(criticalProtein.margin_pct)} versus ${pct(criticalProtein.minimum_margin_pct)} min`
+        `${proteinDrag.protein_family} is dragging total margin by ${fmtPct.format(num(proteinDrag.gap_pts))} pts versus the portfolio average`
       );
     } else if (revenueMoM !== null && revenueMoM < 0 && biggestDrag?.rep_name) {
       parts.push(`${biggestDrag.rep_name} is the sharpest YoY drag at ${biggestDrag.display_value || NA}`);
@@ -1431,8 +1703,16 @@
       return { rep_id: repId, rep_name: businessRepName(points[0]?.rep_name, repId, READABLE_REP_FALLBACK), points };
     }).filter((row) => row.points.length);
 
-    const allBuckets = Array.from(new Set(repSeries.flatMap((row) => row.points.map((point) => point.bucket))))
-      .sort((a, b) => cleanText(a).localeCompare(cleanText(b)));
+    // Only include buckets where at least one rep has real current-period activity.
+    // Excluding YoY-only months (revenue=0, revenue_yoy>0) prevents phantom x-axis
+    // entries that break lines with spanGaps:false.
+    const activeSet = new Set();
+    repSeries.forEach((series) => {
+      series.points.forEach((point) => {
+        if (trendMetricValue(point, chartMetric) > 0) activeSet.add(point.bucket);
+      });
+    });
+    const allBuckets = Array.from(activeSet).sort((a, b) => cleanText(a).localeCompare(cleanText(b)));
 
     const hasData = repSeries.length > 0 && allBuckets.length > 0;
     const emptyMessage = state.trendGrain === "ttm"
@@ -1466,7 +1746,8 @@
         const current = point ? trendMetricValue(point, chartMetric) : null;
         const prior = point ? trendMetricPriorValue(point, chartMetric) : null;
         const comparableYoY = comparableObservedDays(point?.observed_days, point?.observed_days_yoy);
-        const yoyPct = current != null && prior != null && prior !== 0 && comparableYoY ? ((current - prior) / Math.abs(prior)) * 100 : null;
+        // Use prior > 0 guard only (same as monthly compare chart) — comparableObservedDays is too strict for monthly grains
+        const yoyPct = current != null && prior != null && prior > 0 ? ((current - prior) / Math.abs(prior)) * 100 : null;
         const displayValue = state.trendView === "absolute"
           ? current
           : state.trendView === "yoy_delta"
@@ -1563,7 +1844,7 @@
             },
           },
           tooltip: {
-            filter: (item) => item.parsed?.y != null && item.parsed.y !== 0,
+            filter: (item) => item.parsed?.y != null,
             itemSort: (a, b) => (b.parsed?.y ?? 0) - (a.parsed?.y ?? 0),
             callbacks: {
               beforeBody: (items) => {
@@ -1577,8 +1858,8 @@
                 if (state.trendView === "index") return `${ctx.dataset.label}: ${point.displayValue == null ? NA : fmtInt.format(num(point.displayValue))}`;
                 // ── 5B: enhanced tooltip: rep — value · ±X% vs prior month ──
                 const valStr = trendMetricFormatter(chartMetric, point.displayValue);
-                const momStr = point.momPct != null ? ` · ${point.momPct >= 0 ? "+" : ""}${fmtPct.format(point.momPct)}% vs prior month` : "";
-                return `${ctx.dataset.label} \u2014 ${valStr} revenue${momStr}`;
+                const momStr = point.momPct != null ? ` · ${point.momPct >= 0 ? "+" : ""}${fmtPct.format(point.momPct)}% MoM` : "";
+                return `${ctx.dataset.label} \u2014 ${valStr}${momStr}`;
               },
               afterLabel: (ctx) => {
                 const point = ctx.dataset?.metaPoints?.[ctx.dataIndex];
@@ -1595,7 +1876,6 @@
                 if (point.observed_days != null || point.observed_days_yoy != null) {
                   lines.push(`Observed days: ${fmtInt.format(num(point.observed_days))} / ${fmtInt.format(num(point.observed_days_yoy))}`);
                 }
-                if (point.prior != null && !point.comparableYoY) lines.push("YoY withheld due to incomplete prior-year coverage.");
                 return lines;
               },
             },
@@ -1665,7 +1945,7 @@
     const todayIndex = rawBuckets.findIndex((b) => String(b).slice(0, 7) === todayBucket);
 
     const chart = createChart("monthlyCompare", canvasId, {
-      type: "line",
+      type: "bar",                                     // ← root type bar for proper grouping
       data: {
         labels,
         datasets: [
@@ -1673,27 +1953,29 @@
             type: "bar",
             label: "Current Revenue",
             data: revenue,
-            yAxisID: "y",                              // ← explicit left axis
-            borderColor: "#965951",                    // ← brand primary
+            yAxisID: "y",
+            borderColor: "#965951",
             backgroundColor: "rgba(150,89,81,0.60)",
             borderWidth: 1,
             borderRadius: 4,
+            order: 2,
           },
           {
             type: "bar",
             label: "Prior-Year Revenue",
             data: revenueYoY,
-            yAxisID: "y",                              // ← explicit left axis
-            borderColor: "#d39c5f",                    // ← brand gold
+            yAxisID: "y",
+            borderColor: "#d39c5f",
             backgroundColor: "rgba(211,156,95,0.40)",
             borderWidth: 1,
             borderRadius: 4,
+            order: 2,
           },
           {
             type: "line",
             label: "YoY %",
             data: yoyPct,
-            yAxisID: "y1",                             // ← RIGHT axis (was missing type)
+            yAxisID: "y1",
             borderColor: "#198754",
             backgroundColor: "rgba(25,135,84,0.10)",
             borderWidth: 2,
@@ -1702,6 +1984,7 @@
             pointBackgroundColor: "#198754",
             fill: false,
             spanGaps: true,
+            order: 1,                                  // ← render on top of bars
           },
         ],
       },
@@ -1759,26 +2042,34 @@
               label: (ctx) => {
                 if (ctx.dataset.label === "YoY %") {
                   const v = ctx.parsed.y;
-                  return `YoY Change: ${v == null ? "N/A" : (v >= 0 ? "+" : "") + fmtPct.format(v) + "%"}`;
+                  if (v == null) return null;           // hide null YoY% entirely
+                  return `YoY Change: ${(v >= 0 ? "+" : "") + fmtPct.format(v) + "%"}`;
                 }
-                return `${ctx.dataset.label}: ${fmtMoney0.format(ctx.parsed.y ?? 0)}`;
+                const v = ctx.parsed.y;
+                if (v == null) return null;             // hide null bars — don't show "$0"
+                return `${ctx.dataset.label}: ${fmtMoney0.format(v)}`;
               },
               afterBody: (items) => {
                 const idx = items?.[0]?.dataIndex;
                 const row = idx == null ? null : rows[idx];
                 if (!row) return [];
                 const lines = [];
+                // Revenue delta vs prior year
+                const cur = opt(row.revenue);
+                const prior = opt(row.revenue_yoy);
+                if (cur != null && prior != null && prior > 0) {
+                  const delta = cur - prior;
+                  const sign = delta >= 0 ? "+" : "";
+                  lines.push(`vs Prior Year: ${sign}${fmtMoney0.format(delta)}`);
+                }
                 if (row.direct_revenue != null || row.inherited_revenue != null) {
                   lines.push(`Direct / Inherited: ${money(row.direct_revenue)} / ${money(row.inherited_revenue)}`);
                 }
                 if (row.customers != null || row.customers_yoy != null) {
-                  lines.push(`Customers: ${fmtInt.format(num(row.customers))} / ${fmtInt.format(num(row.customers_yoy))}`);
+                  lines.push(`Customers: ${fmtInt.format(num(row.customers))} / ${fmtInt.format(num(row.customers_yoy))} (curr / prior)`);
                 }
                 if (row.observed_days != null || row.observed_days_yoy != null) {
                   lines.push(`Observed days: ${fmtInt.format(num(row.observed_days))} / ${fmtInt.format(num(row.observed_days_yoy))}`);
-                }
-                if (opt(row.revenue_yoy) != null && !comparableObservedDays(row.observed_days, row.observed_days_yoy)) {
-                  lines.push("YoY withheld due to incomplete prior-year coverage.");
                 }
                 return lines;
               },
@@ -2164,21 +2455,38 @@
       .join("");
   };
 
+  const customerSilentDays = (row) => silentAge(row?.last_order_date, row?.days_since_order).days;
+  const customerMoMValue = (row) => opt(row?.mom_revenue_pct ?? row?.vs_prior_pct);
+  const customerYoYValue = (row) => opt(row?.yoy_revenue_pct ?? row?.yoy_pct);
+  const isCriticalCustomer = (row) => {
+    const silentDays = customerSilentDays(row);
+    const momPct = customerMoMValue(row);
+    return silentDays != null && silentDays > 30 && momPct != null && momPct < -20;
+  };
+
   // ── Phase 3A: customer risk signal ──
   const computeCustomerRisk = (row) => {
-    if ((row.revenue_last_30 ?? row.revenue ?? 0) === 0 && (row.revenue_prev_30 ?? 0) > 0)
-      return { signal: "lost",    label: "Lost",     score: 4 };
+    if (isCriticalCustomer(row)) return { signal: "critical", label: "Critical", score: 4 };
+    if ((row.revenue_last_30 ?? row.revenue ?? 0) === 0 && (row.revenue_prev_30 ?? 0) > 0) {
+      return { signal: "lost", label: "Lost", score: 3 };
+    }
     let neg = 0;
-    if ((row.mom_revenue_pct ?? row.vs_prior_pct ?? 0) < -5)  neg++;
-    if ((row.yoy_revenue_pct ?? row.yoy_pct ?? 0) < -10)      neg++;
-    if ((row.days_since_order ?? 0) > 45)                     neg++;
+    if ((customerMoMValue(row) ?? 0) < -5) neg += 1;
+    if ((customerYoYValue(row) ?? 0) < -10) neg += 1;
+    if ((customerSilentDays(row) ?? 0) > 45) neg += 1;
     if (neg === 0) return { signal: "healthy", label: "Healthy", score: 0 };
-    if (neg === 1) return { signal: "watch",   label: "Watch",   score: 1 };
-    return           { signal: "atrisk",  label: "At Risk", score: 2 };
+    if (neg === 1) return { signal: "watch", label: "Watch", score: 1 };
+    return { signal: "atrisk", label: "At Risk", score: 2 };
   };
 
   const _riskPillHtml = (risk) => {
-    const cls = { healthy: "sr-risk-healthy", watch: "sr-risk-watch", atrisk: "sr-risk-atrisk", lost: "sr-risk-lost" }[risk.signal] || "";
+    const cls = {
+      healthy: "sr-risk-healthy",
+      watch: "sr-risk-watch",
+      atrisk: "sr-risk-atrisk",
+      critical: "sr-risk-critical",
+      lost: "sr-risk-lost",
+    }[risk.signal] || "";
     return `<span class="sr-risk-pill ${cls}">${escapeHtml(risk.label)}</span>`;
   };
 
@@ -2210,8 +2518,8 @@
 
     const revRanks   = rankBy(ranked, (r) => num(r.revenue));
     const profitRanks = hasProfitData ? rankBy(ranked, (r) => num(r.profit)) : null;
-    // vs_prior_pct is the prior-period % change (MoM equivalent from the bundle)
-    const momRanks   = rankBy(ranked, (r) => num(r.vs_prior_pct ?? r.yoy_revenue_pct));
+    // MoM revenue pct is the short-term velocity signal for follow-up priority.
+    const momRanks   = rankBy(ranked, (r) => num(customerMoMValue(r) ?? customerYoYValue(r)));
 
     return rows.map((r, i) => {
       const score =
@@ -2221,6 +2529,8 @@
       return { ...r, _score: score };
     });
   };
+
+  const _custDaysSilentCell = (row) => silentCellHtml(row.last_order_date, row.days_since_order);
 
   const _custProfitCell = (row) => {
     if (row.profit == null) return NA;
@@ -2239,50 +2549,148 @@
     return `${profitStr}<br><span style="font-size:0.68rem;font-weight:600;padding:1px 6px;border-radius:8px;background:${bg};color:${fg};display:inline-block;margin-top:2px">${fmtPct.format(derivedMargin)}%</span>`;
   };
 
-  const _buildCustomerRowHtml = (row, badge = null) => {
-    // At-Risk view badge is removed — the Risk column already shows this clearly
-    const badgeHtml = badge && badge.view === "best"
-      ? `<span class="sr-cust-badge ${badge.cls}">${badge.text}</span>`
-      : "";
-    const yoyBadge = badge && badge.showYoyDrag && opt(row.yoy_revenue_pct) !== null && num(row.yoy_revenue_pct) < -15
-      ? `<span class="sr-cust-badge sr-cust-badge-yoy">YoY Drag</span>`
-      : "";
-    const rowClass = badge
-      ? badge.view === "best" ? "sr-cust-best-row" : (num(row.vs_prior_pct ?? row.yoy_revenue_pct) < -15 ? "sr-cust-risk-row" : "")
-      : "";
+  const _customerFilterRows = (rows) => {
+    let filtered = Array.isArray(rows) ? [...rows] : [];
+    if (_activeOwnerFilter) filtered = filtered.filter((r) => (r.account_owner_name || "") === _activeOwnerFilter);
+    const q = (_customerSearchQ || "").trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter((r) =>
+        (r.customer_name || "").toLowerCase().includes(q) ||
+        (r.customer_id || "").toLowerCase().includes(q) ||
+        (r.account_owner_name || "").toLowerCase().includes(q) ||
+        (r.territory_name || "").toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  };
 
-    // ── Phase 3A: risk column ──
-    const risk = computeCustomerRisk(row);
-    const riskHtml = _riskPillHtml(risk);
+  const _customerGapThreshold = (rows) => {
+    const values = (Array.isArray(rows) ? rows : [])
+      .map((row) => num(row.revenue))
+      .filter((value) => value > 0)
+      .sort((a, b) => a - b);
+    if (!values.length) return 0;
+    return values[Math.floor((values.length - 1) / 2)] || 0;
+  };
 
-    // ── Phase 3C: YoY % with colour + icon ──
-    const yoyVal = row.yoy_revenue_pct;
-    let yoyCellHtml = NA;
-    if (yoyVal != null) {
-      const v = num(yoyVal);
-      if (v > 2)       yoyCellHtml = `<span style="color:#198754">&#9650; ${fmtPct.format(v)}%</span>`;
-      else if (v < -2) yoyCellHtml = `<span style="color:#dc3545">&#9660; ${fmtPct.format(Math.abs(v))}%</span>`;
-      else             yoyCellHtml = `<span class="text-muted">&#8776; ${fmtPct.format(v)}%</span>`;
+  const _customerSortValue = (row, key) => {
+    if (key === "customer_name") return row.customer_name || row.customer_id;
+    if (key === "_risk_score") return computeCustomerRisk(row).score;
+    if (key === "last_order_date") return customerSilentDays(row);
+    if (key === "mom_revenue_pct") return customerMoMValue(row);
+    if (key === "yoy_revenue_pct") return customerYoYValue(row);
+    return row[key];
+  };
+
+  const _customerGapIcon = (label, extraClass = "", title = "") =>
+    `<span class="sr-gap-icon${extraClass ? ` ${extraClass}` : ""}" title="${escapeHtml(title || label)}">${escapeHtml(label)}</span>`;
+
+  const _customerGapAnalysisHtml = (row) => {
+    const beefRevenue = num(row.beef_revenue);
+    const poultryRevenue = num(row.poultry_revenue);
+    const porkRevenue = num(row.pork_revenue);
+    const highValueThreshold = num(row._gapHighValueThreshold);
+    const isHighValue = highValueThreshold > 0 && num(row.revenue) >= highValueThreshold;
+    const icons = [];
+    if (beefRevenue > 0) {
+      icons.push(_customerGapIcon("BF", "is-anchor", `Beef active: ${money(beefRevenue)}`));
+    }
+    if (poultryRevenue > 0) {
+      icons.push(_customerGapIcon("PT", "is-owned", `Poultry active: ${money(poultryRevenue)}`));
+    } else if (isHighValue && beefRevenue > 0) {
+      icons.push(_customerGapIcon("PT", "is-gap", "Cross-sell gap: high-value beef customer with no poultry"));
+    }
+    if (porkRevenue > 0) {
+      icons.push(_customerGapIcon("PK", "is-owned", `Pork active: ${money(porkRevenue)}`));
+    }
+    if (!icons.length) return `<span class="sr-gap-dash">${NA}</span>`;
+    return icons.join("");
+  };
+
+  const _customerYoyDeltaHtml = (row) => {
+    const yoyDelta = opt(row.yoy_delta_revenue);
+    const yoyPct = customerYoYValue(row);
+    if (yoyDelta == null && yoyPct == null) return `<span class="text-muted">${NA}</span>`;
+    const deltaClass = yoyDelta == null ? "text-muted" : yoyDelta > 0 ? "delta-up" : yoyDelta < 0 ? "delta-down" : "text-muted";
+    const pctLabel = yoyPct == null ? NA : `${yoyPct >= 0 ? "+" : ""}${fmtPct.format(yoyPct)}% YoY`;
+    return `
+      <div class="${deltaClass}">${yoyDelta == null ? NA : money(yoyDelta)}</div>
+      <div class="sr-momentum-sub">${pctLabel}</div>
+    `;
+  };
+
+  const _customerMomentumHtml = (row) => {
+    const momPct = customerMoMValue(row);
+    if (momPct == null) return `<span class="sr-momentum-pill is-flat">${NA}</span>`;
+    const cls = momPct > 2 ? "is-up" : momPct < -2 ? "is-down" : "is-flat";
+    const icon = momPct > 2 ? "▲" : momPct < -2 ? "▼" : "•";
+    const label = momPct > 2 ? "Accelerating" : momPct < -2 ? "Slowing" : "Flat";
+    return `
+      <span class="sr-momentum-pill ${cls}">${icon} ${momPct > 0 ? "+" : ""}${fmtPct.format(momPct)}%</span>
+      <span class="sr-momentum-sub">${label}</span>
+    `;
+  };
+
+  const _visibleCustomerRows = (rows) => {
+    const filtered = _customerFilterRows(rows);
+    if (!filtered.length) return [];
+    const maxRevenue = Math.max(...filtered.map((r) => num(r.revenue)), 1);
+    const highValueThreshold = _customerGapThreshold(filtered);
+    const enrich = (row, badge = null) => ({
+      ...row,
+      _maxRevenue: maxRevenue,
+      _gapHighValueThreshold: highValueThreshold,
+      _customerBadge: badge,
+    });
+
+    if (_customerViewMode === "best") {
+      return _computeCustomerScores(filtered)
+        .sort((a, b) => b._score - a._score)
+        .slice(0, 10)
+        .map((row) => enrich(row, { cls: "sr-cust-badge-best", text: "Top Performer", view: "best" }));
     }
 
-    // ── Phase 3C: revenue inline mini bar (computed by caller via maxRevenue) ──
+    if (_customerViewMode === "atrisk") {
+      return _computeCustomerScores(filtered)
+        .sort((a, b) => a._score - b._score)
+        .slice(0, 10)
+        .map((row) => enrich(row, { cls: "sr-cust-badge-risk", text: "Priority Follow-Up", view: "atrisk" }));
+    }
+
+    return sortRows(filtered, state.topCustomersSortBy, state.topCustomersSortDir, _customerSortValue)
+      .map((row) => enrich(row));
+  };
+
+  const _buildCustomerRowHtml = (row, badge = null) => {
+    const badgeHtml = badge?.text ? `<span class="sr-cust-badge ${badge.cls || ""}">${escapeHtml(badge.text)}</span>` : "";
+    const rowClass = badge?.view === "best" ? "sr-cust-best-row" : badge?.view === "atrisk" ? "sr-cust-risk-row" : "";
+    const risk = computeCustomerRisk(row);
+    const riskHtml = _riskPillHtml(risk);
     const rev = num(row.revenue);
     const maxRev = row._maxRevenue || rev || 1;
     const barPct = Math.min(100, Math.round((rev / maxRev) * 100));
     const revBarHtml = `<div style="height:3px;width:${barPct}%;background:rgba(150,89,81,0.35);border-radius:2px;margin-top:2px"></div>`;
+    const ordersVal = row.orders != null ? num(row.orders) : null;
+    const ordersHtml = ordersVal != null && ordersVal > 0
+      ? `<div style="font-size:0.68rem;color:#6b7280;margin-top:1px">${fmtInt.format(ordersVal)} order${ordersVal !== 1 ? "s" : ""}</div>`
+      : "";
+    const silentCell = _custDaysSilentCell(row);
 
     return `
-      <tr class="${rowClass}"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>
+      <tr class="sr-virtual-row ${rowClass}"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>
         <td>
-          ${badgeHtml}${yoyBadge}
+          ${badgeHtml}
           <span class="sr-link"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>${escapeHtml(row.customer_name || row.customer_id || NA)}</span>
         </td>
         <td>${riskHtml}</td>
         <td><span class="sr-link"${drillAttr(salesrepPayload({ rep_id: row.account_owner_id || row.account_owner_name, rep_name: row.account_owner_name }, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>${escapeHtml(businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK))}</span></td>
         <td><span class="sr-link"${drillAttr(territoryPayload(row.territory_name, "Customer Intelligence", "Top Customers", "Revenue", row.revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.territory_name || NA)}</span></td>
-        <td class="text-end">${money(rev)}${revBarHtml}</td>
+        <td class="text-end">${money(rev)}${revBarHtml}${ordersHtml}</td>
         <td class="text-end">${_custProfitCell(row)}</td>
-        <td class="text-end">${yoyCellHtml}</td>
+        <td class="text-end">${_customerYoyDeltaHtml(row)}</td>
+        <td class="text-end">${_customerMomentumHtml(row)}</td>
+        <td class="text-center sr-gap-cell">${_customerGapAnalysisHtml(row)}</td>
+        <td class="text-end">${silentCell}</td>
       </tr>
     `;
   };
@@ -2290,64 +2698,21 @@
   const _applyCustomerView = (rows, viewMode) => {
     const tbody = document.getElementById("srTopCustomersBody");
     if (!tbody) return;
-
-    // Fade out
-    tbody.querySelectorAll("tr").forEach((tr) => { tr.style.opacity = "0"; });
-
-    const render = () => {
-      if (!Array.isArray(rows) || !rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-muted">No customer activity for the selected filters.</td></tr>';
-        return;
-      }
-
-      // ── Phase 3B: apply owner filter then search ──
-      let filtered = rows;
-      if (_activeOwnerFilter) {
-        filtered = filtered.filter((r) => (r.account_owner_name || "") === _activeOwnerFilter);
-      }
-      const q = (_customerSearchQ || "").trim().toLowerCase();
-      if (q) {
-        filtered = filtered.filter((r) =>
-          (r.customer_name || "").toLowerCase().includes(q) ||
-          (r.account_owner_name || "").toLowerCase().includes(q) ||
-          (r.territory_name || "").toLowerCase().includes(q)
-        );
-      }
-
-      if (!filtered.length) {
-        const msg = q
-          ? `No customers match &ldquo;${escapeHtml(q)}&rdquo;. Try a shorter search term.`
+    _customerViewMode = viewMode || _customerViewMode;
+    customerVirtualTable.tbody = tbody;
+    customerVirtualTable.wrapper = document.getElementById("srTopCustomersWrap");
+    customerVirtualTable.rows = _visibleCustomerRows(rows);
+    customerVirtualTable.lastRange = "";
+    const q = (_customerSearchQ || "").trim();
+    customerVirtualTable.emptyMessage = !Array.isArray(rows) || !rows.length
+      ? "No customer activity for the selected filters."
+      : q
+        ? `No customers match “${escapeHtml(q)}”. Try a shorter search term.`
+        : _activeOwnerFilter
+          ? `No customers match ${escapeHtml(_activeOwnerFilter)}.`
           : "No customers match the current filter.";
-        tbody.innerHTML = `<tr><td colspan="7" class="text-muted">${msg}</td></tr>`;
-        tbody.querySelectorAll("tr").forEach((tr) => { tr.style.opacity = "1"; });
-        return;
-      }
-
-      // ── Phase 3C: compute maxRevenue for inline bars ──
-      const maxRevenue = Math.max(...filtered.map((r) => num(r.revenue)), 1);
-
-      if (viewMode === "all") {
-        const ranked = sortRows(filtered, state.topCustomersSortBy, state.topCustomersSortDir, (row, key) => {
-          if (key === "customer_name") return row.customer_name || row.customer_id;
-          if (key === "_risk_score")   return computeCustomerRisk(row).score;
-          return row[key];
-        });
-        tbody.innerHTML = ranked.map((r) => _buildCustomerRowHtml({ ...r, _maxRevenue: maxRevenue }, null)).join("");
-      } else {
-        const scored = _computeCustomerScores(filtered);
-        if (viewMode === "best") {
-          const top10 = [...scored].sort((a, b) => b._score - a._score).slice(0, 10);
-          tbody.innerHTML = top10.map((r) => _buildCustomerRowHtml({ ...r, _maxRevenue: maxRevenue }, { cls: "sr-cust-badge-best", text: "\u2605 Top Performer", view: "best", showYoyDrag: false })).join("");
-        } else {
-          const bottom10 = [...scored].sort((a, b) => a._score - b._score).slice(0, 10);
-          tbody.innerHTML = bottom10.map((r) => _buildCustomerRowHtml({ ...r, _maxRevenue: maxRevenue }, { cls: "sr-cust-badge-risk", text: "\u26A0 At-Risk", view: "atrisk", showYoyDrag: true })).join("");
-        }
-      }
-      // Fade in
-      tbody.querySelectorAll("tr").forEach((tr) => { tr.style.opacity = "1"; });
-    };
-
-    setTimeout(render, 150);
+    if (customerVirtualTable.wrapper) customerVirtualTable.wrapper.scrollTop = 0;
+    renderVirtualCustomerRows({ force: true });
   };
 
   const renderTopCustomers = (rows = [], lostAccounts = []) => {
@@ -2361,7 +2726,7 @@
       const totalActive = _allCustomerRows.filter((r) => num(r.revenue ?? r.revenue_last_30) > 0).length;
       const gained      = _allCustomerRows.filter((r) => (r.revenue_prev_30 ?? 0) === 0 && num(r.revenue_last_30 ?? r.revenue) > 0).length;
       const lostN       = lostAccounts.length;
-      const atRisk      = _allCustomerRows.filter((r) => computeCustomerRisk(r).score <= 1).length;
+      const atRisk      = _allCustomerRows.filter((r) => computeCustomerRisk(r).score >= 2).length;
       const totalRev    = _allCustomerRows.reduce((s, r) => s + num(r.revenue ?? r.revenue_last_30), 0);
       summaryEl.innerHTML = `
         <span style="display:inline-flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:0.78rem">
@@ -2369,7 +2734,7 @@
           <span style="color:#d1d5db">|</span>
           <span style="font-weight:600">${fmtMoney0.format(totalRev)}</span> total rev
           <span style="color:#d1d5db">|</span>
-          <span style="color:#059669;font-weight:700">+${gained}</span> gained
+          <span style="color:#047857;font-weight:700">+${gained}</span> gained
           <span style="color:#d1d5db">|</span>
           <span style="color:#dc2626;font-weight:700">${atRisk}</span> at-risk
           <span style="color:#d1d5db">|</span>
@@ -2407,25 +2772,29 @@
       btnExportCust.addEventListener("click", () => {
         const today = new Date().toISOString().slice(0, 10);
         const filename = `trsm_customers_${_customerViewMode}_${today}.csv`;
-        const rows = _allCustomerRows
-          .filter((r) => {
-            const q = (_customerSearchQ || "").trim().toLowerCase();
-            if (_activeOwnerFilter && (r.account_owner_name || "") !== _activeOwnerFilter) return false;
-            if (!q) return true;
-            return (r.customer_name || "").toLowerCase().includes(q) ||
-                   (r.account_owner_name || "").toLowerCase().includes(q) ||
-                   (r.territory_name || "").toLowerCase().includes(q);
-          });
-        const header = ["Customer", "Owner", "Territory", "Revenue (30d)", "YoY %", "Risk Signal"];
+        const rows = Array.isArray(customerVirtualTable.rows) ? customerVirtualTable.rows : [];
+        const header = ["Customer", "Risk", "Owner", "Territory", "Revenue", "Profit", "YoY Delta", "YoY %", "MoM Velocity", "Gap Analysis", "Silent"];
         const csvLines = [header.join(","), ...rows.map((r) => {
           const risk = computeCustomerRisk(r);
+          const silentDays = customerSilentDays(r);
+          const momPct = customerMoMValue(r);
+          const gapLabel = num(r.beef_revenue) > 0 && num(r.poultry_revenue) === 0 && num(r.revenue) >= num(r._gapHighValueThreshold)
+            ? "Poultry cross-sell"
+            : num(r.poultry_revenue) > 0
+              ? "Poultry active"
+              : "";
           return [
             `"${(r.customer_name || r.customer_id || "").replace(/"/g, '""')}"`,
+            `"${risk.label}"`,
             `"${(r.account_owner_name || "").replace(/"/g, '""')}"`,
             `"${(r.territory_name || "").replace(/"/g, '""')}"`,
-            fmtMoney0.format(num(r.revenue)),
-            r.yoy_revenue_pct != null ? `${fmtPct.format(num(r.yoy_revenue_pct))}%` : "",
-            risk.label,
+            `"${money(r.revenue)}"`,
+            `"${money(r.profit)}"`,
+            `"${money(r.yoy_delta_revenue)}"`,
+            `"${customerYoYValue(r) != null ? `${customerYoYValue(r) >= 0 ? "+" : ""}${fmtPct.format(num(customerYoYValue(r)))}%` : NA}"`,
+            `"${momPct != null ? `${momPct >= 0 ? "+" : ""}${fmtPct.format(num(momPct))}%` : NA}"`,
+            `"${gapLabel}"`,
+            `"${silentDays == null ? NA : `${silentDays}d`}"`,
           ].join(",");
         })];
         const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
@@ -2443,21 +2812,22 @@
     if (!container || !Array.isArray(rows)) return;
     const owners = Array.from(new Set(rows.map((r) => r.account_owner_name || "").filter(Boolean))).sort();
     if (!owners.length) { container.innerHTML = ""; return; }
+    if (_activeOwnerFilter && !owners.includes(_activeOwnerFilter)) _activeOwnerFilter = "";
 
     const truncate = (s, n) => s.length > n ? s.slice(0, n) + "…" : s;
-    const allBtn = `<button class="sr-grain-pill active" data-owner-filter="" style="margin-right:4px">All Owners</button>`;
+    const allBtn = `<button class="sr-grain-pill ${_activeOwnerFilter ? "" : "active"}" data-owner-filter="" style="margin-right:4px">All Owners</button>`;
     const ownerBtns = owners.map((o) =>
-      `<button class="sr-grain-pill" data-owner-filter="${escapeHtml(o)}" title="${escapeHtml(o)}">${escapeHtml(truncate(o, 18))}</button>`
+      `<button class="sr-grain-pill ${_activeOwnerFilter === o ? "active" : ""}" data-owner-filter="${escapeHtml(o)}" title="${escapeHtml(o)}">${escapeHtml(truncate(o, 18))}</button>`
     ).join("");
     container.innerHTML = allBtn + ownerBtns;
 
+    if (container.dataset.bound === "1") return;
+    container.dataset.bound = "1";
     container.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-owner-filter]");
       if (!btn) return;
       _activeOwnerFilter = btn.dataset.ownerFilter;
-      container.querySelectorAll("[data-owner-filter]").forEach((b) =>
-        b.classList.toggle("active", b === btn)
-      );
+      container.querySelectorAll("[data-owner-filter]").forEach((b) => b.classList.toggle("active", b === btn));
       _applyCustomerView(_allCustomerRows, _customerViewMode);
     });
   };
@@ -2466,7 +2836,7 @@
   window.exportFollowUpList = () => {
     const atRisk = _allCustomerRows.filter((r) => {
       const sig = computeCustomerRisk(r).signal;
-      return sig === "atrisk" || sig === "lost";
+      return sig === "critical" || sig === "atrisk" || sig === "lost";
     });
     const toast = document.getElementById("srFollowUpToast");
     if (!atRisk.length) {
@@ -2477,17 +2847,20 @@
     const header = ["Customer", "Owner", "Territory", "Last Revenue (prior 30d)", "Risk Signal", "Days Silent", "Suggested Action"];
     const csvLines = [header.join(","), ...atRisk.map((r) => {
       const risk = computeCustomerRisk(r);
-      const days = r.days_since_order ?? "";
-      const action = risk.signal === "lost"
-        ? `Re-engagement call — no orders in ${days || "?"} days`
-        : "Account review — declining trend";
+      const days = customerSilentDays(r) ?? "";
+      const momPct = customerMoMValue(r);
+      const action = risk.signal === "critical"
+        ? `Critical recovery call — silent ${days || "?"}d and MoM ${momPct == null ? NA : `${momPct.toFixed(1)}%`}`
+        : risk.signal === "lost"
+          ? `Re-engagement call — no orders in ${days || "?"} days`
+          : "Account review — declining momentum";
       return [
         `"${(r.customer_name || r.customer_id || "").replace(/"/g, '""')}"`,
         `"${(r.account_owner_name || "").replace(/"/g, '""')}"`,
         `"${(r.territory_name || "").replace(/"/g, '""')}"`,
-        fmtMoney0.format(num(r.revenue_prev_30 ?? r.revenue)),
-        risk.label,
-        days,
+        `"${fmtMoney0.format(num(r.revenue_prev_30 ?? r.revenue))}"`,
+        `"${risk.label}"`,
+        `"${days}"`,
         `"${action}"`,
       ].join(",");
     })];
@@ -2546,7 +2919,7 @@
       { label: "Profit",           key: r => r.profit == null ? null : num(r.profit),    fmt: r => r.profit == null ? NA : money(r.profit),  higher: true  },
       { label: "Margin %",         key: r => r.margin_pct == null ? null : num(r.margin_pct),  fmt: r => r.margin_pct == null ? NA : `${fmtPct.format(num(r.margin_pct))}%`, higher: true },
       { label: "YoY Revenue %",    key: r => r.yoy_revenue_pct == null ? null : num(r.yoy_revenue_pct), fmt: r => pct(r.yoy_revenue_pct, false), higher: true },
-      { label: "Health Score",     key: r => r.health_score == null ? null : num(r.health_score), fmt: r => r.health_label ? `<span class="badge" style="background:${escapeHtml(r.health_color||'#6c757d')};color:#fff;font-size:0.7rem">${escapeHtml(r.health_label)}</span>&nbsp;${r.health_score ?? ""}/100` : NA, higher: true, raw: true },
+      { label: "Health Score",     key: r => r.health_score == null ? null : num(r.health_score), fmt: r => r.health_label ? `<span class="badge" style="${healthBadgeStyle(r.health_color, '0.7rem')}">${escapeHtml(r.health_label)}</span>&nbsp;${r.health_score ?? ""}/100` : NA, higher: true, raw: true },
       { label: "Active Customers", key: r => num(r.active_customers),   fmt: r => fmtInt.format(num(r.active_customers)),                     higher: true  },
       { label: "Orders",           key: r => num(r.orders),             fmt: r => fmtInt.format(num(r.orders)),                               higher: true  },
       { label: "Shipped LB",       key: r => num(r.weight_lb),          fmt: r => fmtInt.format(num(r.weight_lb)),                            higher: true  },
@@ -2617,44 +2990,90 @@
 
   // ── Lost Accounts panel (1B) ──
   const renderLostAccountsPanel = (lostAccounts = []) => {
-    const badge = document.getElementById("lostAccountsBadge");
-    const body  = document.getElementById("lostAccountsBody");
+    const badge  = document.getElementById("lostAccountsBadge");
+    const body   = document.getElementById("lostAccountsBody");
+    const chevron = document.getElementById("lostPanelChevron");
+    const header  = body?.previousElementSibling;
     if (!badge || !body) return;
 
-    const n = lostAccounts.length;
+    // Sort by days silent descending (most urgent first)
+    const sorted = [...lostAccounts].sort((a, b) => {
+      const da = a.days_since_order ?? 0;
+      const db = b.days_since_order ?? 0;
+      return db - da;
+    });
+
+    const n = sorted.length;
+    const urgentCount  = sorted.filter(a => (a.days_since_order ?? 0) > 60).length;
+    const warningCount = sorted.filter(a => { const d = a.days_since_order ?? 0; return d > 30 && d <= 60; }).length;
+    const totalRevAtRisk = sorted.reduce((s, a) => s + (a.revenue_prev_30 ?? 0), 0);
+
     badge.textContent = n;
     badge.className = `badge ${n > 0 ? "bg-danger" : "bg-success"}`;
 
+    // Auto-expand when there are lost accounts
+    if (n > 0 && body.style.display === "none") {
+      body.style.display = "block";
+      if (chevron) chevron.style.transform = "rotate(180deg)";
+      if (header) header.setAttribute("aria-expanded", "true");
+    }
+
     if (n === 0) {
-      body.innerHTML = '<p class="text-success mb-0">\u2713 No lost accounts. Every prior customer placed an order this period.</p>';
+      body.innerHTML = '<p class="text-success mb-0 px-2 py-2">\u2713 No lost accounts. Every prior customer placed an order this period.</p>';
       return;
     }
 
-    const rows = lostAccounts.map((a) => {
+    const rows = sorted.map((a) => {
       const days = a.days_since_order ?? null;
-      const daysStr = days !== null ? String(days) : "\u2014";
-      const daysClass = days === null ? "" : days > 60 ? "text-danger fw-bold" : days > 30 ? "text-warning fw-semibold" : "";
-      const subject = encodeURIComponent(`Follow-up: ${a.customer_name} \u2014 Re-engagement Opportunity`);
+      const daysStr = days !== null ? `${days}d` : "\u2014";
+      let urgencyEmoji = "";
+      let rowBg = "";
+      if (days !== null && days > 60)      { urgencyEmoji = "\uD83D\uDD34"; rowBg = "background:rgba(220,38,38,0.06);"; }
+      else if (days !== null && days > 30) { urgencyEmoji = "\uD83D\uDFE1"; rowBg = "background:rgba(217,119,6,0.06);"; }
+
+      const owner     = a.account_owner_name || "\u2014";
+      const territory = a.territory_name     || "\u2014";
+      const lastDate  = a.last_order_date    || "\u2014";
+
+      const subject = encodeURIComponent(`Re-engagement: ${a.customer_name} — ${days !== null ? days + " days" : "no recent"} since last order`);
       const bodyText = encodeURIComponent(
-        `Hi,\n\nWanted to follow up on ${a.customer_name}, who last placed an order ${daysStr} days ago. ` +
-        `Let me know if I can assist with re-engagement.`
+        `Hi ${owner !== "\u2014" ? owner : "Team"},\n\n` +
+        `${a.customer_name} has not placed an order in ${days !== null ? days + " days" : "some time"} ` +
+        `(last order: ${lastDate}).` +
+        `${territory !== "\u2014" ? " Territory: " + territory + "." : ""}\n\n` +
+        `Their trailing 30-day revenue was ${money(a.revenue_prev_30 ?? 0)}. ` +
+        `This account may need a follow-up to re-engage.\n\nPlease action when possible.\n\nThank you`
       );
-      return `<tr>
-        <td>${escapeHtml(a.customer_name || a.customer_id || NA)}</td>
-        <td class="text-end">${money(a.revenue_prev_30)}</td>
-        <td>${escapeHtml(a.last_order_date || "\u2014")}</td>
-        <td class="${daysClass}">${daysStr}</td>
-        <td><a href="mailto:?subject=${subject}&body=${bodyText}" class="btn btn-outline-secondary btn-sm">Send Follow-up &rarr;</a></td>
+
+      return `<tr style="${rowBg}">
+        <td style="font-weight:500">${urgencyEmoji} ${escapeHtml(a.customer_name || a.customer_id || NA)}</td>
+        <td>${escapeHtml(owner)}</td>
+        <td>${escapeHtml(territory)}</td>
+        <td class="text-end" style="font-variant-numeric:tabular-nums">${money(a.revenue_prev_30 ?? 0)}</td>
+        <td style="color:#6b7280;font-size:0.82rem">${escapeHtml(lastDate)}</td>
+        <td style="font-weight:${days !== null && days > 60 ? "700" : days !== null && days > 30 ? "600" : "400"};color:${days !== null && days > 60 ? "#dc2626" : days !== null && days > 30 ? "#d97706" : "#6b7280"}">${daysStr}</td>
+        <td><a href="mailto:?subject=${subject}&body=${bodyText}" class="btn btn-sm" style="background:var(--trsm-primary);color:#fff;font-size:0.78rem;padding:2px 10px">Follow-up &rarr;</a></td>
       </tr>`;
     }).join("");
 
+    const summaryBar = `
+      <div style="display:flex;gap:1.5rem;padding:8px 12px 10px;border-bottom:1px solid #e5e7eb;background:#f9fafb;font-size:0.82rem;flex-wrap:wrap">
+        <span style="color:#dc2626;font-weight:700">\uD83D\uDD34 ${urgentCount} urgent (&gt;60d)</span>
+        <span style="color:#d97706;font-weight:600">\uD83D\uDFE1 ${warningCount} warning (31–60d)</span>
+        <span style="color:#374151">Total accounts: <strong>${n}</strong></span>
+        <span style="color:#374151;margin-left:auto">Rev at risk: <strong>${money(totalRevAtRisk)}</strong></span>
+      </div>`;
+
     body.innerHTML = `
+      ${summaryBar}
       <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.85rem">
           <thead class="table-light">
             <tr>
               <th>Customer</th>
-              <th class="text-end">Last Revenue</th>
+              <th>Owner</th>
+              <th>Territory</th>
+              <th class="text-end">Last 30d Rev</th>
               <th>Last Order</th>
               <th>Days Silent</th>
               <th>Action</th>
@@ -2663,6 +3082,10 @@
           <tbody>${rows}</tbody>
         </table>
       </div>
+      <p class="text-muted mb-0 px-2 py-2" style="font-size:0.78rem">
+        Accounts that ordered in the prior window but placed <strong>no orders</strong> in the current period.
+        Sorted by days silent — most urgent first. Use Follow-up to pre-fill a contextual email.
+      </p>
     `;
   };
 
@@ -2815,8 +3238,41 @@
     const canvasId = "topRepsChart";
     const metric = state.metric;
     const conf = metricConfig[metric] || metricConfig.revenue;
-    const topRows = sortedByMetric(rows, metric).slice(0, state.topN);
+    const scopeMap = {
+      revenue: "direct_revenue",
+      profit: "direct_profit",
+      margin_dollar: "direct_profit",
+      margin_pct: "direct_margin_pct",
+      customers: "direct_customers",
+      weight_lb: "direct_weight_lb",
+    };
+    const scopedMetricKey = state.leaderboardScope === "direct_only" ? (scopeMap[metric] || metric) : metric;
+    const scopedMetricLabel = state.leaderboardScope === "direct_only"
+      ? {
+        revenue: "Direct Revenue",
+        profit: "Direct Profit",
+        margin_dollar: "Direct Margin $",
+        margin_pct: "Direct Margin %",
+        customers: "Direct Customers",
+        weight_lb: "Direct Weight (LB)",
+      }[metric] || conf.label
+      : conf.label;
+    const scopedMetricValue = (row) => {
+      if (scopedMetricKey === "direct_margin_pct") {
+        if (opt(row.direct_margin_pct) != null) return num(row.direct_margin_pct);
+        const directRevenue = opt(row.direct_revenue);
+        const directProfit = opt(row.direct_profit);
+        return directRevenue && directProfit != null ? (directProfit / directRevenue) * 100 : 0;
+      }
+      return num(row?.[scopedMetricKey]);
+    };
+    const topRows = [...(Array.isArray(rows) ? rows : [])]
+      .sort((a, b) => scopedMetricValue(b) - scopedMetricValue(a))
+      .slice(0, state.topN);
     const hasData = topRows.length > 0;
+    const averageValue = Array.isArray(rows) && rows.length
+      ? rows.reduce((sum, row) => sum + scopedMetricValue(row), 0) / rows.length
+      : null;
 
     toggleEmpty(canvasId, !hasData);
     if (!ChartLib) return;
@@ -2829,15 +3285,12 @@
     const avgLinePlugin = {
       id: "avgLine_topReps",
       afterDraw(chartInst) {
-        const benchmarks = lastPayload?.benchmarks || {};
-        const avgKey = metric === "revenue" ? "avg_revenue" : metric === "profit" ? "avg_profit" : metric === "margin_pct" ? "avg_margin_pct" : null;
-        const avg = avgKey ? opt(benchmarks[avgKey]) : null;
-        if (!avg) return;
+        if (averageValue == null) return;
         const ctx2 = chartInst.ctx;
         const xAxis = chartInst.scales.x;
         const yAxis = chartInst.scales.y;
         if (!xAxis || !yAxis) return;
-        const x = xAxis.getPixelForValue(avg);
+        const x = xAxis.getPixelForValue(averageValue);
         if (x < xAxis.left || x > xAxis.right) return;
         ctx2.save();
         ctx2.setLineDash([6, 4]);
@@ -2850,7 +3303,7 @@
         ctx2.fillStyle = "#965951";
         ctx2.font = "11px Inter, system-ui";
         ctx2.textAlign = "right";
-        ctx2.fillText(`Avg: ${conf.fmt(avg)}`, xAxis.right - 4, yAxis.top + 14);
+        ctx2.fillText(`Avg: ${conf.fmt(averageValue)}`, xAxis.right - 4, yAxis.top + 14);
         ctx2.restore();
       },
     };
@@ -2861,8 +3314,8 @@
       data: {
         labels: topRows.map((r) => repDisplayName(r)),
         datasets: [{
-          label: conf.label,
-          data: topRows.map((r) => rowMetricValue(r, metric)),
+          label: scopedMetricLabel,
+          data: topRows.map((r) => scopedMetricValue(r)),
           backgroundColor: "#0d6efd",
           borderRadius: 4,
         }],
@@ -2876,20 +3329,21 @@
           if (idx == null) return;
           const row = topRows[idx];
           if (!row) return;
-          openUniversal(salesrepPayload(row, "Ranking & Performance", "Top Reps", conf.label, rowMetricValue(row, metric)), document.getElementById(canvasId));
+          openUniversal(salesrepPayload(row, "Ranking & Performance", "Top Reps", scopedMetricLabel, scopedMetricValue(row)), document.getElementById(canvasId));
         },
         plugins: {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: (ctx) => `${conf.label}: ${conf.fmt(ctx.raw)}`,
+              label: (ctx) => `${scopedMetricLabel}: ${conf.fmt(ctx.raw)}`,
               afterBody: (items) => {
                 const idx = items?.[0]?.dataIndex;
                 const row = idx == null ? null : topRows[idx];
                 if (!row) return [];
                 const rankChange = opt(row.rank_change);
-                const rankLine = rankChange == null ? "Rank movement: N/A" : `Rank movement: ${rankChange > 0 ? "+" : ""}${fmtInt.format(rankChange)}`;
+                const rankLine = rankChange == null ? `Rank movement: ${NA}` : `Rank movement: ${rankChange > 0 ? "+" : ""}${fmtInt.format(rankChange)}`;
                 return [
+                  `Total book revenue: ${money(row.revenue)}`,
                   `Direct / Inherited: ${money(row.direct_revenue)} / ${money(row.inherited_revenue)}`,
                   rankLine,
                 ];
@@ -3013,7 +3467,7 @@
             callbacks: {
               label: (ctx) => {
                 const raw = ctx.raw || {};
-                const margin = raw.margin_pct == null ? "N/A" : `${fmtPct.format(raw.margin_pct)}%`;
+                const margin = raw.margin_pct == null ? NA : `${fmtPct.format(raw.margin_pct)}%`;
                 const profit = raw.profit == null ? NA : fmtMoney0.format(raw.profit);
                 return `${raw.rep_name || "Rep"}: ${fmtMoney0.format(raw.y || 0)} revenue, ${fmtInt.format(raw.x || 0)} customers, ${profit} profit, ${margin} margin`;
               },
@@ -3216,11 +3670,20 @@
     return "text-bg-secondary";
   };
 
-  const renderRiskFlags = (flags = []) => {
+  const renderRiskFlags = (flags = [], payload = {}) => {
     const holder = document.getElementById("srRiskFlags");
     if (!holder) return;
     holder.innerHTML = "";
-    const rows = Array.isArray(flags) ? flags : [];
+    const rows = Array.isArray(flags) ? [...flags] : [];
+    const criticalCustomers = (payload?.analysis?.top_customers || []).filter((row) => isCriticalCustomer(row)).length;
+    if (criticalCustomers > 0) {
+      rows.unshift({
+        key: "critical_customers",
+        label: "Critical customers: Silent > 30d and MoM revenue < -20%",
+        count: criticalCustomers,
+        severity: "high",
+      });
+    }
     if (!rows.length) {
       holder.innerHTML = '<li class="text-muted small">No active risk flags.</li>';
       return;
@@ -3236,6 +3699,8 @@
             ? attributedWorkspacePayload("Insight Strip", "Risk Watch", f.label, f.count, { filter_mode: "current_window" })
             : f.key === "unassigned_customers"
               ? attributedWorkspacePayload("Insight Strip", "Risk Watch", f.label, f.count, { filter_mode: "current_window", dq_bucket: "unassigned" })
+              : f.key === "critical_customers"
+                ? attributedWorkspacePayload("Insight Strip", "Risk Watch", f.label, f.count, { filter_mode: "current_window" })
               : null;
       if (payload) li.setAttribute("data-drilldown-payload", JSON.stringify(payload));
       li.innerHTML = `<span>${f.label || f.key || "Risk"}</span><span class="badge ${riskBadgeClass(f.severity)}">${fmtInt.format(num(f.count))}</span>`;
@@ -3306,7 +3771,7 @@
           <div class="sr-secondary-metric">${fmtInt.format(num(row.current_owned_customers))} current owned · ${fmtInt.format(num(row.inherited_customers))} inherited</div>
         </td>
         <td class="col-health text-center">
-          ${row.health_label ? `<span class="badge" style="background:${escapeHtml(row.health_color || '#6c757d')};color:#fff;font-size:0.72rem;" title="Score: ${row.health_score}/100 | Momentum: ${(row.health_components||{}).momentum||0} | Margin: ${(row.health_components||{}).margin||0} | Retention: ${(row.health_components||{}).retention||0} | Concentration: ${(row.health_components||{}).concentration||0}">${escapeHtml(row.health_label)}</span>` : NA}
+          ${row.health_label ? `<span class="badge" style="${healthBadgeStyle(row.health_color)}" title="Score: ${row.health_score}/100 | Momentum: ${(row.health_components||{}).momentum||0} | Margin: ${(row.health_components||{}).margin||0} | Retention: ${(row.health_components||{}).retention||0} | Concentration: ${(row.health_components||{}).concentration||0}">${escapeHtml(row.health_label)}</span>` : NA}
         </td>
         <td class="col-quartile text-center">
           ${row.quartile_label === "Top 25%" ? `<span title="${escapeHtml(row.quartile_label)}">★ ${escapeHtml(row.quartile_label)}</span>` : row.quartile_label === "Bottom 25%" ? `<span title="${escapeHtml(row.quartile_label)}">⚑ ${escapeHtml(row.quartile_label)}</span>` : `<span class="text-muted small">${escapeHtml(row.quartile_label || NA)}</span>`}
@@ -3317,6 +3782,20 @@
         </td>
         <td class="text-end col-profit">${row.profit == null ? NA : money(row.profit)}</td>
         <td class="text-end col-margin_pct">${marginCellHtml(row)}</td>
+        <td class="text-end col-silent_days ${(() => {
+          const lastOrder = row.last_order_date ? new Date(row.last_order_date) : null;
+          const refDate = lastPayload?.meta?.last_refresh ? new Date(lastPayload.meta.last_refresh) : new Date();
+          const silentDays = lastOrder ? Math.floor((refDate - lastOrder) / (1000 * 60 * 60 * 24)) : null;
+          if (silentDays > 60) return "text-danger fw-bold";
+          if (silentDays > 30) return "text-warning";
+          return "";
+        })()}">${(() => {
+          const lastOrder = row.last_order_date ? new Date(row.last_order_date) : null;
+          const refDate = lastPayload?.meta?.last_refresh ? new Date(lastPayload.meta.last_refresh) : new Date();
+          return lastOrder ? Math.floor((refDate - lastOrder) / (1000 * 60 * 60 * 24)) : NA;
+        })()}</td>
+        <td class="text-end col-mom_revenue_delta">${money(row.mom_revenue_delta)}</td>
+        <td class="text-end col-yoy_revenue_delta">${money(row.yoy_revenue_delta)}</td>
         <td class="text-end col-weight_lb">${fmtInt.format(num(row.weight_lb))}</td>
         <td class="text-end col-active_customers">${fmtInt.format(num(row.active_customers))}</td>
         <td class="text-end col-current_owned_customers">${fmtInt.format(num(row.current_owned_customers))}</td>
@@ -3387,6 +3866,73 @@
     if (window.universalDrilldown && typeof window.universalDrilldown.enhanceAll === "function") {
       window.universalDrilldown.enhanceAll();
     }
+  };
+
+  const renderVirtualCustomerRows = ({ force = false } = {}) => {
+    const tbody = customerVirtualTable.tbody || document.getElementById("srTopCustomersBody");
+    const wrapper = customerVirtualTable.wrapper || document.getElementById("srTopCustomersWrap");
+    customerVirtualTable.tbody = tbody;
+    customerVirtualTable.wrapper = wrapper;
+    if (!tbody || !wrapper) return;
+
+    const rows = Array.isArray(customerVirtualTable.rows) ? customerVirtualTable.rows : [];
+    if (!rows.length) {
+      customerVirtualTable.lastRange = "";
+      tbody.innerHTML = `<tr><td colspan="10" class="text-muted">${customerVirtualTable.emptyMessage || emptyMessage}</td></tr>`;
+      return;
+    }
+
+    const viewportHeight = Math.max(wrapper.clientHeight || 0, 320);
+    const rowHeight = Math.max(customerVirtualTable.rowHeight || 74, 64);
+    const scrollTop = Math.max(wrapper.scrollTop || 0, 0);
+    const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - customerVirtualTable.overscan);
+    const visibleCount = Math.ceil(viewportHeight / rowHeight) + (customerVirtualTable.overscan * 2);
+    const endIndex = Math.min(rows.length, startIndex + visibleCount);
+    const rangeKey = `${startIndex}:${endIndex}:${rows.length}`;
+    if (!force && customerVirtualTable.lastRange === rangeKey) return;
+    customerVirtualTable.lastRange = rangeKey;
+
+    const topSpacer = startIndex * rowHeight;
+    const bottomSpacer = Math.max((rows.length - endIndex) * rowHeight, 0);
+    const parts = [];
+    if (topSpacer > 0) {
+      parts.push(`<tr class="sr-virtual-spacer" aria-hidden="true"><td colspan="10" style="height:${topSpacer}px"></td></tr>`);
+    }
+    rows.slice(startIndex, endIndex).forEach((row) => {
+      parts.push(_buildCustomerRowHtml(row, row._customerBadge || null));
+    });
+    if (bottomSpacer > 0) {
+      parts.push(`<tr class="sr-virtual-spacer" aria-hidden="true"><td colspan="10" style="height:${bottomSpacer}px"></td></tr>`);
+    }
+    tbody.innerHTML = parts.join("");
+
+    const measuredRow = tbody.querySelector("tr.sr-virtual-row");
+    if (measuredRow && !force) {
+      const measuredHeight = Math.round(measuredRow.getBoundingClientRect().height);
+      if (measuredHeight >= 64 && Math.abs(measuredHeight - customerVirtualTable.rowHeight) > 6) {
+        customerVirtualTable.rowHeight = measuredHeight;
+        renderVirtualCustomerRows({ force: true });
+        return;
+      }
+    }
+
+    if (window.universalDrilldown && typeof window.universalDrilldown.enhanceAll === "function") {
+      window.universalDrilldown.enhanceAll();
+    }
+  };
+
+  const scheduleVirtualCustomerRender = ({ force = false } = {}) => {
+    if (force) {
+      customerVirtualTable.scheduled = false;
+      renderVirtualCustomerRows({ force: true });
+      return;
+    }
+    if (customerVirtualTable.scheduled) return;
+    customerVirtualTable.scheduled = true;
+    window.requestAnimationFrame(() => {
+      customerVirtualTable.scheduled = false;
+      renderVirtualCustomerRows();
+    });
   };
 
   const scheduleVirtualTableRender = ({ force = false } = {}) => {
@@ -3512,6 +4058,14 @@
       th.classList.remove("asc", "desc");
       if (th.dataset.sortKey === state.sortBy) th.classList.add(state.sortDir);
     });
+    document.querySelectorAll("[data-top-customers-sort]").forEach((th) => {
+      th.classList.remove("asc", "desc");
+      if (th.dataset.topCustomersSort === state.topCustomersSortBy) th.classList.add(state.topCustomersSortDir);
+    });
+    document.querySelectorAll("[data-protein-sort]").forEach((th) => {
+      th.classList.remove("asc", "desc");
+      if (th.dataset.proteinSort === state.proteinSortBy) th.classList.add(state.proteinSortDir);
+    });
   };
 
   const renderBundle = (rawPayload = {}) => {
@@ -3539,7 +4093,7 @@
     })();
     renderDataQuality(analysis.data_quality || []);
     renderTable(payload.table || {});
-    renderRiskFlags(payload.risk_flags || []);
+    renderRiskFlags(payload.risk_flags || [], payload);
     if (window.universalDrilldown && typeof window.universalDrilldown.enhanceAll === "function") {
       window.universalDrilldown.enhanceAll();
     }
@@ -3571,6 +4125,18 @@
     persistSnapshot(payload);
   };
 
+  const fetchEfficiency = async (qs) => {
+    const url = qs ? `/api/salesreps/efficiency?${qs}` : "/api/salesreps/efficiency";
+    try {
+      const res = await authFetch(url, { headers: { Accept: "application/json" } });
+      const payload = await res.json();
+      if (payload.eff) renderEfficiency(payload.eff);
+    } catch (err) {
+      console.error("Efficiency fetch failed", err);
+      toggleEmpty("effChart", true);
+    }
+  };
+
   const fetchBundle = async (options = {}) => {
     reqId += 1;
     const thisReq = reqId;
@@ -3581,11 +4147,12 @@
       setSummaryNarrativeLoading(true);
       setAllChartsLoading(true);
     }
-
+    const qs = syncBrowserUrl();
     updateExportLinks();
-    const qs = buildQueryString();
     const url = qs ? `${bundleUrl}?${qs}` : bundleUrl;
     const snapshot = options.snapshot || null;
+
+    fetchEfficiency(qs); // Parallel fetch for bubble chart
 
     try {
       const headers = pageCache ? pageCache.prepareHeaders(url, { Accept: "application/json" }) : { Accept: "application/json" };
@@ -3652,6 +4219,8 @@
   };
 
   const resolveInitialQS = () => {
+    const locationQs = (window.location.search || "").replace(/^\?/, "");
+    if (locationQs) return locationQs;
     try {
       if (window.getGlobalFilterState) {
         const st = window.getGlobalFilterState();
@@ -3660,7 +4229,7 @@
     } catch (_e) {
       // ignore
     }
-    return (window.location.search || "").replace(/^\?/, "");
+    return "";
   };
 
   const applyFilters = (qs, filters = null, { scroll = false } = {}) => {
@@ -3682,6 +4251,7 @@
 
   const rerenderLocalState = () => {
     if (!lastPayload) return;
+    syncBrowserUrl();
     updateExportLinks();
     renderBundle(lastPayload);
   };
@@ -3766,6 +4336,16 @@
     window.addEventListener("resize", () => scheduleVirtualTableRender(), { passive: true });
   };
 
+  const wireCustomerVirtualTable = () => {
+    const wrapper = document.getElementById("srTopCustomersWrap");
+    if (!wrapper || wrapper.dataset.virtualized === "1") return;
+    wrapper.dataset.virtualized = "1";
+    customerVirtualTable.wrapper = wrapper;
+    customerVirtualTable.tbody = document.getElementById("srTopCustomersBody");
+    wrapper.addEventListener("scroll", () => scheduleVirtualCustomerRender(), { passive: true });
+    window.addEventListener("resize", () => scheduleVirtualCustomerRender(), { passive: true });
+  };
+
   const wireRowClicks = () => {
     const tbody = document.getElementById("salesreps-table-body");
     if (!tbody) return;
@@ -3794,7 +4374,7 @@
         if (state.topCustomersSortBy === key) state.topCustomersSortDir = state.topCustomersSortDir === "asc" ? "desc" : "asc";
         else {
           state.topCustomersSortBy = key;
-          state.topCustomersSortDir = key === "customer_name" || key === "account_owner_name" || key === "territory_name" ? "asc" : "desc";
+          state.topCustomersSortDir = key === "customer_name" || key === "account_owner_name" || key === "territory_name" ? "asc" : key === "last_order_date" ? "asc" : "desc";
         }
         rerenderLocalState();
       };
@@ -3829,6 +4409,7 @@
 
   const wireControls = () => {
     const metricToggle = document.getElementById("srMetricToggle");
+    const leaderboardDirectOnly = document.getElementById("srLeaderboardDirectOnly");
     const trendMetric = document.getElementById("srTrendMetric");
     const trendGrain = document.getElementById("srTrendGrain");
     const trendView = document.getElementById("srTrendView");
@@ -3845,6 +4426,14 @@
       metricToggle.addEventListener("change", () => {
         state.metric = metricToggle.value;
         state.page = 1;
+        rerenderLocalState();
+      });
+    }
+
+    if (leaderboardDirectOnly) {
+      leaderboardDirectOnly.checked = state.leaderboardScope === "direct_only";
+      leaderboardDirectOnly.addEventListener("change", () => {
+        state.leaderboardScope = leaderboardDirectOnly.checked ? "direct_only" : "all";
         rerenderLocalState();
       });
     }
@@ -4020,6 +4609,7 @@
   wireSorting();
   wirePager();
   wireVirtualTable();
+  wireCustomerVirtualTable();
   wireRowClicks();
   wireMiniSorts();
   wireControls();

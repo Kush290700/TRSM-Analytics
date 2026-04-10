@@ -1,22 +1,92 @@
 from __future__ import annotations
 
 import math
+import re
+import threading
 import time
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 
 from app.services import fact_schema as fs
 from app.services import fact_store
 from app.services import filters_service
+from app.services import margin_rules
+from app.services import salesrep_ownership
 
 
 TOP_N_DEFAULT = 15
 TABLE_PAGE_SIZE_DEFAULT = 25
 TABLE_PAGE_SIZES = {25, 50, 100}
 RISK_TOP_CUSTOMER_THRESHOLD = 0.30
-RISK_MARGIN_THRESHOLD = 27.0
 RISK_MOM_PROFIT_DOWN_THRESHOLD = -15.0
+_REVIEW_REP_LABEL = "Needs Review"
+_UNASSIGNED_REP_LABEL = "Unassigned / Needs Review"
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_TECHNICAL_REP_RE = re.compile(r"^[A-Za-z]{1,6}[-_ ]?\d[\w-]*$")
+_SAFE_REP_BUCKET_ALIASES = {
+    "unassigned": _UNASSIGNED_REP_LABEL,
+    "unassigned / needs review": _UNASSIGNED_REP_LABEL,
+    "needs mapping": _REVIEW_REP_LABEL,
+    "needs review": _REVIEW_REP_LABEL,
+    "unknown rep": _REVIEW_REP_LABEL,
+}
+_SAFE_REP_BUCKETS = {value.lower() for value in _SAFE_REP_BUCKET_ALIASES.values()}
+_REP_DIRECTORY_LOCK = threading.RLock()
+_REP_DIRECTORY_CACHE: dict[str, dict[str, str]] = {}
+
+TXN_REP_ID_CANDIDATES: Tuple[str, ...] = (
+    "SalesRepId",
+    "SalesRepID",
+    "RepId",
+    "RepID",
+    "SalesRepUserId",
+    "SalesRepUserID",
+    "RepUserId",
+    "RepUserID",
+    "UserId",
+    "UserID",
+)
+
+TXN_REP_NAME_CANDIDATES: Tuple[str, ...] = (
+    "SalesRepName",
+    "SalesRep",
+    "RepName",
+    "SalespersonName",
+    "SalesPersonName",
+    "UserName",
+    "DisplayName",
+)
+
+OWNER_REP_ID_CANDIDATES: Tuple[str, ...] = (
+    "PrimarySalesRepId",
+    "PrimarySalesRepID",
+    "PrimarySalesRepId_x",
+    "PrimarySalesRepId_y",
+    "PrimarySalesRepID_x",
+    "PrimarySalesRepID_y",
+    "PrimarySalesRepUserId",
+    "PrimarySalesRepUserID",
+    "AccountOwnerId",
+    "OwnerId",
+    "AccountManagerId",
+)
+
+OWNER_REP_NAME_CANDIDATES: Tuple[str, ...] = (
+    "PrimarySalesRepName",
+    "PrimarySalesRepName_x",
+    "PrimarySalesRepName_y",
+    "AccountOwner",
+    "Owner",
+    "AccountManager",
+    "PrimaryOwnerName",
+)
 
 REP_ID_CANDIDATES: Tuple[str, ...] = (
     "SalesRepId",
@@ -88,6 +158,38 @@ PRODUCT_NAME_CANDIDATES: Tuple[str, ...] = (
     "ItemName",
 )
 
+PROTEIN_CANDIDATES: Tuple[str, ...] = (
+    "Protein",
+    "ProteinType",
+    "ProteinName",
+    "Category",
+    "ProductCategory",
+)
+
+CATEGORY_CANDIDATES: Tuple[str, ...] = (
+    "Category",
+    "ProductCategory",
+    "Protein",
+    "ProteinType",
+    "ProteinName",
+)
+
+TERRITORY_ID_CANDIDATES: Tuple[str, ...] = (
+    "TerritoryId",
+    "TerritoryID",
+    "CustomerTerritoryId",
+    "RegionId",
+    "RegionID",
+)
+
+TERRITORY_NAME_CANDIDATES: Tuple[str, ...] = (
+    "TerritoryName",
+    "Territory",
+    "CustomerTerritoryName",
+    "RegionName",
+    "Region",
+)
+
 
 def _norm_col(name: str) -> str:
     return "".join(ch for ch in str(name).lower() if ch.isalnum())
@@ -157,6 +259,192 @@ def _coalesce_exprs(exprs: Sequence[str], default: str) -> str:
         return default
     inner = ", ".join([*exprs, default])
     return f"COALESCE({inner})"
+
+
+def _clean_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"none", "null", "nan"}:
+        return ""
+    return text
+
+
+def _rep_directory_csv_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "core" / "userid.csv"
+
+
+def _rep_directory_cache_key() -> str:
+    parts = [str(fact_store.cache_buster() or "0")]
+    csv_path = _rep_directory_csv_path()
+    try:
+        stat = csv_path.stat()
+        parts.append(f"{csv_path}:{int(stat.st_mtime)}:{int(stat.st_size)}")
+    except Exception:
+        parts.append(str(csv_path))
+    return "|".join(parts)
+
+
+def _csv_rep_directory() -> dict[str, str]:
+    csv_path = _rep_directory_csv_path()
+    if not csv_path.exists():
+        return {}
+    try:
+        df = pd.read_csv(csv_path, encoding="utf-8-sig", dtype="string")
+    except Exception:
+        return {}
+
+    cols = list(df.columns)
+    lower_map = {str(col).strip().lower(): col for col in cols}
+    user_id_col = lower_map.get("userid") or lower_map.get("user_id")
+    first_col = lower_map.get("firstname") or lower_map.get("first_name")
+    last_col = lower_map.get("lastname") or lower_map.get("last_name")
+    full_col = lower_map.get("fullname") or lower_map.get("full_name")
+    if not user_id_col:
+        return {}
+
+    out: dict[str, str] = {}
+    for row in df.to_dict(orient="records"):
+        rep_id = _clean_text(row.get(user_id_col))
+        if not rep_id:
+            continue
+        full_name = _clean_text(row.get(full_col))
+        if not full_name:
+            first = _clean_text(row.get(first_col))
+            last = _clean_text(row.get(last_col))
+            full_name = " ".join(part for part in (first, last) if part).strip()
+        if full_name and not _is_technical_rep_identifier(full_name):
+            out[rep_id] = full_name
+    return out
+
+
+def _fact_rep_directory() -> dict[str, str]:
+    cols = fact_store.list_columns()
+    rep_id_expr = _coalesce_text_expr(cols, TXN_REP_ID_CANDIDATES, "NULL::VARCHAR")
+    rep_name_expr = _coalesce_text_expr(cols, TXN_REP_NAME_CANDIDATES, "NULL::VARCHAR")
+    owner_id_expr = _coalesce_text_expr(cols, OWNER_REP_ID_CANDIDATES, "NULL::VARCHAR")
+    owner_name_expr = _coalesce_text_expr(cols, OWNER_REP_NAME_CANDIDATES, "NULL::VARCHAR")
+    if rep_id_expr == "NULL::VARCHAR" and owner_id_expr == "NULL::VARCHAR":
+        return {}
+
+    sql = f"""
+        WITH rep_candidates AS (
+            SELECT
+                {rep_id_expr} AS rep_id,
+                {rep_name_expr} AS rep_name
+            FROM fact
+            UNION ALL
+            SELECT
+                {owner_id_expr} AS rep_id,
+                {owner_name_expr} AS rep_name
+            FROM fact
+        )
+        SELECT
+            rep_id,
+            ANY_VALUE(rep_name) AS rep_name
+        FROM rep_candidates
+        WHERE rep_id IS NOT NULL
+          AND rep_name IS NOT NULL
+          AND rep_name <> ''
+          AND rep_name <> rep_id
+        GROUP BY 1
+    """
+    try:
+        df = fact_store.get_duckdb_conn().execute(sql).df()
+    except Exception:
+        return {}
+    work = _normalize_frame(df)
+    if work.empty:
+        return {}
+    out: dict[str, str] = {}
+    for row in work.to_dict(orient="records"):
+        rep_id = _clean_text(row.get("rep_id"))
+        rep_name = _clean_text(row.get("rep_name"))
+        if rep_id and rep_name and not _is_technical_rep_identifier(rep_name):
+            out[rep_id] = rep_name
+    return out
+
+
+def _rep_directory() -> dict[str, str]:
+    cache_key = _rep_directory_cache_key()
+    with _REP_DIRECTORY_LOCK:
+        cached = _REP_DIRECTORY_CACHE.get(cache_key)
+        if cached is not None:
+            return dict(cached)
+
+    mapping = _csv_rep_directory()
+    mapping.update(_fact_rep_directory())
+    with _REP_DIRECTORY_LOCK:
+        _REP_DIRECTORY_CACHE.clear()
+        _REP_DIRECTORY_CACHE[cache_key] = dict(mapping)
+    return mapping
+
+
+def _normalize_rep_bucket_label(value: Any) -> str | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    return _SAFE_REP_BUCKET_ALIASES.get(text.lower())
+
+
+def _is_technical_rep_identifier(value: Any) -> bool:
+    text = _clean_text(value)
+    if not text:
+        return False
+    if _normalize_rep_bucket_label(text):
+        return False
+    lowered = text.lower()
+    if lowered in _SAFE_REP_BUCKETS:
+        return False
+    if "@" in text or "/" in text or "\\" in text:
+        return True
+    if _UUID_RE.fullmatch(text):
+        return True
+    if " " not in text and any(ch.isdigit() for ch in text) and _TECHNICAL_REP_RE.fullmatch(text):
+        return True
+    return " " not in text and len(text) >= 12 and re.fullmatch(r"[A-Za-z0-9_-]+", text) is not None
+
+
+def _business_rep_name(name: Any, fallback_id: Any = None, *, default: str = _REVIEW_REP_LABEL) -> str:
+    primary = _clean_text(name)
+    fallback = _clean_text(fallback_id)
+    directory = _rep_directory()
+    for candidate in (primary, fallback):
+        if not candidate:
+            continue
+        normalized = _normalize_rep_bucket_label(candidate)
+        if normalized:
+            return normalized
+        mapped = directory.get(candidate)
+        normalized = _normalize_rep_bucket_label(mapped)
+        if normalized:
+            return normalized
+        if mapped and not _is_technical_rep_identifier(mapped):
+            return mapped
+        if not _is_technical_rep_identifier(candidate):
+            return candidate
+    return default
+
+
+def _business_rep_reference(name: Any, fallback_id: Any = None, *, default: str = _REVIEW_REP_LABEL) -> Dict[str, str | None]:
+    rep_id = _clean_text(fallback_id)
+    raw_name = _clean_text(name)
+    if not rep_id and raw_name and _is_technical_rep_identifier(raw_name):
+        rep_id = raw_name
+    return {
+        "rep_id": rep_id or None,
+        "rep_name": _business_rep_name(raw_name, rep_id, default=default),
+    }
+
+
+def _business_rep_csv(value: Any) -> str:
+    raw = _clean_text(value)
+    if not raw:
+        return ""
+    cleaned: list[str] = []
+    for part in [item.strip() for item in raw.split(",") if str(item).strip()]:
+        label = _business_rep_name(part, part, default="")
+        if label and label not in cleaned:
+            cleaned.append(label)
+    return ", ".join(cleaned)
 
 
 def _to_list(val: Any) -> list:
@@ -272,12 +560,15 @@ def _sort_params(args: Any) -> Tuple[str, str]:
         "margin_pct": "margin_pct",
         "orders": "orders",
         "customers": "customers",
+        "active_customers": "active_customers",
         "weight": "weight_lb",
         "weight_lb": "weight_lb",
         "units": "units",
         "qty": "units",
         "asp": "asp",
         "asp_lb": "asp_lb",
+        "avg_order_value": "avg_order_value",
+        "revenue_per_customer": "revenue_per_customer",
         "momentum": "momentum_pct",
         "top_customer_share": "top_customer_share",
         "top_5_customer_share": "top_5_customer_share",
@@ -285,6 +576,18 @@ def _sort_params(args: Any) -> Tuple[str, str]:
         "hhi": "customer_hhi",
         "mom_revenue_pct": "mom_revenue_pct",
         "mom_profit_pct": "mom_profit_pct",
+        "yoy_revenue_pct": "yoy_revenue_pct",
+        "yoy_profit_pct": "yoy_profit_pct",
+        "ownership_delta": "ownership_delta_revenue",
+        "ownership_delta_revenue": "ownership_delta_revenue",
+        "current_owned_customers": "current_owned_customers",
+        "inherited_customers": "inherited_customers",
+        "gained_customers": "gained_customers",
+        "lost_customers": "lost_customers",
+        "territory_count": "territory_count",
+        "replaced_rep_count": "replaced_rep_count",
+        "top_territory_revenue": "top_territory_revenue",
+        "transferred_in_revenue": "transferred_in_revenue",
         "top_customer_revenue": "top_customer_revenue",
     }
     sort_by = mapping.get(sort_raw, "revenue")
@@ -302,10 +605,19 @@ def _apply_search_filter(df, search_term: str):
     if df is None or getattr(df, "empty", True) or not search_term:
         return df
     work = _normalize_frame(df)
-    names = work.get("rep_name")
-    if names is None:
+    if work.empty:
         return work
-    mask = names.fillna("").astype(str).str.lower().str.contains(search_term, na=False)
+    rep_series = work.apply(
+        lambda row: _business_rep_name(row.get("rep_name"), row.get("rep_key") or row.get("rep_id"), default=""),
+        axis=1,
+    )
+    territory_names = work.get("top_territory_name", pd.Series(dtype="string")).fillna("").astype(str).str.lower()
+    top_customers = work.get("top_customer_name", pd.Series(dtype="string")).fillna("").astype(str).str.lower()
+    mask = (
+        rep_series.fillna("").astype(str).str.lower().str.contains(search_term, na=False)
+        | territory_names.str.contains(search_term, na=False)
+        | top_customers.str.contains(search_term, na=False)
+    )
     return work.loc[mask]
 
 
@@ -338,13 +650,44 @@ def _rollup_records(source: Any) -> List[Dict[str, Any]]:
 
 
 def _sanitize_rollup_record(rec: Dict[str, Any]) -> Dict[str, Any]:
+    rep_id = rec.get("rep_id") or rec.get("rep_key")
+    rep_name = _business_rep_name(rec.get("rep_name"), rep_id)
+    top_protein_family = rec.get("top_protein_family")
+    margin_rule = margin_rules.resolve_margin_rule(top_protein_family, top_protein_family)
+    minimum_margin_pct = _clean_optional(rec.get("minimum_margin_pct"))
+    target_margin_pct = _clean_optional(rec.get("target_margin_pct"))
+    if margin_rule.get("mapped"):
+        if minimum_margin_pct is None:
+            minimum_margin_pct = _clean_optional(margin_rule.get("min_gross_margin_pct"))
+        if target_margin_pct is None:
+            target_margin_pct = _clean_optional(margin_rule.get("target_gross_margin_pct"))
+    status = margin_rules.classify_margin_status(rec.get("margin_pct"), minimum_margin_pct, target_margin_pct)
+    revenue = _clean_float(rec.get("revenue"))
+    transferred_in_revenue = _clean_optional(rec.get("transferred_in_revenue"))
+    inherited_customers = _clean_int(rec.get("inherited_customers"))
+    active_customers = _clean_int(rec.get("active_customers"))
+    direct_revenue = _clean_optional(rec.get("direct_revenue"))
+    if direct_revenue is None and transferred_in_revenue is not None:
+        direct_revenue = revenue - transferred_in_revenue
+    direct_profit = _clean_optional(rec.get("direct_profit"))
+    direct_weight_lb = _clean_optional(rec.get("direct_weight_lb"))
+    direct_margin_pct = None
+    if direct_revenue not in (None, 0) and direct_profit is not None:
+        direct_margin_pct = (_clean_float(direct_profit) / _clean_float(direct_revenue)) * 100.0
+    inherited_revenue_share = None
+    if revenue > 0 and transferred_in_revenue is not None:
+        inherited_revenue_share = (transferred_in_revenue / revenue) * 100.0
     return {
-        "rep_id": rec.get("rep_id") or rec.get("rep_key"),
-        "rep_name": rec.get("rep_name"),
+        "rep_id": rep_id,
+        "rep_name": rep_name,
         "rep_key": rec.get("rep_key") or rec.get("rep_id"),
-        "revenue": _clean_float(rec.get("revenue")),
+        "revenue": revenue,
         "cost": _clean_optional(rec.get("cost")),
         "profit": _clean_optional(rec.get("profit")),
+        "prior_revenue": _clean_optional(rec.get("prior_revenue")),
+        "prior_profit": _clean_optional(rec.get("prior_profit")),
+        "yoy_revenue": _clean_optional(rec.get("yoy_revenue")),
+        "yoy_profit": _clean_optional(rec.get("yoy_profit")),
         "margin_pct": _clean_optional(rec.get("margin_pct")),
         "orders": _clean_int(rec.get("orders")),
         "customers": _clean_int(rec.get("customers")),
@@ -352,6 +695,11 @@ def _sanitize_rollup_record(rec: Dict[str, Any]) -> Dict[str, Any]:
         "weight_lb": _clean_float(rec.get("weight_lb")),
         "asp": _clean_optional(rec.get("asp")),
         "asp_lb": _clean_optional(rec.get("asp_lb")),
+        "last_order_date": rec.get("last_order_date"),
+        "mom_revenue_delta": _clean_optional(rec.get("mom_revenue_delta")),
+        "yoy_revenue_delta": _clean_optional(rec.get("yoy_revenue_delta")),
+        "avg_order_value": _clean_optional(rec.get("avg_order_value")),
+        "revenue_per_customer": _clean_optional(rec.get("revenue_per_customer")),
         "top_customer_share": _clean_optional(rec.get("top_customer_share")),
         "top_5_customer_share": _clean_optional(rec.get("top_5_customer_share")),
         "top_customer_name": rec.get("top_customer_name"),
@@ -361,7 +709,173 @@ def _sanitize_rollup_record(rec: Dict[str, Any]) -> Dict[str, Any]:
         "mom_revenue_pct": _clean_optional(rec.get("mom_revenue_pct")),
         "mom_profit_pct": _clean_optional(rec.get("mom_profit_pct")),
         "mom_margin_pct": _clean_optional(rec.get("mom_margin_pct")),
+        "yoy_revenue_pct": _clean_optional(rec.get("yoy_revenue_pct")),
+        "yoy_profit_pct": _clean_optional(rec.get("yoy_profit_pct")),
+        "yoy_margin_delta": _clean_optional(rec.get("yoy_margin_delta")),
+        "minimum_margin_pct": minimum_margin_pct,
+        "target_margin_pct": target_margin_pct,
+        "target_gap_pct_points": (
+            None
+            if _clean_optional(rec.get("margin_pct")) is None or target_margin_pct is None
+            else _clean_float(rec.get("margin_pct")) - target_margin_pct
+        ),
+        "active_customers": active_customers,
+        "direct_customers": max(active_customers - inherited_customers, 0),
+        "current_owned_customers": _clean_int(rec.get("current_owned_customers")),
+        "inherited_customers": inherited_customers,
+        "direct_revenue": _clean_optional(direct_revenue),
+        "direct_profit": direct_profit,
+        "direct_weight_lb": direct_weight_lb,
+        "direct_margin_pct": _clean_optional(direct_margin_pct),
+        "inherited_revenue_share_pct": _clean_optional(inherited_revenue_share),
+        "gained_customers": _clean_int(rec.get("gained_customers")),
+        "lost_customers": _clean_int(rec.get("lost_customers")),
+        "territory_count": _clean_int(rec.get("territory_count")),
+        "unassigned_customers": _clean_int(rec.get("unassigned_customers")),
+        "replaced_rep_count": _clean_int(rec.get("replaced_rep_count")),
+        "replaced_rep_names": _business_rep_csv(rec.get("replaced_rep_names")),
+        "top_territory_name": rec.get("top_territory_name"),
+        "top_territory_revenue": _clean_optional(rec.get("top_territory_revenue")),
+        "transferred_in_revenue": _clean_optional(rec.get("transferred_in_revenue")),
+        "transferred_out_revenue": _clean_optional(rec.get("transferred_out_revenue")),
+        "transfer_revenue": _clean_optional(rec.get("transfer_revenue")),
+        "unassigned_revenue": _clean_optional(rec.get("unassigned_revenue")),
+        "current_owner_revenue": _clean_optional(rec.get("current_owner_revenue")),
+        "historical_revenue": _clean_optional(rec.get("historical_revenue")),
+        "ownership_delta_revenue": _clean_optional(rec.get("ownership_delta_revenue")),
+        "ownership_delta_pct": _clean_optional(rec.get("ownership_delta_pct")),
+        "top_protein_family": rec.get("top_protein_family"),
+        "top_protein_revenue": _clean_optional(rec.get("top_protein_revenue")),
+        # Pass through quartile if already computed by build_salesreps_bundle
+        "revenue_quartile": _clean_int(rec.get("revenue_quartile", 0)),
+        "quartile_label": rec.get("quartile_label", ""),
+        **status,
+        **_compute_health_score(rec, active_customers, inherited_customers),
     }
+
+
+def _compute_health_score(rec: Dict[str, Any], active_customers: int, inherited_customers: int) -> Dict[str, Any]:
+    """Compute a 0–100 Health Score for a rep row from four components."""
+    mom_revenue_pct = _clean_optional(rec.get("mom_revenue_pct"))
+    margin_pct = _clean_optional(rec.get("margin_pct"))
+    top_customer_share = _clean_optional(rec.get("top_customer_share"))
+    gained = _clean_int(rec.get("gained_customers"))
+    lost = _clean_int(rec.get("lost_customers"))
+
+    # Component 1 — Revenue Momentum (25 pts)
+    if mom_revenue_pct is None:
+        c1 = 15  # neutral when unavailable
+    elif mom_revenue_pct >= 5:
+        c1 = 25
+    elif mom_revenue_pct >= 0:
+        c1 = 15
+    elif mom_revenue_pct >= -10:
+        c1 = 8
+    else:
+        c1 = 0
+
+    # Component 2 — Margin Health (25 pts)
+    if margin_pct is None:
+        c2 = 0
+    elif margin_pct >= 32:
+        c2 = 25
+    elif margin_pct >= 27:
+        c2 = 18
+    elif margin_pct >= 20:
+        c2 = 10
+    else:
+        c2 = 0
+
+    # Component 3 — Customer Retention (25 pts)
+    # prev_customers = active_customers - gained + lost
+    prev_customers = max(active_customers - gained + lost, 0)
+    if prev_customers > 0:
+        retained = max(prev_customers - lost, 0)
+        retention_rate = retained / prev_customers
+        if retention_rate >= 0.85:
+            c3 = 25
+        elif retention_rate >= 0.70:
+            c3 = 15
+        elif retention_rate >= 0.50:
+            c3 = 8
+        else:
+            c3 = 0
+    else:
+        c3 = 15  # neutral when retention data is not available
+
+    # Component 4 — Concentration Risk (25 pts)
+    if top_customer_share is None:
+        c4 = 15  # neutral when unavailable
+    elif top_customer_share <= 0.20:
+        c4 = 25
+    elif top_customer_share <= 0.30:
+        c4 = 18
+    elif top_customer_share <= 0.40:
+        c4 = 10
+    else:
+        c4 = 0
+
+    health_score = c1 + c2 + c3 + c4
+    if health_score >= 80:
+        health_label = "Excellent"
+        health_color = "#198754"
+    elif health_score >= 60:
+        health_label = "Good"
+        health_color = "#0d6efd"
+    elif health_score >= 40:
+        health_label = "Fair"
+        health_color = "#fd7e14"
+    else:
+        health_label = "At Risk"
+        health_color = "#dc3545"
+
+    return {
+        "health_score": health_score,
+        "health_label": health_label,
+        "health_color": health_color,
+        "health_components": {
+            "momentum": c1,
+            "margin": c2,
+            "retention": c3,
+            "concentration": c4,
+        },
+    }
+
+
+def _salesrep_lost_accounts(customers_records: List[Dict[str, Any]], ref_date: Any) -> List[Dict[str, Any]]:
+    """
+    Return customers who bought in the prior 30-day window but placed no orders
+    in the current 30-day window. These are the highest-priority follow-up targets.
+    A lost account: revenue_last_30 == 0 AND revenue_prev_30 > 0.
+    Sorted by revenue_prev_30 DESC, top 20 returned.
+    """
+    lost: List[Dict[str, Any]] = []
+    ref_dt = pd.to_datetime(ref_date, errors="coerce") if ref_date is not None else None
+
+    for row in customers_records:
+        rev_last = _clean_float(row.get("revenue_last_30"))
+        rev_prev = _clean_float(row.get("revenue_prev_30"))
+        if rev_last == 0.0 and rev_prev > 0.0:
+            last_order_raw = row.get("last_order_date") or row.get("last_sale_date")
+            last_order_str = str(last_order_raw)[:10] if last_order_raw else None
+            days_since: int | None = None
+            if ref_dt is not None and last_order_str:
+                lod = pd.to_datetime(last_order_str, errors="coerce")
+                if not pd.isna(lod):
+                    days_since = int((ref_dt - lod).days)
+            lost.append({
+                "customer_id": row.get("customer_id"),
+                "customer_name": row.get("customer_name") or row.get("customer_id"),
+                "account_owner_name": row.get("account_owner_name") or row.get("last_sales_rep_name"),
+                "account_owner_id": row.get("account_owner_id") or row.get("last_sales_rep_id"),
+                "territory_name": row.get("territory_name"),
+                "revenue_prev_30": rev_prev,
+                "last_order_date": last_order_str,
+                "days_since_order": days_since,
+            })
+
+    lost.sort(key=lambda r: _clean_float(r.get("revenue_prev_30")), reverse=True)
+    return lost[:30]
 
 
 def _sort_rollup_records(records: List[Dict[str, Any]], sort_by: str, sort_dir: str) -> List[Dict[str, Any]]:
@@ -371,7 +885,7 @@ def _sort_rollup_records(records: List[Dict[str, Any]], sort_by: str, sort_dir: 
     token = sort_by or "revenue"
 
     def _name(rec: Dict[str, Any]) -> str:
-        return str(rec.get("rep_name") or "").strip().lower()
+        return _business_rep_name(rec.get("rep_name"), rec.get("rep_id") or rec.get("rep_key"), default="").strip().lower()
 
     if token == "rep_name":
         return sorted(records, key=lambda rec: (_name(rec), str(rec.get("rep_id") or "")), reverse=not ascending)
@@ -398,7 +912,7 @@ def _sort_rollup_df(df, sort_by: str, sort_dir: str):
     records = work.to_dict(orient="records")
 
     def _name(rec: Dict[str, Any]) -> str:
-        return str(rec.get("rep_name") or "").strip().lower()
+        return _business_rep_name(rec.get("rep_name"), rec.get("rep_key") or rec.get("rep_id"), default="").strip().lower()
 
     if sort_by == "rep_name":
         records = sorted(records, key=lambda rec: (_name(rec), str(rec.get("rep_key") or "")), reverse=not ascending)
@@ -431,6 +945,10 @@ def _required_columns(cols: set[str]) -> Dict[str, str | None]:
     customer_name_col = _safe_col(cols, fs.CANON.customer_name, *CUSTOMER_NAME_CANDIDATES)
     product_col = _safe_col(cols, fs.CANON.product_id, *PRODUCT_ID_CANDIDATES)
     product_name_col = _safe_col(cols, fs.CANON.product_name, *PRODUCT_NAME_CANDIDATES)
+    protein_col = _safe_col(cols, *PROTEIN_CANDIDATES)
+    category_col = _safe_col(cols, *CATEGORY_CANDIDATES)
+    territory_id_col = _safe_col(cols, *TERRITORY_ID_CANDIDATES)
+    territory_name_col = _safe_col(cols, *TERRITORY_NAME_CANDIDATES)
     missing_packs_col = _safe_col(cols, "missing_packs")
     cost_expr = _coalesce_expr(cols, (fs.CANON.cost, *fs.COST_TOTAL_CANDIDATES, "CostPrice"), "NULL")
     qty_expr = _coalesce_expr(cols, (fs.CANON.qty_units, *fs.QTY_CANDIDATES, "ShippedItems"), "0")
@@ -443,11 +961,972 @@ def _required_columns(cols: set[str]) -> Dict[str, str | None]:
         "customer_name": customer_name_col,
         "product": product_col,
         "product_name": product_name_col,
+        "protein": protein_col,
+        "category": category_col,
+        "territory_id": territory_id_col,
+        "territory_name": territory_name_col,
         "missing_packs": missing_packs_col,
         "cost_expr": cost_expr,
         "qty_expr": qty_expr,
         "weight_expr": weight_expr,
     }
+
+
+def _coalesce_text_expr(cols: set[str], candidates: Sequence[str], default: str = "NULL::VARCHAR") -> str:
+    present = _present_cols(cols, candidates)
+    exprs = [_string_expr(col) for col in present]
+    return _coalesce_exprs(exprs, default)
+
+
+def _rep_pair_exprs(
+    cols: set[str],
+    id_candidates: Sequence[str],
+    name_candidates: Sequence[str],
+    *,
+    default: str = "'Unassigned / Needs Review'",
+) -> Tuple[str, str]:
+    id_expr = _coalesce_text_expr(cols, id_candidates, default)
+    name_expr = _coalesce_text_expr(cols, name_candidates, id_expr)
+    return id_expr, name_expr
+
+
+def _transaction_rep_exprs(cols: set[str]) -> Tuple[str, str]:
+    return _rep_pair_exprs(cols, TXN_REP_ID_CANDIDATES, TXN_REP_NAME_CANDIDATES)
+
+
+def _current_owner_exprs(cols: set[str]) -> Tuple[str, str]:
+    owner_id_col = _safe_col(cols, *OWNER_REP_ID_CANDIDATES)
+    owner_name_col = _safe_col(cols, *OWNER_REP_NAME_CANDIDATES)
+    if owner_id_col or owner_name_col:
+        return _rep_pair_exprs(cols, OWNER_REP_ID_CANDIDATES, OWNER_REP_NAME_CANDIDATES)
+    return _transaction_rep_exprs(cols)
+
+
+def _sql_date_literal(value: str | None) -> str:
+    if not value:
+        return ""
+    escaped = str(value).replace("'", "''")
+    return f"DATE '{escaped}'"
+
+
+def _window_predicate(column: str, start_iso: str | None, end_iso: str | None, *, default_true: bool) -> str:
+    parts: list[str] = []
+    if start_iso:
+        parts.append(f"{column} >= {_sql_date_literal(start_iso)}")
+    if end_iso:
+        parts.append(f"{column} < {_sql_date_literal(end_iso)}")
+    if not parts:
+        return "1=1" if default_true else "0=1"
+    return " AND ".join(parts)
+
+
+def _window_context(filters: Any, cols: set[str], scope: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = filters_service.normalize_filters(filters)
+    _current_where, _current_params, start_iso, end_iso = fact_store.build_where_clause(
+        normalized,
+        cols,
+        scope,
+        apply_default_window=True,
+    )
+    scope_filters = replace(
+        normalized,
+        start=None,
+        end=None,
+        preset=None,
+        complete_months_only=False,
+    )
+    scope_where, scope_params, _, _ = fact_store.build_where_clause(
+        scope_filters,
+        cols,
+        scope,
+        apply_default_window=False,
+    )
+
+    start_ts = pd.to_datetime(start_iso, errors="coerce") if start_iso else None
+    end_ts = pd.to_datetime(end_iso, errors="coerce") if end_iso else None
+    prior_start_iso = None
+    prior_end_iso = None
+    yoy_start_iso = None
+    yoy_end_iso = None
+    base_start_iso = start_iso
+    base_end_iso = end_iso
+
+    if start_ts is not None and end_ts is not None and pd.notna(start_ts) and pd.notna(end_ts):
+        window_days = max(int((end_ts - start_ts).days), 1)
+        prior_start = start_ts - pd.Timedelta(days=window_days)
+        prior_end = start_ts
+        yoy_start = start_ts - pd.DateOffset(years=1)
+        yoy_end = end_ts - pd.DateOffset(years=1)
+        prior_start_iso = prior_start.date().isoformat()
+        prior_end_iso = prior_end.date().isoformat()
+        yoy_start_iso = yoy_start.date().isoformat()
+        yoy_end_iso = yoy_end.date().isoformat()
+        base_start = min(start_ts, prior_start, yoy_start)
+        base_end = end_ts
+        base_start_iso = base_start.date().isoformat()
+        base_end_iso = base_end.date().isoformat()
+    elif start_ts is not None and pd.notna(start_ts):
+        base_start_iso = start_ts.date().isoformat()
+
+    current_display_end = None
+    if end_ts is not None and pd.notna(end_ts):
+        try:
+            current_display_end = (end_ts - pd.Timedelta(days=1)).date().isoformat()
+        except Exception:
+            current_display_end = end_iso
+
+    return {
+        "scope_where_sql": scope_where,
+        "scope_params": list(scope_params),
+        "window_start": start_iso,
+        "window_end_exclusive": end_iso,
+        "window_end_display": current_display_end or end_iso,
+        "prior_start": prior_start_iso,
+        "prior_end_exclusive": prior_end_iso,
+        "yoy_start": yoy_start_iso,
+        "yoy_end_exclusive": yoy_end_iso,
+        "base_start": base_start_iso,
+        "base_end_exclusive": base_end_iso,
+    }
+
+
+def _attributed_salesrep_ctes(
+    cols: set[str],
+    cols_map: Dict[str, str | None],
+    scope_where_sql: str,
+    controls: salesrep_ownership.AttributionControls,
+    windows: Dict[str, Any],
+    *,
+    bridge_available: bool,
+    successor_available: bool,
+) -> str:
+    date_col = cols_map.get("date")
+    revenue_col = cols_map.get("revenue")
+    order_col = cols_map.get("order")
+    customer_col = cols_map.get("customer")
+    if not all([date_col, revenue_col, order_col, customer_col]):
+        return ""
+
+    customer_name_col = cols_map.get("customer_name")
+    product_col = cols_map.get("product")
+    product_name_col = cols_map.get("product_name")
+    protein_col = cols_map.get("protein")
+    category_col = cols_map.get("category")
+    territory_id_col = cols_map.get("territory_id")
+    territory_name_col = cols_map.get("territory_name")
+    cost_expr = cols_map.get("cost_expr") or "NULL"
+    qty_expr = cols_map.get("qty_expr") or "0"
+    weight_expr = cols_map.get("weight_expr") or "0"
+    missing_packs_col = cols_map.get("missing_packs")
+    missing_packs_expr = f"CAST({_quote(missing_packs_col)} AS BOOLEAN)" if missing_packs_col else "NULL::BOOLEAN"
+
+    txn_rep_id_expr, txn_rep_name_expr = _transaction_rep_exprs(cols)
+    owner_rep_id_expr, owner_rep_name_expr = _current_owner_exprs(cols)
+
+    order_expr = _string_expr(order_col)
+    customer_expr = _string_expr(customer_col)
+    customer_name_expr = _string_expr(customer_name_col) if customer_name_col else customer_expr
+    product_expr = _string_expr(product_col) if product_col else "NULL::VARCHAR"
+    product_name_expr = _string_expr(product_name_col) if product_name_col else product_expr
+    protein_expr = _string_expr(protein_col) if protein_col else "NULL::VARCHAR"
+    category_expr = _string_expr(category_col) if category_col else protein_expr
+    territory_id_expr = _string_expr(territory_id_col) if territory_id_col else "NULL::VARCHAR"
+    territory_name_expr = _string_expr(territory_name_col) if territory_name_col else territory_id_expr
+
+    base_predicate = _window_predicate(
+        "CAST(order_date AS DATE)",
+        windows.get("base_start"),
+        windows.get("base_end_exclusive"),
+        default_true=True,
+    )
+    current_predicate = _window_predicate(
+        "order_date",
+        windows.get("window_start"),
+        windows.get("window_end_exclusive"),
+        default_true=True,
+    )
+    prior_predicate = _window_predicate(
+        "order_date",
+        windows.get("prior_start"),
+        windows.get("prior_end_exclusive"),
+        default_true=False,
+    )
+    yoy_predicate = _window_predicate(
+        "order_date",
+        windows.get("yoy_start"),
+        windows.get("yoy_end_exclusive"),
+        default_true=False,
+    )
+
+    roster_clause = "1=1"
+    if controls.attribution_mode == salesrep_ownership.ATTRIBUTION_HISTORICAL and controls.roster_mode == salesrep_ownership.ROSTER_CURRENT_ONLY:
+        roster_clause = (
+            "NOT EXISTS (SELECT 1 FROM current_roster) "
+            "OR historical_rep_id IN (SELECT rep_id FROM current_roster) "
+            "OR historical_rep_name IN (SELECT rep_name FROM current_roster) "
+            "OR COALESCE(historical_rep_id, historical_rep_name) = 'Unassigned / Needs Review'"
+        )
+
+    transfer_clause = "1=1"
+    if controls.transfer_only:
+        transfer_clause = "ownership_changed = 1 OR owner_missing = 1"
+
+    attributed_rep_id_expr = "historical_rep_id"
+    attributed_rep_name_expr = "historical_rep_name"
+    if controls.is_current_owner_mode:
+        if controls.roster_mode == salesrep_ownership.ROSTER_CURRENT_ONLY:
+            attributed_rep_id_expr = (
+                "CASE WHEN current_owner_active = FALSE THEN 'Unassigned / Needs Review' ELSE current_owner_id END"
+            )
+            attributed_rep_name_expr = (
+                "CASE WHEN current_owner_active = FALSE THEN 'Unassigned / Needs Review' ELSE current_owner_name END"
+            )
+        else:
+            attributed_rep_id_expr = "current_owner_id"
+            attributed_rep_name_expr = "current_owner_name"
+
+    bridge_base_source = f"""
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                rep_id,
+                rep_name,
+                prior_rep_id,
+                prior_rep_name,
+                CAST(assignment_start_date AS DATE) AS assignment_start_date,
+                CAST(assignment_end_date AS DATE) AS assignment_end_date,
+                is_current,
+                ownership_type,
+                rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM {salesrep_ownership.BRIDGE_VIEW_NAME}
+    """
+    if not bridge_available:
+        bridge_base_source = """
+            SELECT
+                CAST(NULL AS VARCHAR) AS customer_id,
+                CAST(NULL AS VARCHAR) AS territory_id,
+                CAST(NULL AS VARCHAR) AS territory_name,
+                CAST(NULL AS VARCHAR) AS rep_id,
+                CAST(NULL AS VARCHAR) AS rep_name,
+                CAST(NULL AS VARCHAR) AS prior_rep_id,
+                CAST(NULL AS VARCHAR) AS prior_rep_name,
+                CAST(NULL AS DATE) AS assignment_start_date,
+                CAST(NULL AS DATE) AS assignment_end_date,
+                CAST(NULL AS BOOLEAN) AS is_current,
+                CAST(NULL AS VARCHAR) AS ownership_type,
+                CAST(NULL AS BOOLEAN) AS rep_is_active,
+                CAST(NULL AS VARCHAR) AS mapping_confidence,
+                CAST(NULL AS VARCHAR) AS dq_status
+            WHERE 1=0
+        """
+
+    successor_base_source = f"""
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                CAST(effective_start_date AS DATE) AS effective_start_date,
+                CAST(effective_end_date AS DATE) AS effective_end_date,
+                is_current,
+                successor_rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM {salesrep_ownership.SUCCESSION_VIEW_NAME}
+    """
+    if not successor_available:
+        successor_base_source = """
+            SELECT
+                CAST(NULL AS VARCHAR) AS customer_id,
+                CAST(NULL AS VARCHAR) AS territory_id,
+                CAST(NULL AS VARCHAR) AS territory_name,
+                CAST(NULL AS VARCHAR) AS prior_rep_id,
+                CAST(NULL AS VARCHAR) AS prior_rep_name,
+                CAST(NULL AS VARCHAR) AS successor_rep_id,
+                CAST(NULL AS VARCHAR) AS successor_rep_name,
+                CAST(NULL AS DATE) AS effective_start_date,
+                CAST(NULL AS DATE) AS effective_end_date,
+                CAST(NULL AS BOOLEAN) AS is_current,
+                CAST(NULL AS BOOLEAN) AS successor_rep_is_active,
+                CAST(NULL AS VARCHAR) AS mapping_confidence,
+                CAST(NULL AS VARCHAR) AS dq_status
+            WHERE 1=0
+        """
+
+    effective_cost_expr = margin_rules.sql_effective_cost_expr(
+        f"CAST({cost_expr} AS DOUBLE)",
+        f"CAST({weight_expr} AS DOUBLE)",
+        f"CAST({qty_expr} AS DOUBLE)",
+        fallback="NULL::DOUBLE",
+    )
+    minimum_margin_expr = margin_rules.sql_margin_rule_expr(protein_expr, category_expr, "min_gross_margin_pct")
+    target_margin_expr = margin_rules.sql_margin_rule_expr(protein_expr, category_expr, "target_gross_margin_pct")
+
+    return f"""
+        fact_scope AS (
+            SELECT
+                ROW_NUMBER() OVER () AS fact_row_id,
+                CAST({_quote(date_col)} AS DATE) AS order_date,
+                {order_expr} AS order_id,
+                {customer_expr} AS customer_id,
+                {customer_name_expr} AS customer_name,
+                {product_expr} AS product_id,
+                {product_name_expr} AS product_name,
+                {protein_expr} AS protein_family,
+                {category_expr} AS category_name,
+                {territory_id_expr} AS fact_territory_id,
+                {territory_name_expr} AS fact_territory_name,
+                {txn_rep_id_expr} AS transaction_rep_id,
+                {txn_rep_name_expr} AS transaction_rep_name,
+                {owner_rep_id_expr} AS owner_rep_id_fact,
+                {owner_rep_name_expr} AS owner_rep_name_fact,
+                CAST({_quote(revenue_col)} AS DOUBLE) AS revenue,
+                CAST({cost_expr} AS DOUBLE) AS base_cost,
+                ({effective_cost_expr}) AS cost,
+                CASE
+                    WHEN ({effective_cost_expr}) IS NULL THEN NULL
+                    ELSE CAST({_quote(revenue_col)} AS DOUBLE) - ({effective_cost_expr})
+                END AS profit,
+                CAST({qty_expr} AS DOUBLE) AS units,
+                CAST({weight_expr} AS DOUBLE) AS weight_lb,
+                ({minimum_margin_expr}) AS minimum_margin_pct_rule,
+                ({target_margin_expr}) AS target_margin_pct_rule,
+                {missing_packs_expr} AS missing_packs
+            FROM fact
+            WHERE {scope_where_sql}
+        ),
+        fact_base AS (
+            SELECT *
+            FROM fact_scope
+            WHERE {base_predicate}
+        ),
+        fact_owner_profile AS (
+            SELECT
+                customer_id,
+                COUNT(
+                    DISTINCT COALESCE(
+                        owner_rep_id_fact,
+                        owner_rep_name_fact
+                    )
+                ) AS owner_variant_count
+            FROM fact_scope
+            WHERE customer_id IS NOT NULL
+              AND COALESCE(owner_rep_id_fact, owner_rep_name_fact) IS NOT NULL
+            GROUP BY 1
+        ),
+        fact_owner_ranked AS (
+            SELECT
+                customer_id,
+                owner_rep_id_fact,
+                owner_rep_name_fact,
+                fact_territory_id,
+                fact_territory_name,
+                COALESCE(fop.owner_variant_count, 0) AS owner_variant_count,
+                ROW_NUMBER() OVER (
+                    PARTITION BY customer_id
+                    ORDER BY order_date DESC NULLS LAST, order_id DESC NULLS LAST, fact_row_id DESC
+                ) AS rn
+            FROM fact_scope
+            LEFT JOIN fact_owner_profile fop USING (customer_id)
+            WHERE customer_id IS NOT NULL
+              AND (owner_rep_id_fact IS NOT NULL OR owner_rep_name_fact IS NOT NULL)
+        ),
+        fact_owner_current AS (
+            SELECT
+                customer_id,
+                owner_rep_id_fact AS rep_id,
+                owner_rep_name_fact AS rep_name,
+                fact_territory_id AS territory_id,
+                fact_territory_name AS territory_name,
+                owner_variant_count
+            FROM fact_owner_ranked
+            WHERE rn = 1
+        ),
+        customer_last_sale_ranked AS (
+            SELECT
+                customer_id,
+                transaction_rep_id,
+                transaction_rep_name,
+                order_date,
+                order_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY customer_id
+                    ORDER BY order_date DESC NULLS LAST, order_id DESC NULLS LAST, fact_row_id DESC
+                ) AS rn
+            FROM fact_scope
+            WHERE customer_id IS NOT NULL
+        ),
+        customer_last_sale AS (
+            SELECT
+                customer_id,
+                transaction_rep_id AS last_sales_rep_id,
+                transaction_rep_name AS last_sales_rep_name,
+                order_date AS last_sale_date
+            FROM customer_last_sale_ranked
+            WHERE rn = 1
+        ),
+        bridge_base_raw AS (
+{bridge_base_source}
+        ),
+        bridge_base AS (
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                rep_id,
+                rep_name,
+                COALESCE(
+                    prior_rep_id,
+                    LAG(rep_id) OVER (
+                        PARTITION BY customer_id
+                        ORDER BY
+                            COALESCE(assignment_start_date, DATE '1900-01-01'),
+                            COALESCE(assignment_end_date, DATE '2999-12-31'),
+                            rep_id
+                    )
+                ) AS prior_rep_id,
+                COALESCE(
+                    prior_rep_name,
+                    LAG(rep_name) OVER (
+                        PARTITION BY customer_id
+                        ORDER BY
+                            COALESCE(assignment_start_date, DATE '1900-01-01'),
+                            COALESCE(assignment_end_date, DATE '2999-12-31'),
+                            rep_id
+                    )
+                ) AS prior_rep_name,
+                assignment_start_date,
+                assignment_end_date,
+                is_current,
+                ownership_type,
+                rep_is_active,
+                COALESCE(mapping_confidence, 'ownership_history') AS mapping_confidence,
+                COALESCE(dq_status, 'ok') AS dq_status
+            FROM bridge_base_raw
+        ),
+        bridge_current_ranked AS (
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                rep_id,
+                rep_name,
+                prior_rep_id,
+                prior_rep_name,
+                ownership_type,
+                rep_is_active,
+                mapping_confidence,
+                dq_status,
+                ROW_NUMBER() OVER (
+                    PARTITION BY customer_id
+                    ORDER BY
+                        COALESCE(is_current, FALSE) DESC,
+                        COALESCE(assignment_end_date, DATE '2999-12-31') DESC,
+                        COALESCE(assignment_start_date, DATE '1900-01-01') DESC,
+                        rep_id
+                ) AS rn
+            FROM bridge_base
+            WHERE customer_id IS NOT NULL
+              AND (
+                  COALESCE(is_current, FALSE)
+                  OR assignment_end_date IS NULL
+                  OR assignment_end_date >= CURRENT_DATE
+              )
+        ),
+        bridge_current AS (
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                rep_id,
+                rep_name,
+                prior_rep_id,
+                prior_rep_name,
+                ownership_type,
+                rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM bridge_current_ranked
+            WHERE rn = 1
+        ),
+        successor_base AS (
+{successor_base_source}
+        ),
+        successor_customer_ranked AS (
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                COALESCE(mapping_confidence, 'customer_succession') AS mapping_confidence,
+                COALESCE(dq_status, 'ok') AS dq_status,
+                ROW_NUMBER() OVER (
+                    PARTITION BY customer_id
+                    ORDER BY
+                        COALESCE(is_current, FALSE) DESC,
+                        COALESCE(effective_end_date, DATE '2999-12-31') DESC,
+                        COALESCE(effective_start_date, DATE '1900-01-01') DESC,
+                        successor_rep_id
+                ) AS rn
+            FROM successor_base
+            WHERE customer_id IS NOT NULL
+              AND (
+                  COALESCE(is_current, FALSE)
+                  OR effective_end_date IS NULL
+                  OR effective_end_date >= CURRENT_DATE
+              )
+        ),
+        successor_customer_current AS (
+            SELECT
+                customer_id,
+                territory_id,
+                territory_name,
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM successor_customer_ranked
+            WHERE rn = 1
+        ),
+        successor_territory_ranked AS (
+            SELECT
+                territory_id,
+                territory_name,
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                COALESCE(mapping_confidence, 'territory_succession') AS mapping_confidence,
+                COALESCE(dq_status, 'ok') AS dq_status,
+                ROW_NUMBER() OVER (
+                    PARTITION BY territory_id
+                    ORDER BY
+                        COALESCE(is_current, FALSE) DESC,
+                        COALESCE(effective_end_date, DATE '2999-12-31') DESC,
+                        COALESCE(effective_start_date, DATE '1900-01-01') DESC,
+                        successor_rep_id
+                ) AS rn
+            FROM successor_base
+            WHERE territory_id IS NOT NULL
+              AND (
+                  COALESCE(is_current, FALSE)
+                  OR effective_end_date IS NULL
+                  OR effective_end_date >= CURRENT_DATE
+              )
+        ),
+        successor_territory_current AS (
+            SELECT
+                territory_id,
+                territory_name,
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM successor_territory_ranked
+            WHERE rn = 1
+        ),
+        successor_rep_id_ranked AS (
+            SELECT
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                COALESCE(mapping_confidence, 'rep_succession') AS mapping_confidence,
+                COALESCE(dq_status, 'ok') AS dq_status,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prior_rep_id
+                    ORDER BY
+                        COALESCE(is_current, FALSE) DESC,
+                        COALESCE(effective_end_date, DATE '2999-12-31') DESC,
+                        COALESCE(effective_start_date, DATE '1900-01-01') DESC,
+                        successor_rep_id
+                ) AS rn
+            FROM successor_base
+            WHERE prior_rep_id IS NOT NULL
+        ),
+        successor_rep_current_id AS (
+            SELECT
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM successor_rep_id_ranked
+            WHERE rn = 1
+        ),
+        successor_rep_name_ranked AS (
+            SELECT
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                COALESCE(mapping_confidence, 'rep_succession') AS mapping_confidence,
+                COALESCE(dq_status, 'ok') AS dq_status,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prior_rep_name
+                    ORDER BY
+                        COALESCE(is_current, FALSE) DESC,
+                        COALESCE(effective_end_date, DATE '2999-12-31') DESC,
+                        COALESCE(effective_start_date, DATE '1900-01-01') DESC,
+                        successor_rep_id
+                ) AS rn
+            FROM successor_base
+            WHERE prior_rep_name IS NOT NULL
+        ),
+        successor_rep_current_name AS (
+            SELECT
+                prior_rep_id,
+                prior_rep_name,
+                successor_rep_id,
+                successor_rep_name,
+                successor_rep_is_active,
+                mapping_confidence,
+                dq_status
+            FROM successor_rep_name_ranked
+            WHERE rn = 1
+        ),
+        current_owner_map AS (
+            SELECT
+                COALESCE(b.customer_id, f.customer_id) AS customer_id,
+                COALESCE(
+                    b.rep_id,
+                    sc.successor_rep_id,
+                    st.successor_rep_id,
+                    sri.successor_rep_id,
+                    srn.successor_rep_id,
+                    f.rep_id
+                ) AS current_owner_id,
+                COALESCE(
+                    b.rep_name,
+                    sc.successor_rep_name,
+                    st.successor_rep_name,
+                    sri.successor_rep_name,
+                    srn.successor_rep_name,
+                    f.rep_name,
+                    b.rep_id,
+                    sc.successor_rep_id,
+                    st.successor_rep_id,
+                    sri.successor_rep_id,
+                    srn.successor_rep_id,
+                    f.rep_id
+                ) AS current_owner_name,
+                COALESCE(b.prior_rep_id, sc.prior_rep_id, st.prior_rep_id, sri.prior_rep_id, srn.prior_rep_id, NULL) AS prior_rep_id,
+                COALESCE(
+                    b.prior_rep_name,
+                    sc.prior_rep_name,
+                    st.prior_rep_name,
+                    sri.prior_rep_name,
+                    srn.prior_rep_name,
+                    b.prior_rep_id,
+                    sc.prior_rep_id,
+                    st.prior_rep_id,
+                    sri.prior_rep_id,
+                    srn.prior_rep_id
+                ) AS prior_rep_name,
+                COALESCE(b.territory_id, sc.territory_id, st.territory_id, f.territory_id) AS territory_id,
+                COALESCE(
+                    b.territory_name,
+                    sc.territory_name,
+                    st.territory_name,
+                    f.territory_name,
+                    b.territory_id,
+                    sc.territory_id,
+                    st.territory_id,
+                    f.territory_id
+                ) AS territory_name,
+                COALESCE(b.ownership_type, 'account_owner') AS ownership_type,
+                COALESCE(
+                    b.rep_is_active,
+                    sc.successor_rep_is_active,
+                    st.successor_rep_is_active,
+                    sri.successor_rep_is_active,
+                    srn.successor_rep_is_active
+                ) AS current_owner_active,
+                COALESCE(
+                    b.mapping_confidence,
+                    sc.mapping_confidence,
+                    st.mapping_confidence,
+                    sri.mapping_confidence,
+                    srn.mapping_confidence,
+                    CASE
+                        WHEN f.customer_id IS NOT NULL AND COALESCE(f.owner_variant_count, 0) <= 1 THEN 'fact_customer_snapshot'
+                        WHEN f.customer_id IS NOT NULL THEN 'fact_fallback'
+                        ELSE 'unassigned'
+                    END
+                ) AS mapping_confidence,
+                COALESCE(
+                    b.dq_status,
+                    sc.dq_status,
+                    st.dq_status,
+                    sri.dq_status,
+                    srn.dq_status,
+                    CASE
+                        WHEN f.customer_id IS NOT NULL AND COALESCE(f.owner_variant_count, 0) <= 1 THEN 'ok'
+                        WHEN f.customer_id IS NOT NULL THEN 'fact_owner_only'
+                        ELSE 'needs_review'
+                    END
+                ) AS dq_status,
+                CASE
+                    WHEN b.customer_id IS NOT NULL THEN 'ownership_bridge'
+                    WHEN sc.customer_id IS NOT NULL THEN 'customer_succession'
+                    WHEN st.territory_id IS NOT NULL THEN 'territory_succession'
+                    WHEN sri.successor_rep_id IS NOT NULL OR sri.successor_rep_name IS NOT NULL THEN 'rep_succession'
+                    WHEN srn.successor_rep_id IS NOT NULL OR srn.successor_rep_name IS NOT NULL THEN 'rep_succession'
+                    WHEN f.customer_id IS NOT NULL AND COALESCE(f.owner_variant_count, 0) <= 1 THEN 'fact_customer_snapshot'
+                    WHEN f.customer_id IS NOT NULL THEN 'fact_current_owner'
+                    ELSE 'unassigned'
+                END AS owner_source
+            FROM fact_owner_current f
+            FULL OUTER JOIN bridge_current b USING (customer_id)
+            LEFT JOIN successor_customer_current sc
+              ON sc.customer_id = COALESCE(b.customer_id, f.customer_id)
+            LEFT JOIN successor_territory_current st
+              ON st.territory_id = COALESCE(b.territory_id, f.territory_id)
+            LEFT JOIN successor_rep_current_id sri
+              ON sri.prior_rep_id = COALESCE(b.prior_rep_id, f.rep_id, b.rep_id)
+            LEFT JOIN successor_rep_current_name srn
+              ON srn.prior_rep_name = COALESCE(b.prior_rep_name, f.rep_name, b.rep_name)
+        ),
+        history_bridge_ranked AS (
+            SELECT
+                fb.fact_row_id,
+                sh.rep_id,
+                sh.rep_name,
+                ROW_NUMBER() OVER (
+                    PARTITION BY fb.fact_row_id
+                    ORDER BY
+                        COALESCE(sh.assignment_start_date, DATE '1900-01-01') DESC,
+                        COALESCE(sh.assignment_end_date, DATE '2999-12-31') DESC,
+                        sh.rep_id
+                ) AS rn
+            FROM fact_base fb
+            JOIN bridge_base sh
+              ON sh.customer_id = fb.customer_id
+             AND COALESCE(sh.mapping_confidence, '') <> 'fact_owner_snapshot'
+             AND fb.order_date >= COALESCE(sh.assignment_start_date, DATE '1900-01-01')
+             AND fb.order_date < COALESCE(sh.assignment_end_date + INTERVAL 1 DAY, DATE '2999-12-31')
+        ),
+        history_bridge AS (
+            SELECT
+                fact_row_id,
+                rep_id,
+                rep_name
+            FROM history_bridge_ranked
+            WHERE rn = 1
+        ),
+        enriched AS (
+            SELECT
+                fb.*,
+                COALESCE(hb.rep_id, fb.transaction_rep_id, fb.transaction_rep_name, 'Unassigned / Needs Review') AS historical_rep_id,
+                COALESCE(hb.rep_name, fb.transaction_rep_name, hb.rep_id, fb.transaction_rep_id, 'Unassigned / Needs Review') AS historical_rep_name,
+                COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact, 'Unassigned / Needs Review') AS current_owner_id,
+                COALESCE(com.current_owner_name, fb.owner_rep_name_fact, fb.owner_rep_id_fact, 'Unassigned / Needs Review') AS current_owner_name,
+                COALESCE(
+                    com.prior_rep_id,
+                    CASE
+                        WHEN COALESCE(hb.rep_id, fb.transaction_rep_id, fb.transaction_rep_name)
+                             IS DISTINCT FROM COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact)
+                        THEN COALESCE(hb.rep_id, fb.transaction_rep_id)
+                        ELSE NULL
+                    END
+                ) AS prior_rep_id,
+                COALESCE(
+                    com.prior_rep_name,
+                    CASE
+                        WHEN COALESCE(hb.rep_id, fb.transaction_rep_id, fb.transaction_rep_name)
+                             IS DISTINCT FROM COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact)
+                        THEN COALESCE(hb.rep_name, fb.transaction_rep_name, hb.rep_id, fb.transaction_rep_id)
+                        ELSE NULL
+                    END
+                ) AS prior_rep_name,
+                COALESCE(com.territory_id, fb.fact_territory_id) AS territory_id,
+                COALESCE(com.territory_name, fb.fact_territory_name, com.territory_id, fb.fact_territory_id) AS territory_name,
+                COALESCE(com.owner_source, 'unassigned') AS owner_source,
+                COALESCE(com.mapping_confidence, CASE
+                    WHEN COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact) IS NULL THEN 'needs_review'
+                    WHEN com.owner_source = 'ownership_bridge' THEN 'ownership_history'
+                    WHEN com.owner_source = 'fact_current_owner' THEN 'fact_fallback'
+                    ELSE 'needs_review'
+                END) AS mapping_confidence,
+                COALESCE(com.dq_status, CASE
+                    WHEN COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact) IS NULL THEN 'needs_review'
+                    WHEN com.owner_source = 'fact_current_owner' THEN 'fact_owner_only'
+                    ELSE 'ok'
+                END) AS dq_status,
+                com.current_owner_active,
+                cls.last_sales_rep_id,
+                cls.last_sales_rep_name,
+                cls.last_sale_date,
+                CASE
+                    WHEN COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact) IS NULL THEN 1
+                    ELSE 0
+                END AS owner_missing,
+                CASE
+                    WHEN COALESCE(hb.rep_id, fb.transaction_rep_id, fb.transaction_rep_name) IS DISTINCT FROM COALESCE(com.current_owner_id, fb.owner_rep_id_fact, fb.owner_rep_name_fact)
+                    THEN 1 ELSE 0
+                END AS ownership_changed
+            FROM fact_base fb
+            LEFT JOIN history_bridge hb ON hb.fact_row_id = fb.fact_row_id
+            LEFT JOIN current_owner_map com ON com.customer_id = fb.customer_id
+            LEFT JOIN customer_last_sale cls ON cls.customer_id = fb.customer_id
+        ),
+        current_roster AS (
+            SELECT DISTINCT
+                current_owner_id AS rep_id,
+                current_owner_name AS rep_name
+            FROM enriched
+            WHERE current_owner_id IS NOT NULL
+              AND current_owner_name IS NOT NULL
+              AND current_owner_name <> 'Unassigned / Needs Review'
+        ),
+        attributed_base AS (
+            SELECT
+                enriched.*,
+                {attributed_rep_id_expr} AS rep_key,
+                {attributed_rep_name_expr} AS rep_name,
+                CASE WHEN {current_predicate} THEN 1 ELSE 0 END AS is_current_window,
+                CASE WHEN {prior_predicate} THEN 1 ELSE 0 END AS is_prior_window,
+                CASE WHEN {yoy_predicate} THEN 1 ELSE 0 END AS is_yoy_window,
+                CASE
+                    WHEN COALESCE(current_owner_id, '') <> ''
+                         AND COALESCE(current_owner_name, '') <> ''
+                         AND COALESCE(current_owner_id, current_owner_name) <> COALESCE(historical_rep_id, historical_rep_name)
+                    THEN 1 ELSE 0
+                END AS inherited_flag
+            FROM enriched
+            WHERE ({roster_clause})
+              AND ({transfer_clause})
+        )
+    """
+
+
+def _ownership_bridge_meta_fallback(message: str) -> salesrep_ownership.OwnershipBridgeMeta:
+    return salesrep_ownership.OwnershipBridgeMeta(
+        available=False,
+        source=None,
+        rows=0,
+        dropped_rows=0,
+        overlapping_current_assignments=0,
+        bridge_kind=None,
+        warnings=(message,),
+    )
+
+
+def _successor_meta_fallback(message: str) -> salesrep_ownership.SuccessorMapMeta:
+    return salesrep_ownership.SuccessorMapMeta(
+        available=False,
+        source=None,
+        rows=0,
+        dropped_rows=0,
+        scoped_rows=0,
+        warnings=(message,),
+    )
+
+
+def _salesrep_attribution_context(filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, Any]:
+    cols = fact_store.list_columns()
+    cols_map = _required_columns(cols)
+    missing = [k for k in ("date", "revenue", "order", "customer") if not cols_map.get(k)]
+    if missing:
+        return {
+            "error": {
+                "message": f"Required columns missing for salesreps attribution: {', '.join(missing)}"
+            }
+        }
+
+    controls = salesrep_ownership.parse_attribution_controls(args)
+    try:
+        bridge_meta = salesrep_ownership.register_bridge_view()
+        if bridge_meta.available:
+            fact_store.get_duckdb_conn().execute(
+                f"SELECT 1 FROM {salesrep_ownership.BRIDGE_VIEW_NAME} LIMIT 1"
+            ).fetchall()
+    except Exception as exc:
+        bridge_meta = _ownership_bridge_meta_fallback(
+            f"Ownership history bridge could not be registered; current-owner rollups fall back to fact owner fields ({exc})."
+        )
+    try:
+        successor_meta = salesrep_ownership.register_successor_view()
+        if successor_meta.available:
+            fact_store.get_duckdb_conn().execute(
+                f"SELECT 1 FROM {salesrep_ownership.SUCCESSION_VIEW_NAME} LIMIT 1"
+            ).fetchall()
+    except Exception as exc:
+        successor_meta = _successor_meta_fallback(
+            f"Sales rep succession map could not be registered; successor overrides are unavailable ({exc})."
+        )
+
+    windows = _window_context(filters, cols, scope)
+    cte_sql = _attributed_salesrep_ctes(
+        cols,
+        cols_map,
+        windows.get("scope_where_sql") or "1=1",
+        controls,
+        windows,
+        bridge_available=bool(bridge_meta.available),
+        successor_available=bool(successor_meta.available),
+    )
+    if not cte_sql:
+        return {"error": {"message": "Salesreps attribution query could not be built"}}
+
+    return {
+        "cols": cols,
+        "cols_map": cols_map,
+        "controls": controls,
+        "bridge_meta": bridge_meta,
+        "successor_meta": successor_meta,
+        "windows": windows,
+        "cte_sql": cte_sql,
+        "params": list(windows.get("scope_params") or []),
+    }
+
+
+def _salesrep_rep_context(rep_id: str, filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, Any]:
+    context = _salesrep_attribution_context(filters, scope, args)
+    if context.get("error"):
+        return context
+
+    cte_sql = f"""
+        {context["cte_sql"]},
+        rep_scope AS (
+            SELECT *
+            FROM attributed_base
+            WHERE LOWER(COALESCE(rep_key, '')) = LOWER(?)
+               OR LOWER(COALESCE(rep_name, '')) = LOWER(?)
+        ),
+        scoped AS (
+            SELECT *
+            FROM rep_scope
+            WHERE is_current_window = 1
+        )
+    """
+    params = list(context.get("params") or []) + [rep_id, rep_id]
+    context = dict(context)
+    context["cte_sql"] = cte_sql
+    context["params"] = params
+    context["rep_id"] = rep_id
+    return context
 
 
 def _rep_exprs(cols: set[str]) -> Tuple[str, str]:
@@ -503,46 +1982,89 @@ def _scoped_sql(cols_map: Dict[str, str | None], where_sql: str, rep_key_expr: s
     """
 
 
-def _rollup_sql(base_sql: str) -> str:
+def _rollup_sql(cte_sql: str) -> str:
     return f"""
-        WITH base AS (
-            {base_sql}
-        ),
+        WITH
+        {cte_sql},
         rep_totals AS (
             SELECT
                 rep_key,
                 ANY_VALUE(rep_name) AS rep_name,
-                SUM(revenue) AS revenue,
-                SUM(cost) AS cost,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                COUNT(DISTINCT order_id) AS orders,
-                COUNT(DISTINCT customer_id) AS customers,
-                SUM(units) AS units,
-                SUM(weight_lb) AS weight_lb,
-                SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
-                COUNT(*) AS row_count
-            FROM base
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_current_window = 1 THEN cost END) AS cost,
+                SUM(CASE WHEN is_current_window = 1 THEN profit END) AS profit,
+                SUM(CASE WHEN is_current_window = 1 AND revenue > 0 AND minimum_margin_pct_rule IS NOT NULL THEN revenue * minimum_margin_pct_rule ELSE 0 END) AS minimum_margin_revenue_sum,
+                SUM(CASE WHEN is_current_window = 1 AND revenue > 0 AND minimum_margin_pct_rule IS NOT NULL THEN revenue ELSE 0 END) AS minimum_margin_revenue_weight,
+                SUM(CASE WHEN is_current_window = 1 AND revenue > 0 AND target_margin_pct_rule IS NOT NULL THEN revenue * target_margin_pct_rule ELSE 0 END) AS target_margin_revenue_sum,
+                SUM(CASE WHEN is_current_window = 1 AND revenue > 0 AND target_margin_pct_rule IS NOT NULL THEN revenue ELSE 0 END) AS target_margin_revenue_weight,
+                SUM(CASE WHEN is_prior_window = 1 THEN revenue ELSE 0 END) AS prior_revenue,
+                SUM(CASE WHEN is_prior_window = 1 THEN profit END) AS prior_profit,
+                SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue,
+                SUM(CASE WHEN is_yoy_window = 1 THEN profit END) AS yoy_profit,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN order_id END) AS orders,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS customers,
+                SUM(CASE WHEN is_current_window = 1 THEN units ELSE 0 END) AS units,
+                SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) AS weight_lb,
+                SUM(CASE WHEN is_current_window = 1 AND cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
+                COUNT(CASE WHEN is_current_window = 1 THEN 1 END) AS row_count,
+                MAX(CASE WHEN is_current_window = 1 THEN order_date END) AS last_order_date,
+                SUM(CASE WHEN is_current_window = 1 AND ownership_changed = 1 THEN revenue ELSE 0 END) AS transfer_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND owner_missing = 1 THEN revenue ELSE 0 END) AS unassigned_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key AND inherited_flag = 1 THEN revenue ELSE 0 END) AS transferred_in_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND historical_rep_id = rep_key AND ownership_changed = 1 THEN revenue ELSE 0 END) AS transferred_out_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key AND inherited_flag = 0 AND owner_missing = 0 THEN revenue ELSE 0 END) AS direct_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key AND inherited_flag = 0 AND owner_missing = 0 THEN profit END) AS direct_profit,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key AND inherited_flag = 0 AND owner_missing = 0 THEN weight_lb ELSE 0 END) AS direct_weight_lb,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key THEN revenue ELSE 0 END) AS current_owner_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key THEN profit END) AS current_owner_profit,
+                SUM(CASE WHEN is_current_window = 1 AND historical_rep_id = rep_key THEN revenue ELSE 0 END) AS historical_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND historical_rep_id = rep_key THEN profit END) AS historical_profit
+            FROM attributed_base
             GROUP BY rep_key
         ),
-        customer_rev AS (
+        customer_rollup AS (
             SELECT
                 rep_key,
                 customer_id,
                 ANY_VALUE(customer_name) AS customer_name,
-                SUM(revenue) AS revenue
-            FROM base
+                MAX(current_owner_id) AS current_owner_id,
+                MAX(current_owner_name) AS current_owner_name,
+                MAX(historical_rep_id) AS historical_rep_id,
+                MAX(historical_rep_name) AS historical_rep_name,
+                MAX(prior_rep_id) AS prior_rep_id,
+                MAX(prior_rep_name) AS prior_rep_name,
+                MAX(territory_name) AS territory_name,
+                MAX(owner_missing) AS owner_missing,
+                MAX(inherited_flag) AS inherited_flag,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_prior_window = 1 THEN revenue ELSE 0 END) AS prior_revenue,
+                SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue
+            FROM attributed_base
             WHERE customer_id IS NOT NULL AND customer_id <> ''
-            GROUP BY 1,2
+            GROUP BY 1, 2
+        ),
+        customer_stats AS (
+            SELECT
+                rep_key,
+                COUNT(DISTINCT CASE WHEN revenue > 0 THEN customer_id END) AS active_customers,
+                COUNT(DISTINCT CASE WHEN revenue > 0 AND prior_revenue = 0 THEN customer_id END) AS gained_customers,
+                COUNT(DISTINCT CASE WHEN revenue = 0 AND prior_revenue > 0 THEN customer_id END) AS lost_customers,
+                COUNT(DISTINCT CASE WHEN revenue > 0 AND current_owner_id = rep_key THEN customer_id END) AS current_owned_customers,
+                COUNT(DISTINCT CASE WHEN revenue > 0 AND current_owner_id = rep_key AND inherited_flag = 1 THEN customer_id END) AS inherited_customers,
+                COUNT(DISTINCT CASE WHEN revenue > 0 AND owner_missing = 1 THEN customer_id END) AS unassigned_customers
+            FROM customer_rollup
+            GROUP BY rep_key
         ),
         customer_ranked AS (
             SELECT
-                cr.rep_key,
-                cr.customer_id,
-                cr.customer_name,
-                cr.revenue,
-                SUM(cr.revenue) OVER (PARTITION BY cr.rep_key) AS rep_total_revenue,
-                ROW_NUMBER() OVER (PARTITION BY cr.rep_key ORDER BY cr.revenue DESC, cr.customer_id) AS rn
-            FROM customer_rev cr
+                rep_key,
+                customer_id,
+                customer_name,
+                revenue,
+                SUM(revenue) OVER (PARTITION BY rep_key) AS rep_total_revenue,
+                ROW_NUMBER() OVER (PARTITION BY rep_key ORDER BY revenue DESC, customer_id) AS rn
+            FROM customer_rollup
+            WHERE revenue > 0
         ),
         concentration AS (
             SELECT
@@ -555,49 +2077,59 @@ def _rollup_sql(base_sql: str) -> str:
             FROM customer_ranked
             GROUP BY rep_key
         ),
-        ref AS (
-            SELECT MAX(order_date) AS max_date FROM base
-        ),
-        momentum AS (
+        territory_ranked AS (
             SELECT
                 rep_key,
-                SUM(CASE WHEN order_date >= ref.max_date - INTERVAL 90 DAY THEN revenue ELSE 0 END) AS rev_recent,
-                SUM(CASE WHEN order_date < ref.max_date - INTERVAL 90 DAY AND order_date >= ref.max_date - INTERVAL 180 DAY THEN revenue ELSE 0 END) AS rev_prior
-            FROM base, ref
-            GROUP BY rep_key
-        ),
-        monthly AS (
-            SELECT
-                rep_key,
-                DATE_TRUNC('month', order_date) AS month_start,
+                COALESCE(territory_name, 'Unassigned') AS territory_name,
                 SUM(revenue) AS revenue,
-                SUM(cost) AS cost,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct
-            FROM base
-            GROUP BY 1,2
+                ROW_NUMBER() OVER (
+                    PARTITION BY rep_key
+                    ORDER BY SUM(revenue) DESC, COALESCE(territory_name, 'Unassigned')
+                ) AS rn
+            FROM customer_rollup
+            WHERE revenue > 0
+            GROUP BY 1, 2
         ),
-        monthly_ranked AS (
+        territory_summary AS (
             SELECT
                 rep_key,
-                month_start,
-                revenue,
-                profit,
-                margin_pct,
-                ROW_NUMBER() OVER (PARTITION BY rep_key ORDER BY month_start DESC) AS rn
-            FROM monthly
-        ),
-        mom_monthly AS (
-            SELECT
-                rep_key,
-                MAX(CASE WHEN rn = 1 THEN revenue END) AS revenue_curr_month,
-                MAX(CASE WHEN rn = 2 THEN revenue END) AS revenue_prev_month,
-                MAX(CASE WHEN rn = 1 THEN profit END) AS profit_curr_month,
-                MAX(CASE WHEN rn = 2 THEN profit END) AS profit_prev_month,
-                MAX(CASE WHEN rn = 1 THEN margin_pct END) AS margin_curr_month,
-                MAX(CASE WHEN rn = 2 THEN margin_pct END) AS margin_prev_month
-            FROM monthly_ranked
+                COUNT(DISTINCT territory_name) AS territory_count,
+                MAX(CASE WHEN rn = 1 THEN territory_name END) AS top_territory_name,
+                MAX(CASE WHEN rn = 1 THEN revenue END) AS top_territory_revenue
+            FROM territory_ranked
             GROUP BY rep_key
+        ),
+        replacement_summary AS (
+            SELECT
+                rep_key,
+                COUNT(DISTINCT COALESCE(prior_rep_id, prior_rep_name, historical_rep_id, historical_rep_name)) AS replaced_rep_count,
+                STRING_AGG(
+                    DISTINCT COALESCE(prior_rep_name, prior_rep_id, historical_rep_name, historical_rep_id),
+                    ', '
+                    ORDER BY COALESCE(prior_rep_name, prior_rep_id, historical_rep_name, historical_rep_id)
+                ) AS replaced_rep_names
+            FROM customer_rollup
+            WHERE revenue > 0
+              AND inherited_flag = 1
+              AND COALESCE(prior_rep_id, prior_rep_name, historical_rep_id, historical_rep_name) IS NOT NULL
+            GROUP BY rep_key
+        ),
+        protein_rollup AS (
+            SELECT
+                rep_key,
+                COALESCE(protein_family, category_name, 'Unassigned') AS protein_family,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue
+            FROM attributed_base
+            GROUP BY 1, 2
+        ),
+        top_protein AS (
+            SELECT
+                rep_key,
+                protein_family,
+                revenue,
+                ROW_NUMBER() OVER (PARTITION BY rep_key ORDER BY revenue DESC, protein_family) AS rn
+            FROM protein_rollup
+            WHERE revenue > 0
         )
         SELECT
             rt.rep_key,
@@ -605,136 +2137,721 @@ def _rollup_sql(base_sql: str) -> str:
             rt.revenue,
             rt.cost,
             rt.profit,
-            CASE WHEN rt.revenue > 0 AND rt.cost IS NOT NULL THEN (rt.profit / rt.revenue) * 100 ELSE NULL END AS margin_pct,
+            CASE
+                WHEN rt.minimum_margin_revenue_weight > 0
+                THEN rt.minimum_margin_revenue_sum / NULLIF(rt.minimum_margin_revenue_weight, 0)
+                ELSE NULL
+            END AS minimum_margin_pct,
+            CASE
+                WHEN rt.target_margin_revenue_weight > 0
+                THEN rt.target_margin_revenue_sum / NULLIF(rt.target_margin_revenue_weight, 0)
+                ELSE NULL
+            END AS target_margin_pct,
+            rt.prior_revenue,
+            rt.prior_profit,
+            rt.yoy_revenue,
+            rt.yoy_profit,
+            CASE WHEN rt.revenue > 0 AND rt.profit IS NOT NULL THEN (rt.profit / rt.revenue) * 100 ELSE NULL END AS margin_pct,
             rt.orders,
-            rt.customers,
+            COALESCE(cs.active_customers, 0) AS customers,
+            COALESCE(cs.active_customers, 0) AS active_customers,
             rt.units,
             rt.weight_lb,
             CASE WHEN rt.units > 0 THEN rt.revenue / NULLIF(rt.units, 0) ELSE NULL END AS asp,
             CASE WHEN rt.weight_lb > 0 THEN rt.revenue / NULLIF(rt.weight_lb, 0) ELSE NULL END AS asp_lb,
+            CASE WHEN rt.orders > 0 THEN rt.revenue / NULLIF(rt.orders, 0) ELSE NULL END AS avg_order_value,
+            CASE WHEN COALESCE(cs.active_customers, 0) > 0 THEN rt.revenue / NULLIF(COALESCE(cs.active_customers, 0), 0) ELSE NULL END AS revenue_per_customer,
+            rt.last_order_date,
+            rt.revenue - rt.prior_revenue AS mom_revenue_delta,
+            rt.revenue - rt.yoy_revenue AS yoy_revenue_delta,
+            CASE WHEN rt.prior_revenue > 0 THEN ((rt.revenue - rt.prior_revenue) / rt.prior_revenue) * 100 ELSE NULL END AS mom_revenue_pct,
+            CASE WHEN rt.yoy_revenue > 0 THEN ((rt.revenue - rt.yoy_revenue) / rt.yoy_revenue) * 100 ELSE NULL END AS yoy_revenue_pct,
+            CASE WHEN rt.prior_profit IS NOT NULL AND rt.profit IS NOT NULL AND rt.prior_profit <> 0 THEN ((rt.profit - rt.prior_profit) / ABS(rt.prior_profit)) * 100 ELSE NULL END AS mom_profit_pct,
             conc.top_customer_share AS top_customer_share,
             conc.top_5_customer_share AS top_5_customer_share,
             conc.top_customer_name AS top_customer_name,
             conc.top_customer_revenue AS top_customer_revenue,
             conc.hhi AS customer_hhi,
-            CASE WHEN mom90.rev_prior > 0 THEN (mom90.rev_recent - mom90.rev_prior) / mom90.rev_prior * 100 ELSE NULL END AS momentum_pct,
-            CASE WHEN mm.revenue_prev_month > 0 THEN (mm.revenue_curr_month - mm.revenue_prev_month) / mm.revenue_prev_month * 100 ELSE NULL END AS mom_revenue_pct,
+            CASE WHEN rt.prior_revenue > 0 THEN (rt.revenue - rt.prior_revenue) / rt.prior_revenue * 100 ELSE NULL END AS momentum_pct,
+            CASE WHEN rt.prior_revenue > 0 THEN (rt.revenue - rt.prior_revenue) / rt.prior_revenue * 100 ELSE NULL END AS mom_revenue_pct,
             CASE
-                WHEN mm.profit_prev_month IS NULL OR mm.profit_prev_month = 0 THEN NULL
-                ELSE (mm.profit_curr_month - mm.profit_prev_month) / ABS(mm.profit_prev_month) * 100
+                WHEN rt.prior_profit IS NULL OR rt.prior_profit = 0 THEN NULL
+                ELSE (rt.profit - rt.prior_profit) / ABS(rt.prior_profit) * 100
             END AS mom_profit_pct,
             CASE
-                WHEN mm.margin_curr_month IS NULL OR mm.margin_prev_month IS NULL THEN NULL
-                ELSE mm.margin_curr_month - mm.margin_prev_month
+                WHEN rt.prior_revenue > 0 AND rt.prior_profit IS NOT NULL AND rt.profit IS NOT NULL
+                THEN ((rt.profit / NULLIF(rt.revenue, 0)) * 100) - ((rt.prior_profit / NULLIF(rt.prior_revenue, 0)) * 100)
+                ELSE NULL
             END AS mom_margin_pct,
+            CASE WHEN rt.yoy_revenue > 0 THEN (rt.revenue - rt.yoy_revenue) / rt.yoy_revenue * 100 ELSE NULL END AS yoy_revenue_pct,
+            CASE
+                WHEN rt.yoy_profit IS NULL OR rt.yoy_profit = 0 THEN NULL
+                ELSE (rt.profit - rt.yoy_profit) / ABS(rt.yoy_profit) * 100
+            END AS yoy_profit_pct,
+            CASE
+                WHEN rt.yoy_revenue > 0 AND rt.yoy_profit IS NOT NULL AND rt.profit IS NOT NULL
+                THEN ((rt.profit / NULLIF(rt.revenue, 0)) * 100) - ((rt.yoy_profit / NULLIF(rt.yoy_revenue, 0)) * 100)
+                ELSE NULL
+            END AS yoy_margin_delta,
+            COALESCE(cs.current_owned_customers, 0) AS current_owned_customers,
+            COALESCE(cs.inherited_customers, 0) AS inherited_customers,
+            COALESCE(cs.gained_customers, 0) AS gained_customers,
+            COALESCE(cs.lost_customers, 0) AS lost_customers,
+            COALESCE(ts.territory_count, 0) AS territory_count,
+            ts.top_territory_name,
+            ts.top_territory_revenue,
+            COALESCE(cs.unassigned_customers, 0) AS unassigned_customers,
+            COALESCE(rs.replaced_rep_count, 0) AS replaced_rep_count,
+            rs.replaced_rep_names,
+            rt.transferred_in_revenue,
+            rt.transferred_out_revenue,
+            rt.transfer_revenue,
+            rt.unassigned_revenue,
+            rt.direct_revenue,
+            rt.direct_profit,
+            rt.direct_weight_lb,
+            rt.current_owner_revenue,
+            rt.current_owner_profit,
+            rt.historical_revenue,
+            rt.historical_profit,
+            (rt.current_owner_revenue - rt.historical_revenue) AS ownership_delta_revenue,
+            CASE
+                WHEN rt.historical_revenue = 0 THEN NULL
+                ELSE (rt.current_owner_revenue - rt.historical_revenue) / ABS(rt.historical_revenue) * 100
+            END AS ownership_delta_pct,
             rt.cost_null_rows,
-            rt.row_count
+            rt.row_count,
+            tp.protein_family AS top_protein_family,
+            tp.revenue AS top_protein_revenue
         FROM rep_totals rt
         LEFT JOIN concentration conc ON conc.rep_key = rt.rep_key
-        LEFT JOIN momentum mom90 ON mom90.rep_key = rt.rep_key
-        LEFT JOIN mom_monthly mm ON mm.rep_key = rt.rep_key
+        LEFT JOIN customer_stats cs ON cs.rep_key = rt.rep_key
+        LEFT JOIN territory_summary ts ON ts.rep_key = rt.rep_key
+        LEFT JOIN replacement_summary rs ON rs.rep_key = rt.rep_key
+        LEFT JOIN top_protein tp ON tp.rep_key = rt.rep_key AND tp.rn = 1
+        WHERE COALESCE(rt.revenue, 0) <> 0
+           OR COALESCE(rt.current_owner_revenue, 0) <> 0
+           OR COALESCE(rt.historical_revenue, 0) <> 0
     """
 
 
-def _kpis_sql(base_sql: str) -> str:
+def _kpis_sql(cte_sql: str) -> str:
     return f"""
-        WITH base AS (
-            {base_sql}
-        ),
-        monthly AS (
+        WITH
+        {cte_sql},
+        customer_rollup AS (
             SELECT
-                DATE_TRUNC('month', order_date) AS month_start,
-                SUM(revenue) AS revenue,
-                SUM(cost) AS cost,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct
-            FROM base
+                customer_id,
+                MAX(owner_missing) AS owner_missing,
+                MAX(inherited_flag) AS inherited_flag,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue
+            FROM attributed_base
+            WHERE customer_id IS NOT NULL AND customer_id <> ''
             GROUP BY 1
-        ),
-        monthly_ranked AS (
-            SELECT
-                month_start,
-                revenue,
-                profit,
-                margin_pct,
-                ROW_NUMBER() OVER (ORDER BY month_start DESC) AS rn
-            FROM monthly
         )
         SELECT
-            SUM(revenue) AS revenue,
-            SUM(cost) AS cost,
-            CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-            CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-            COUNT(DISTINCT order_id) AS orders,
-            COUNT(DISTINCT customer_id) AS customers,
-            COUNT(DISTINCT rep_key) AS active_reps,
-            SUM(units) AS units,
-            SUM(weight_lb) AS weight_lb,
-            CASE WHEN SUM(units) > 0 THEN SUM(revenue) / NULLIF(SUM(units), 0) ELSE NULL END AS asp,
-            CASE WHEN SUM(weight_lb) > 0 THEN SUM(revenue) / NULLIF(SUM(weight_lb), 0) ELSE NULL END AS asp_lb,
-            SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
-            COUNT(*) AS total_rows,
-            MIN(order_date) AS date_min,
-            MAX(order_date) AS date_max,
-            (SELECT MAX(CASE WHEN rn = 1 THEN revenue END) FROM monthly_ranked) AS revenue_curr_month,
-            (SELECT MAX(CASE WHEN rn = 2 THEN revenue END) FROM monthly_ranked) AS revenue_prev_month,
-            (SELECT MAX(CASE WHEN rn = 1 THEN profit END) FROM monthly_ranked) AS profit_curr_month,
-            (SELECT MAX(CASE WHEN rn = 2 THEN profit END) FROM monthly_ranked) AS profit_prev_month,
-            (SELECT MAX(CASE WHEN rn = 1 THEN margin_pct END) FROM monthly_ranked) AS margin_curr_month,
-            (SELECT MAX(CASE WHEN rn = 2 THEN margin_pct END) FROM monthly_ranked) AS margin_prev_month,
+            SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END) AS revenue,
+            SUM(CASE WHEN ab.is_current_window = 1 THEN ab.cost END) AS cost,
+            SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END) AS profit,
             CASE
-                WHEN (SELECT MAX(CASE WHEN rn = 2 THEN revenue END) FROM monthly_ranked) > 0
+                WHEN SUM(CASE WHEN ab.is_current_window = 1 AND ab.revenue > 0 AND ab.minimum_margin_pct_rule IS NOT NULL THEN ab.revenue ELSE 0 END) > 0
+                THEN SUM(CASE WHEN ab.is_current_window = 1 AND ab.revenue > 0 AND ab.minimum_margin_pct_rule IS NOT NULL THEN ab.revenue * ab.minimum_margin_pct_rule ELSE 0 END)
+                    / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 AND ab.revenue > 0 AND ab.minimum_margin_pct_rule IS NOT NULL THEN ab.revenue ELSE 0 END), 0)
+                ELSE NULL
+            END AS minimum_margin_pct,
+            CASE
+                WHEN SUM(CASE WHEN ab.is_current_window = 1 AND ab.revenue > 0 AND ab.target_margin_pct_rule IS NOT NULL THEN ab.revenue ELSE 0 END) > 0
+                THEN SUM(CASE WHEN ab.is_current_window = 1 AND ab.revenue > 0 AND ab.target_margin_pct_rule IS NOT NULL THEN ab.revenue * ab.target_margin_pct_rule ELSE 0 END)
+                    / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 AND ab.revenue > 0 AND ab.target_margin_pct_rule IS NOT NULL THEN ab.revenue ELSE 0 END), 0)
+                ELSE NULL
+            END AS target_margin_pct,
+            CASE
+                WHEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END) > 0
+                THEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END) / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END), 0) * 100
+                ELSE NULL
+            END AS margin_pct,
+            COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.order_id END) AS orders,
+            COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.customer_id END) AS customers,
+            COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.rep_key END) AS active_reps,
+            COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 AND ab.owner_source = 'ownership_bridge' THEN ab.customer_id END) AS bridge_customers,
+            COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 AND ab.owner_source = 'fact_customer_snapshot' THEN ab.customer_id END) AS snapshot_customers,
+            COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 AND ab.owner_source = 'fact_current_owner' THEN ab.customer_id END) AS fact_fallback_customers,
+            SUM(CASE WHEN ab.is_current_window = 1 THEN ab.units ELSE 0 END) AS units,
+            SUM(CASE WHEN ab.is_current_window = 1 THEN ab.weight_lb ELSE 0 END) AS weight_lb,
+            CASE
+                WHEN COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.order_id END) > 0
+                THEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END) / NULLIF(COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.order_id END), 0)
+                ELSE NULL
+            END AS avg_order_value,
+            CASE
+                WHEN COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.customer_id END) > 0
+                THEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END) / NULLIF(COUNT(DISTINCT CASE WHEN ab.is_current_window = 1 THEN ab.customer_id END), 0)
+                ELSE NULL
+            END AS revenue_per_customer,
+            CASE WHEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.units ELSE 0 END) > 0 THEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END) / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 THEN ab.units ELSE 0 END), 0) ELSE NULL END AS asp,
+            CASE WHEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.weight_lb ELSE 0 END) > 0 THEN SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END) / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 THEN ab.weight_lb ELSE 0 END), 0) ELSE NULL END AS asp_lb,
+            SUM(CASE WHEN ab.is_current_window = 1 AND ab.cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
+            SUM(CASE WHEN ab.is_current_window = 1 AND COALESCE(ab.missing_packs, FALSE) THEN 1 ELSE 0 END) AS missing_packs_rows,
+            COUNT(CASE WHEN ab.is_current_window = 1 THEN 1 END) AS total_rows,
+            MIN(CASE WHEN ab.is_current_window = 1 THEN ab.order_date END) AS date_min,
+            MAX(CASE WHEN ab.is_current_window = 1 THEN ab.order_date END) AS date_max,
+            SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.revenue ELSE 0 END) AS prior_revenue,
+            SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END) AS prior_profit,
+            SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.revenue ELSE 0 END) AS yoy_revenue,
+            SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END) AS yoy_profit,
+            CASE
+                WHEN SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.revenue ELSE 0 END) > 0
                 THEN (
-                    (SELECT MAX(CASE WHEN rn = 1 THEN revenue END) FROM monthly_ranked)
-                    - (SELECT MAX(CASE WHEN rn = 2 THEN revenue END) FROM monthly_ranked)
-                )
-                / (SELECT MAX(CASE WHEN rn = 2 THEN revenue END) FROM monthly_ranked) * 100
+                    SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END)
+                    - SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.revenue ELSE 0 END)
+                ) / NULLIF(SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.revenue ELSE 0 END), 0) * 100
                 ELSE NULL
             END AS revenue_mom_pct,
             CASE
-                WHEN (SELECT MAX(CASE WHEN rn = 2 THEN profit END) FROM monthly_ranked) IS NULL
-                     OR (SELECT MAX(CASE WHEN rn = 2 THEN profit END) FROM monthly_ranked) = 0
+                WHEN SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END) IS NULL OR SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END) = 0
                 THEN NULL
                 ELSE (
-                    (SELECT MAX(CASE WHEN rn = 1 THEN profit END) FROM monthly_ranked)
-                    - (SELECT MAX(CASE WHEN rn = 2 THEN profit END) FROM monthly_ranked)
-                )
-                / ABS((SELECT MAX(CASE WHEN rn = 2 THEN profit END) FROM monthly_ranked)) * 100
+                    SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END)
+                    - SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END)
+                ) / ABS(SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END)) * 100
             END AS profit_mom_pct,
             CASE
-                WHEN (SELECT MAX(CASE WHEN rn = 1 THEN margin_pct END) FROM monthly_ranked) IS NULL
-                     OR (SELECT MAX(CASE WHEN rn = 2 THEN margin_pct END) FROM monthly_ranked) IS NULL
+                WHEN SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.revenue ELSE 0 END) > 0
+                     AND SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END) IS NOT NULL
+                     AND SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END) IS NOT NULL
+                THEN (
+                    (SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END) / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END), 0)) * 100
+                    - (SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.profit END) / NULLIF(SUM(CASE WHEN ab.is_prior_window = 1 THEN ab.revenue ELSE 0 END), 0)) * 100
+                )
+                ELSE NULL
+            END AS margin_mom_pct,
+            CASE
+                WHEN SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.revenue ELSE 0 END) > 0
+                THEN (
+                    SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END)
+                    - SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.revenue ELSE 0 END)
+                ) / NULLIF(SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.revenue ELSE 0 END), 0) * 100
+                ELSE NULL
+            END AS revenue_yoy_pct,
+            CASE
+                WHEN SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END) IS NULL OR SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END) = 0
                 THEN NULL
                 ELSE (
-                    (SELECT MAX(CASE WHEN rn = 1 THEN margin_pct END) FROM monthly_ranked)
-                    - (SELECT MAX(CASE WHEN rn = 2 THEN margin_pct END) FROM monthly_ranked)
+                    SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END)
+                    - SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END)
+                ) / ABS(SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END)) * 100
+            END AS profit_yoy_pct,
+            CASE
+                WHEN SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.revenue ELSE 0 END) > 0
+                     AND SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END) IS NOT NULL
+                     AND SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END) IS NOT NULL
+                THEN (
+                    (SUM(CASE WHEN ab.is_current_window = 1 THEN ab.profit END) / NULLIF(SUM(CASE WHEN ab.is_current_window = 1 THEN ab.revenue ELSE 0 END), 0)) * 100
+                    - (SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.profit END) / NULLIF(SUM(CASE WHEN ab.is_yoy_window = 1 THEN ab.revenue ELSE 0 END), 0)) * 100
                 )
-            END AS margin_mom_pct
-        FROM base
+                ELSE NULL
+            END AS margin_yoy_delta,
+            COUNT(DISTINCT CASE WHEN cr.revenue > 0 THEN cr.customer_id END) AS active_customers,
+            COUNT(DISTINCT CASE WHEN cr.revenue > 0 AND cr.inherited_flag = 0 AND cr.owner_missing = 0 THEN cr.customer_id END) AS direct_customers,
+            COUNT(DISTINCT CASE WHEN cr.revenue > 0 AND cr.inherited_flag = 1 THEN cr.customer_id END) AS inherited_customers,
+            COUNT(DISTINCT CASE WHEN cr.revenue > 0 AND cr.inherited_flag = 1 THEN cr.customer_id END) AS transferred_in_customers,
+            COUNT(DISTINCT CASE WHEN cr.revenue > 0 AND cr.owner_missing = 0 AND cr.inherited_flag = 0 THEN cr.customer_id END) AS current_direct_customers,
+            COUNT(DISTINCT CASE WHEN cr.revenue > 0 AND cr.owner_missing = 1 THEN cr.customer_id END) AS unassigned_customers,
+            SUM(CASE WHEN ab.is_current_window = 1 AND cr.inherited_flag = 0 AND cr.owner_missing = 0 THEN ab.revenue ELSE 0 END) AS direct_revenue,
+            SUM(CASE WHEN ab.is_current_window = 1 AND cr.inherited_flag = 1 THEN ab.revenue ELSE 0 END) AS inherited_revenue,
+            SUM(CASE WHEN ab.is_current_window = 1 AND cr.owner_missing = 1 THEN ab.revenue ELSE 0 END) AS unassigned_revenue
+        FROM attributed_base ab
+        LEFT JOIN customer_rollup cr USING (customer_id)
     """
 
 
-def _trend_sql(base_sql: str, top_n: int) -> str:
+def _trend_sql(cte_sql: str, top_n: int) -> str:
     return f"""
-        WITH base AS (
-            {base_sql}
-        ),
+        WITH
+        {cte_sql},
         rep_totals AS (
-            SELECT rep_key, SUM(revenue) AS revenue
-            FROM base
+            SELECT
+                rep_key,
+                ANY_VALUE(rep_name) AS rep_name,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_current_window = 1 THEN profit END) AS profit,
+                SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) AS weight_lb,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS customers,
+                CASE
+                    WHEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) > 0
+                         AND SUM(CASE WHEN is_current_window = 1 THEN profit END) IS NOT NULL
+                    THEN SUM(CASE WHEN is_current_window = 1 THEN profit END)
+                        / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END), 0) * 100
+                    ELSE NULL
+                END AS margin_pct
+            FROM attributed_base
             GROUP BY rep_key
-            ORDER BY revenue DESC
-            LIMIT {top_n}
+        ),
+        rep_candidates AS (
+            SELECT rep_key
+            FROM (
+                SELECT
+                    rep_key,
+                    ROW_NUMBER() OVER (ORDER BY revenue DESC, rep_key) AS revenue_rank,
+                    ROW_NUMBER() OVER (ORDER BY COALESCE(profit, -1000000000000.0) DESC, rep_key) AS profit_rank,
+                    ROW_NUMBER() OVER (ORDER BY weight_lb DESC, rep_key) AS weight_rank,
+                    ROW_NUMBER() OVER (ORDER BY customers DESC, rep_key) AS customer_rank,
+                    ROW_NUMBER() OVER (ORDER BY COALESCE(margin_pct, -1000000000000.0) DESC, rep_key) AS margin_rank
+                FROM rep_totals
+            ) ranked
+            WHERE revenue_rank <= {top_n}
+               OR profit_rank <= {top_n}
+               OR weight_rank <= {top_n}
+               OR customer_rank <= {top_n}
+               OR margin_rank <= {top_n}
+        ),
+        trend_rows AS (
+            SELECT
+                DATE_TRUNC('month', order_date) AS aligned_month,
+                rep_key,
+                rep_name,
+                CAST(revenue AS DOUBLE) AS revenue_current,
+                NULL::DOUBLE AS revenue_yoy,
+                CAST(profit AS DOUBLE) AS profit_current,
+                NULL::DOUBLE AS profit_yoy,
+                CAST(weight_lb AS DOUBLE) AS weight_current,
+                NULL::DOUBLE AS weight_yoy,
+                customer_id AS current_customer_id,
+                NULL::VARCHAR AS yoy_customer_id,
+                CASE WHEN inherited_flag = 1 THEN CAST(revenue AS DOUBLE) ELSE NULL::DOUBLE END AS inherited_revenue_current,
+                CASE WHEN inherited_flag = 0 AND owner_missing = 0 THEN CAST(revenue AS DOUBLE) ELSE NULL::DOUBLE END AS direct_revenue_current,
+                CASE WHEN inherited_flag = 1 THEN customer_id ELSE NULL::VARCHAR END AS inherited_customer_id_current,
+                CASE WHEN inherited_flag = 0 AND owner_missing = 0 THEN customer_id ELSE NULL::VARCHAR END AS direct_customer_id_current,
+                order_date AS current_order_date,
+                NULL::DATE AS yoy_order_date
+            FROM attributed_base
+            WHERE is_current_window = 1
+            UNION ALL
+            SELECT
+                DATE_TRUNC('month', order_date + INTERVAL 1 YEAR) AS aligned_month,
+                rep_key,
+                rep_name,
+                NULL::DOUBLE AS revenue_current,
+                CAST(revenue AS DOUBLE) AS revenue_yoy,
+                NULL::DOUBLE AS profit_current,
+                CAST(profit AS DOUBLE) AS profit_yoy,
+                NULL::DOUBLE AS weight_current,
+                CAST(weight_lb AS DOUBLE) AS weight_yoy,
+                NULL::VARCHAR AS current_customer_id,
+                customer_id AS yoy_customer_id,
+                NULL::DOUBLE AS inherited_revenue_current,
+                NULL::DOUBLE AS direct_revenue_current,
+                NULL::VARCHAR AS inherited_customer_id_current,
+                NULL::VARCHAR AS direct_customer_id_current,
+                NULL::DATE AS current_order_date,
+                order_date AS yoy_order_date
+            FROM attributed_base
+            WHERE is_yoy_window = 1
+        ),
+        rep_trend AS (
+            SELECT
+                aligned_month,
+                rep_key,
+                ANY_VALUE(rep_name) AS rep_name,
+                SUM(revenue_current) AS revenue,
+                SUM(revenue_yoy) AS revenue_yoy,
+                SUM(profit_current) AS profit,
+                SUM(profit_yoy) AS profit_yoy,
+                SUM(weight_current) AS weight_lb,
+                SUM(weight_yoy) AS weight_lb_yoy,
+                COUNT(DISTINCT current_customer_id) AS customers,
+                COUNT(DISTINCT yoy_customer_id) AS customers_yoy,
+                SUM(inherited_revenue_current) AS inherited_revenue,
+                SUM(direct_revenue_current) AS direct_revenue,
+                COUNT(DISTINCT inherited_customer_id_current) AS inherited_customers,
+                COUNT(DISTINCT direct_customer_id_current) AS direct_customers,
+                COUNT(DISTINCT current_order_date) AS observed_days,
+                COUNT(DISTINCT yoy_order_date) AS observed_days_yoy
+            FROM trend_rows
+            WHERE rep_key IN (SELECT rep_key FROM rep_candidates)
+            GROUP BY 1, 2
+        ),
+        monthly_compare AS (
+            SELECT
+                aligned_month,
+                SUM(revenue_current) AS revenue,
+                SUM(revenue_yoy) AS revenue_yoy,
+                SUM(profit_current) AS profit,
+                SUM(profit_yoy) AS profit_yoy,
+                SUM(weight_current) AS weight_lb,
+                SUM(weight_yoy) AS weight_lb_yoy,
+                COUNT(DISTINCT current_customer_id) AS customers,
+                COUNT(DISTINCT yoy_customer_id) AS customers_yoy,
+                SUM(inherited_revenue_current) AS inherited_revenue,
+                SUM(direct_revenue_current) AS direct_revenue,
+                COUNT(DISTINCT current_order_date) AS observed_days,
+                COUNT(DISTINCT yoy_order_date) AS observed_days_yoy
+            FROM trend_rows
+            GROUP BY 1
         )
         SELECT
-            strftime('%Y-%m', order_date) AS month,
-            base.rep_key AS rep_key,
-            ANY_VALUE(base.rep_name) AS rep_name,
-            SUM(base.revenue) AS revenue
-        FROM base
-        JOIN rep_totals ON base.rep_key = rep_totals.rep_key
-        GROUP BY 1,2
-        ORDER BY 1
+            'rep_trend' AS dataset,
+            strftime('%Y-%m', aligned_month) AS bucket,
+            rep_key,
+            rep_name,
+            revenue,
+            revenue_yoy AS comparison_value,
+            profit,
+            profit_yoy AS comparison_profit,
+            weight_lb,
+            weight_lb_yoy AS comparison_weight_lb,
+            direct_revenue AS direct_value,
+            inherited_revenue AS inherited_value,
+            CAST(customers AS DOUBLE) AS customers_value,
+            CAST(customers_yoy AS DOUBLE) AS comparison_customers_value,
+            CAST(direct_customers AS DOUBLE) AS direct_customers_value,
+            CAST(inherited_customers AS DOUBLE) AS inherited_customers_value,
+            CAST(observed_days AS DOUBLE) AS observed_days_value,
+            CAST(observed_days_yoy AS DOUBLE) AS comparison_observed_days_value
+        FROM rep_trend
+        UNION ALL
+        SELECT
+            'monthly_compare' AS dataset,
+            strftime('%Y-%m', aligned_month) AS bucket,
+            NULL::VARCHAR AS rep_key,
+            NULL::VARCHAR AS rep_name,
+            revenue,
+            revenue_yoy AS comparison_value,
+            profit,
+            profit_yoy AS comparison_profit,
+            weight_lb,
+            weight_lb_yoy AS comparison_weight_lb,
+            direct_revenue AS direct_value,
+            inherited_revenue AS inherited_value,
+            CAST(customers AS DOUBLE) AS customers_value,
+            CAST(customers_yoy AS DOUBLE) AS comparison_customers_value,
+            NULL::DOUBLE AS direct_customers_value,
+            NULL::DOUBLE AS inherited_customers_value,
+            CAST(observed_days AS DOUBLE) AS observed_days_value,
+            CAST(observed_days_yoy AS DOUBLE) AS comparison_observed_days_value
+        FROM monthly_compare
+        ORDER BY dataset, bucket, rep_key
+    """
+
+
+def _analysis_sql(cte_sql: str) -> str:
+    return f"""
+        WITH
+        {cte_sql},
+        customer_scope AS (
+            SELECT
+                customer_id,
+                ANY_VALUE(customer_name) AS customer_name,
+                ANY_VALUE(current_owner_id) AS current_owner_id,
+                ANY_VALUE(current_owner_name) AS current_owner_name,
+                ANY_VALUE(prior_rep_id) AS prior_rep_id,
+                ANY_VALUE(prior_rep_name) AS prior_rep_name,
+                ANY_VALUE(last_sales_rep_id) AS last_sales_rep_id,
+                ANY_VALUE(last_sales_rep_name) AS last_sales_rep_name,
+                ANY_VALUE(territory_name) AS territory_name,
+                ANY_VALUE(owner_source) AS owner_source,
+                ANY_VALUE(mapping_confidence) AS mapping_confidence,
+                MAX(current_owner_active) AS current_owner_active,
+                MAX(owner_missing) AS owner_missing,
+                MAX(ownership_changed) AS ownership_changed,
+                MAX(inherited_flag) AS inherited_flag,
+                MAX(
+                    CASE
+                        WHEN dq_status IS NULL OR dq_status = '' THEN CASE WHEN owner_missing = 1 THEN 'needs_review' ELSE 'ok' END
+                        ELSE dq_status
+                    END
+                ) AS dq_status,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_prior_window = 1 THEN revenue ELSE 0 END) AS prior_revenue,
+                SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue,
+                SUM(
+                    CASE
+                        WHEN is_current_window = 1
+                             AND LOWER(COALESCE(protein_family, category_name, '')) LIKE '%beef%'
+                        THEN revenue
+                        ELSE 0
+                    END
+                ) AS beef_revenue,
+                SUM(
+                    CASE
+                        WHEN is_current_window = 1
+                             AND (
+                                 LOWER(COALESCE(protein_family, category_name, '')) LIKE '%poultry%'
+                                 OR LOWER(COALESCE(protein_family, category_name, '')) LIKE '%chicken%'
+                                 OR LOWER(COALESCE(protein_family, category_name, '')) LIKE '%turkey%'
+                             )
+                        THEN revenue
+                        ELSE 0
+                    END
+                ) AS poultry_revenue,
+                SUM(
+                    CASE
+                        WHEN is_current_window = 1
+                             AND (
+                                 LOWER(COALESCE(protein_family, category_name, '')) LIKE '%pork%'
+                                 OR LOWER(COALESCE(protein_family, category_name, '')) LIKE '%ham%'
+                                 OR LOWER(COALESCE(protein_family, category_name, '')) LIKE '%bacon%'
+                             )
+                        THEN revenue
+                        ELSE 0
+                    END
+                ) AS pork_revenue,
+                SUM(CASE WHEN is_current_window = 1 THEN profit END) AS profit,
+                SUM(CASE WHEN is_yoy_window = 1 THEN profit END) AS yoy_profit,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN order_id END) AS orders,
+                MAX(CASE WHEN is_current_window = 1 THEN order_date END) AS last_order_date
+            FROM attributed_base
+            WHERE customer_id IS NOT NULL AND customer_id <> ''
+            GROUP BY 1
+        ),
+        top_customers AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (ORDER BY revenue DESC, customer_id) AS rn
+            FROM customer_scope
+            WHERE revenue > 0
+        ),
+        customer_movers_pos AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (ORDER BY (revenue - prior_revenue) DESC, customer_id) AS rn
+            FROM customer_scope
+            WHERE revenue <> 0 OR prior_revenue <> 0
+        ),
+        customer_movers_neg AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (ORDER BY (revenue - prior_revenue) ASC, customer_id) AS rn
+            FROM customer_scope
+            WHERE revenue <> 0 OR prior_revenue <> 0
+        ),
+        protein_scope AS (
+            SELECT
+                COALESCE(protein_family, category_name, 'Unassigned') AS protein_family,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_current_window = 1 THEN profit END) AS profit,
+                SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue,
+                SUM(CASE WHEN is_yoy_window = 1 THEN profit END) AS yoy_profit,
+                SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) AS weight_lb
+            FROM attributed_base
+            GROUP BY 1
+        ),
+        protein_ranked AS (
+            SELECT
+                *,
+                CASE
+                    WHEN revenue > 0 AND profit IS NOT NULL THEN (profit / revenue) * 100
+                    ELSE NULL
+                END AS margin_pct,
+                ROW_NUMBER() OVER (ORDER BY revenue DESC, protein_family) AS rn
+            FROM protein_scope
+            WHERE revenue > 0
+        ),
+        transfer_pairs AS (
+            SELECT
+                COALESCE(current_owner_id, current_owner_name, 'Unassigned / Needs Review') AS owner_key,
+                COALESCE(current_owner_name, current_owner_id, 'Unassigned / Needs Review') AS owner_name,
+                COALESCE(prior_rep_id, prior_rep_name, historical_rep_id, historical_rep_name, 'Unassigned / Needs Review') AS prior_key,
+                COALESCE(prior_rep_name, prior_rep_id, historical_rep_name, historical_rep_id, 'Unassigned / Needs Review') AS prior_name,
+                STRING_AGG(
+                    DISTINCT COALESCE(territory_name, territory_id, 'Unassigned'),
+                    ', '
+                    ORDER BY COALESCE(territory_name, territory_id, 'Unassigned')
+                ) AS territory_names,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN customer_id END) AS customer_count,
+                SUM(CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN revenue ELSE 0 END) AS revenue,
+                MIN(CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN order_date END) AS first_order_date,
+                MAX(CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN order_date END) AS last_order_date
+            FROM attributed_base
+            WHERE current_owner_id IS NOT NULL OR current_owner_name IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        ),
+        transfer_ranked AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (ORDER BY revenue DESC, owner_name, prior_name) AS rn
+            FROM transfer_pairs
+            WHERE revenue > 0
+              AND prior_name <> 'Unassigned / Needs Review'
+        ),
+        territory_scope AS (
+            SELECT
+                COALESCE(territory_name, territory_id, 'Unassigned') AS territory_name,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS customer_count,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN customer_id END) AS inherited_customer_count,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_current_window = 1 AND inherited_flag = 1 THEN revenue ELSE 0 END) AS inherited_revenue
+            FROM attributed_base
+            GROUP BY 1
+        ),
+        territory_ranked AS (
+            SELECT
+                *,
+                CASE
+                    WHEN SUM(revenue) OVER () > 0 THEN revenue / NULLIF(SUM(revenue) OVER (), 0) * 100
+                    ELSE NULL
+                END AS revenue_share_pct,
+                ROW_NUMBER() OVER (ORDER BY revenue DESC, territory_name) AS rn
+            FROM territory_scope
+            WHERE revenue > 0
+        ),
+        dq_scope AS (
+            SELECT
+                CASE
+                    WHEN owner_missing = 1 THEN 'unassigned'
+                    WHEN current_owner_active = FALSE THEN 'inactive_current_owner'
+                    WHEN owner_source = 'fact_current_owner' THEN 'fact_fallback'
+                    WHEN dq_status IS NOT NULL AND dq_status <> '' THEN dq_status
+                    ELSE 'ok'
+                END AS dq_bucket,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS customer_count,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue
+            FROM attributed_base
+            GROUP BY 1
+        )
+        SELECT
+            'top_customer' AS dataset,
+            customer_id AS key,
+            customer_name AS label,
+            current_owner_name AS secondary_label,
+            revenue AS metric_1,
+            profit AS metric_2,
+            revenue - yoy_revenue AS metric_3,
+            CASE WHEN yoy_revenue > 0 THEN (revenue - yoy_revenue) / yoy_revenue * 100 ELSE NULL END AS metric_4,
+            CASE WHEN prior_revenue > 0 THEN (revenue - prior_revenue) / prior_revenue * 100 ELSE NULL END AS metric_5,
+            CAST(orders AS DOUBLE) AS metric_6,
+            beef_revenue AS metric_7,
+            poultry_revenue AS metric_8,
+            pork_revenue AS metric_9,
+            territory_name AS text_1,
+            current_owner_id AS text_2,
+            strftime('%Y-%m-%d', last_order_date) AS last_order_date
+        FROM top_customers
+        WHERE rn <= 200
+        UNION ALL
+        SELECT
+            'customer_mover_up' AS dataset,
+            customer_id AS key,
+            customer_name AS label,
+            current_owner_name AS secondary_label,
+            revenue - prior_revenue AS metric_1,
+            revenue AS metric_2,
+            CASE WHEN prior_revenue > 0 THEN (revenue - prior_revenue) / prior_revenue * 100 ELSE NULL END AS metric_3,
+            yoy_revenue AS metric_4,
+            CAST(orders AS DOUBLE) AS metric_5,
+            NULL::DOUBLE AS metric_6,
+            NULL::DOUBLE AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            territory_name AS text_1,
+            current_owner_id AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM customer_movers_pos
+        WHERE rn <= 8
+        UNION ALL
+        SELECT
+            'customer_mover_down' AS dataset,
+            customer_id AS key,
+            customer_name AS label,
+            current_owner_name AS secondary_label,
+            revenue - prior_revenue AS metric_1,
+            revenue AS metric_2,
+            CASE WHEN prior_revenue > 0 THEN (revenue - prior_revenue) / prior_revenue * 100 ELSE NULL END AS metric_3,
+            yoy_revenue AS metric_4,
+            CAST(orders AS DOUBLE) AS metric_5,
+            NULL::DOUBLE AS metric_6,
+            NULL::DOUBLE AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            territory_name AS text_1,
+            current_owner_id AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM customer_movers_neg
+        WHERE rn <= 8
+        UNION ALL
+        SELECT
+            'protein' AS dataset,
+            protein_family AS key,
+            protein_family AS label,
+            NULL::VARCHAR AS secondary_label,
+            revenue AS metric_1,
+            profit AS metric_2,
+            margin_pct AS metric_3,
+            revenue - yoy_revenue AS metric_4,
+            weight_lb AS metric_5,
+            NULL::DOUBLE AS metric_6,
+            NULL::DOUBLE AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            NULL::VARCHAR AS text_1,
+            NULL::VARCHAR AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM protein_ranked
+        WHERE rn <= 10
+        UNION ALL
+        SELECT
+            'transfer_pair' AS dataset,
+            owner_key AS key,
+            owner_name AS label,
+            prior_name AS secondary_label,
+            revenue AS metric_1,
+            CAST(customer_count AS DOUBLE) AS metric_2,
+            NULL::DOUBLE AS metric_3,
+            NULL::DOUBLE AS metric_4,
+            NULL::DOUBLE AS metric_5,
+            NULL::DOUBLE AS metric_6,
+            NULL::DOUBLE AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            territory_names AS text_1,
+            CASE
+                WHEN first_order_date IS NULL OR last_order_date IS NULL THEN NULL
+                ELSE strftime('%Y-%m-%d', first_order_date) || ' to ' || strftime('%Y-%m-%d', last_order_date)
+            END AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM transfer_ranked
+        WHERE rn <= 10
+        UNION ALL
+        SELECT
+            'territory' AS dataset,
+            territory_name AS key,
+            territory_name AS label,
+            NULL::VARCHAR AS secondary_label,
+            revenue AS metric_1,
+            CAST(customer_count AS DOUBLE) AS metric_2,
+            revenue_share_pct AS metric_3,
+            inherited_revenue AS metric_4,
+            CAST(inherited_customer_count AS DOUBLE) AS metric_5,
+            NULL::DOUBLE AS metric_6,
+            NULL::DOUBLE AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            NULL::VARCHAR AS text_1,
+            NULL::VARCHAR AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM territory_ranked
+        WHERE rn <= 6
+        UNION ALL
+        SELECT
+            'dq' AS dataset,
+            dq_bucket AS key,
+            dq_bucket AS label,
+            NULL::VARCHAR AS secondary_label,
+            revenue AS metric_1,
+            CAST(customer_count AS DOUBLE) AS metric_2,
+            NULL::DOUBLE AS metric_3,
+            NULL::DOUBLE AS metric_4,
+            NULL::DOUBLE AS metric_5,
+            NULL::DOUBLE AS metric_6,
+            NULL::DOUBLE AS metric_7,
+            NULL::DOUBLE AS metric_8,
+            NULL::DOUBLE AS metric_9,
+            NULL::VARCHAR AS text_1,
+            NULL::VARCHAR AS text_2,
+            NULL::VARCHAR AS last_order_date
+        FROM dq_scope
+        WHERE COALESCE(customer_count, 0) > 0 OR COALESCE(revenue, 0) <> 0
+        ORDER BY dataset, metric_1 DESC NULLS LAST, label
     """
 
 
@@ -764,6 +2881,10 @@ def _build_table_rows(df, page: int, page_size: int, sort_by: str, sort_dir: str
                 "revenue": _clean_float(rec.get("revenue", 0.0)),
                 "cost": _clean_optional(rec.get("cost")),
                 "profit": _clean_optional(rec.get("profit")),
+                "prior_revenue": _clean_optional(rec.get("prior_revenue")),
+                "prior_profit": _clean_optional(rec.get("prior_profit")),
+                "yoy_revenue": _clean_optional(rec.get("yoy_revenue")),
+                "yoy_profit": _clean_optional(rec.get("yoy_profit")),
                 "margin_pct": _clean_optional(rec.get("margin_pct")),
                 "orders": _clean_int(rec.get("orders", 0)),
                 "customers": _clean_int(rec.get("customers", 0)),
@@ -771,6 +2892,8 @@ def _build_table_rows(df, page: int, page_size: int, sort_by: str, sort_dir: str
                 "weight_lb": _clean_float(rec.get("weight_lb", 0.0)),
                 "asp": _clean_optional(rec.get("asp")),
                 "asp_lb": _clean_optional(rec.get("asp_lb")),
+                "avg_order_value": _clean_optional(rec.get("avg_order_value")),
+                "revenue_per_customer": _clean_optional(rec.get("revenue_per_customer")),
                 "top_customer_share": _clean_optional(rec.get("top_customer_share")),
                 "top_5_customer_share": _clean_optional(rec.get("top_5_customer_share")),
                 "top_customer_name": rec.get("top_customer_name"),
@@ -786,25 +2909,81 @@ def _build_table_rows(df, page: int, page_size: int, sort_by: str, sort_dir: str
                 "mom_revenue_pct": _clean_optional(rec.get("mom_revenue_pct")),
                 "mom_profit_pct": _clean_optional(rec.get("mom_profit_pct")),
                 "mom_margin_pct": _clean_optional(rec.get("mom_margin_pct")),
+                "yoy_revenue_pct": _clean_optional(rec.get("yoy_revenue_pct")),
+                "yoy_profit_pct": _clean_optional(rec.get("yoy_profit_pct")),
+                "yoy_margin_delta": _clean_optional(rec.get("yoy_margin_delta")),
+                "active_customers": _clean_int(rec.get("active_customers")),
+                "direct_customers": _clean_int(rec.get("direct_customers")),
+                "current_owned_customers": _clean_int(rec.get("current_owned_customers")),
+                "inherited_customers": _clean_int(rec.get("inherited_customers")),
+                "direct_revenue": _clean_optional(rec.get("direct_revenue")),
+                "inherited_revenue_share_pct": _clean_optional(rec.get("inherited_revenue_share_pct")),
+                "rank_change": _clean_optional(rec.get("rank_change")),
+                "gained_customers": _clean_int(rec.get("gained_customers")),
+                "lost_customers": _clean_int(rec.get("lost_customers")),
+                "territory_count": _clean_int(rec.get("territory_count")),
+                "top_territory_name": rec.get("top_territory_name"),
+                "top_territory_revenue": _clean_optional(rec.get("top_territory_revenue")),
+                "unassigned_customers": _clean_int(rec.get("unassigned_customers")),
+                "replaced_rep_count": _clean_int(rec.get("replaced_rep_count")),
+                "replaced_rep_names": rec.get("replaced_rep_names"),
+                "transferred_in_revenue": _clean_optional(rec.get("transferred_in_revenue")),
+                "transferred_out_revenue": _clean_optional(rec.get("transferred_out_revenue")),
+                "transfer_revenue": _clean_optional(rec.get("transfer_revenue")),
+                "unassigned_revenue": _clean_optional(rec.get("unassigned_revenue")),
+                "current_owner_revenue": _clean_optional(rec.get("current_owner_revenue")),
+                "historical_revenue": _clean_optional(rec.get("historical_revenue")),
+                "ownership_delta_revenue": _clean_optional(rec.get("ownership_delta_revenue")),
+                "ownership_delta_pct": _clean_optional(rec.get("ownership_delta_pct")),
+                "top_protein_family": rec.get("top_protein_family"),
+                "top_protein_revenue": _clean_optional(rec.get("top_protein_revenue")),
+                # Health Score (Task 2A)
+                "health_score": _clean_int(rec.get("health_score", 0)),
+                "health_label": rec.get("health_label", "At Risk"),
+                "health_color": rec.get("health_color", "#dc3545"),
+                "health_components": rec.get("health_components"),
+                # Quartile Ranking (Task 2B) — set in build_salesreps_bundle after this call
+                "revenue_quartile": _clean_int(rec.get("revenue_quartile", 0)),
+                "quartile_label": rec.get("quartile_label", ""),
             }
         )
     return rows, total_rows, total_pages, page
 
 
-def _what_changed_insight(kpis: Dict[str, Any], rollup_df) -> str:
+def _what_changed_insight(kpis: Dict[str, Any], rollup_df) -> List[str]:
     rows = [_sanitize_rollup_record(rec) for rec in _rollup_records(rollup_df)]
     if not rows:
-        return "No sales rep activity for the selected filters."
-    rev_mom = _clean_optional(kpis.get("revenue_mom_pct"))
-    if rev_mom is None:
-        return "MoM trend is unavailable for the selected date window."
-    direction = "up" if rev_mom >= 0 else "down"
-    magnitude = abs(rev_mom)
-    risky = sum(1 for row in rows if (_clean_float(row.get("top_customer_share")) > RISK_TOP_CUSTOMER_THRESHOLD))
-    decliners = sum(1 for row in rows if (_clean_optional(row.get("mom_revenue_pct")) or 0.0) < 0)
-    if direction == "down":
-        return f"Revenue down {magnitude:.1f}% MoM; {decliners} rep(s) declined and {risky} rep(s) have high concentration."
-    return f"Revenue up {magnitude:.1f}% MoM; watch concentration risk on {risky} rep(s)."
+        return ["No sales rep activity for the selected filters."]
+
+    insights = []
+
+    # 1. Top Growth Rep
+    growth_reps = [r for r in rows if r.get("mom_revenue_pct") is not None]
+    if growth_reps:
+        top_growth = max(growth_reps, key=lambda r: r["mom_revenue_pct"])
+        if top_growth["mom_revenue_pct"] > 0:
+            insights.append(f"Top Growth Rep: {top_growth['rep_name']} (+{top_growth['mom_revenue_pct']:.1f}% MoM)")
+        else:
+            insights.append("Top Growth Rep: None (all declining or flat)")
+    else:
+        insights.append("Top Growth Rep: Insufficient data")
+
+    # 2. Top Margin Risk
+    # In this advanced version, we have health scores and classifying margin status.
+    # Let's use the classified status if available.
+    margin_risks = [r for r in rows if r.get("margin_pct") is not None and r["margin_pct"] < 27]
+    if margin_risps := [r for r in margin_risks if r.get("revenue") > 5000]:
+        worst_margin = min(margin_risps, key=lambda r: r["margin_pct"])
+        insights.append(f"Top Margin Risk: {worst_margin['rep_name']} ({worst_margin['margin_pct']:.1f}%)")
+    else:
+        insights.append("Top Margin Risk: None (all key accounts above 27%)")
+
+    # 3. Silent High-Value Accounts
+    # Use momentum_pct decline > 20% for large accounts
+    silent_reps = sum(1 for r in rows if (r.get("momentum_pct") or 0) < -20 and (r.get("revenue") or 0) > 10000)
+    insights.append(f"Silent High-Value Accounts: {silent_reps} rep portfolios showing >20% momentum decline")
+
+    return insights
 
 
 def _risk_flags(rollup_df) -> List[Dict[str, Any]]:
@@ -817,7 +2996,12 @@ def _risk_flags(rollup_df) -> List[Dict[str, Any]]:
     low_margin_count = sum(
         1
         for row in rows
-        if (_clean_optional(row.get("margin_pct")) is not None and _clean_float(row.get("margin_pct")) < RISK_MARGIN_THRESHOLD)
+        if (
+            _clean_optional(row.get("margin_pct")) is not None
+            and _clean_optional(row.get("target_margin_pct")) is not None
+            and _clean_float(row.get("margin_pct"))
+            < _clean_float(row.get("target_margin_pct"))
+        )
     )
     profit_down_count = sum(
         1
@@ -835,7 +3019,7 @@ def _risk_flags(rollup_df) -> List[Dict[str, Any]]:
             "key": "low_margin",
             "severity": "medium" if low_margin_count > 0 else "ok",
             "count": low_margin_count,
-            "label": f"Margin below {RISK_MARGIN_THRESHOLD:.0f}%",
+            "label": "Margin below mapped protein target",
         },
         {
             "key": "profit_decline",
@@ -846,19 +3030,299 @@ def _risk_flags(rollup_df) -> List[Dict[str, Any]]:
     ]
 
 
+def _build_analysis_sections(analysis_df, rollup_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    records = _rollup_records(analysis_df)
+    sections: Dict[str, Any] = {
+        "top_customers": [],
+        "customer_movers": {"up": [], "down": []},
+        "proteins": [],
+        "replacement_pairs": [],
+        "territories": [],
+        "data_quality": [],
+    }
+    for rec in records:
+        dataset = str(rec.get("dataset") or "").strip().lower()
+        key = rec.get("key")
+        label = rec.get("label") or key
+        secondary = rec.get("secondary_label")
+        metric_1 = _clean_optional(rec.get("metric_1"))
+        metric_2 = _clean_optional(rec.get("metric_2"))
+        metric_3 = _clean_optional(rec.get("metric_3"))
+        metric_4 = _clean_optional(rec.get("metric_4"))
+        metric_5 = _clean_optional(rec.get("metric_5"))
+        metric_6 = _clean_optional(rec.get("metric_6"))
+        metric_7 = _clean_optional(rec.get("metric_7"))
+        metric_8 = _clean_optional(rec.get("metric_8"))
+        metric_9 = _clean_optional(rec.get("metric_9"))
+        text_1 = rec.get("text_1")
+        text_2 = rec.get("text_2")
+        if dataset == "top_customer":
+            owner_ref = _business_rep_reference(secondary, text_2)
+            sections["top_customers"].append(
+                {
+                    "customer_id": key,
+                    "customer_name": label,
+                    "account_owner_id": owner_ref["rep_id"],
+                    "account_owner_name": owner_ref["rep_name"],
+                    "revenue": metric_1,
+                    "profit": metric_2,
+                    "yoy_delta_revenue": metric_3,
+                    "yoy_revenue_pct": metric_4,
+                    "mom_revenue_pct": metric_5,
+                    "vs_prior_pct": metric_5,
+                    "orders": _clean_int(metric_6),
+                    "beef_revenue": metric_7,
+                    "poultry_revenue": metric_8,
+                    "pork_revenue": metric_9,
+                    "territory_name": text_1,
+                    "last_order_date": rec.get("last_order_date"),
+                }
+            )
+        elif dataset == "customer_mover_up":
+            owner_ref = _business_rep_reference(secondary, text_2)
+            sections["customer_movers"]["up"].append(
+                {
+                    "customer_id": key,
+                    "customer_name": label,
+                    "account_owner_id": owner_ref["rep_id"],
+                    "account_owner_name": owner_ref["rep_name"],
+                    "delta_revenue": metric_1,
+                    "revenue": metric_2,
+                    "delta_pct": metric_3,
+                    "territory_name": text_1,
+                    "yoy_revenue": metric_4,
+                }
+            )
+        elif dataset == "customer_mover_down":
+            owner_ref = _business_rep_reference(secondary, text_2)
+            sections["customer_movers"]["down"].append(
+                {
+                    "customer_id": key,
+                    "customer_name": label,
+                    "account_owner_id": owner_ref["rep_id"],
+                    "account_owner_name": owner_ref["rep_name"],
+                    "delta_revenue": metric_1,
+                    "revenue": metric_2,
+                    "delta_pct": metric_3,
+                    "territory_name": text_1,
+                    "yoy_revenue": metric_4,
+                }
+            )
+        elif dataset == "protein":
+            sections["proteins"].append(
+                {
+                    "protein_family": label,
+                    "revenue": metric_1,
+                    "profit": metric_2,
+                    "margin_pct": metric_3,
+                    "yoy_delta_revenue": metric_4,
+                    "weight_lb": metric_5,
+                }
+            )
+        elif dataset == "transfer_pair":
+            owner_ref = _business_rep_reference(label, key, default=_UNASSIGNED_REP_LABEL)
+            prior_ref = _business_rep_reference(secondary)
+            sections["replacement_pairs"].append(
+                {
+                    "current_owner_key": owner_ref["rep_id"] or key,
+                    "current_owner_name": owner_ref["rep_name"],
+                    "prior_rep_key": prior_ref["rep_id"],
+                    "prior_rep_name": prior_ref["rep_name"],
+                    "inherited_revenue": metric_1,
+                    "customer_count": _clean_int(metric_2),
+                    "territories": text_1,
+                    "time_window": text_2,
+                }
+            )
+        elif dataset == "territory":
+            sections["territories"].append(
+                {
+                    "territory_name": label,
+                    "revenue": metric_1,
+                    "customer_count": _clean_int(metric_2),
+                    "revenue_share_pct": metric_3,
+                    "inherited_revenue": metric_4,
+                    "inherited_customer_count": _clean_int(metric_5),
+                }
+            )
+        elif dataset == "dq":
+            bucket_name = str(label or "").strip().lower()
+            if bucket_name in {
+                "",
+                "ok",
+                "customer_history",
+                "territory_history",
+                "ownership_history",
+                "succession_map",
+            }:
+                continue
+            sections["data_quality"].append(
+                {
+                    "bucket": label,
+                    "revenue": metric_1,
+                    "customer_count": _clean_int(metric_2),
+                }
+            )
+
+    replacement_names = sorted(
+        {
+            str(row.get("prior_rep_name")).strip()
+            for row in sections["replacement_pairs"]
+            if str(row.get("prior_rep_name") or "").strip()
+        }
+    )
+    sections["proteins"] = margin_rules.annotate_margin_rows(
+        sections["proteins"],
+        protein_keys=("protein_family",),
+        category_keys=("protein_family",),
+        revenue_key="revenue",
+        profit_key="profit",
+        margin_key="margin_pct",
+    )
+    top_rep = rollup_rows[0] if rollup_rows else {}
+    sections["portfolio"] = {
+        "visible_rep_count": len(rollup_rows),
+        "top_rep_name": _business_rep_name(top_rep.get("rep_name"), top_rep.get("rep_id")),
+        "top_rep_revenue": top_rep.get("revenue"),
+        "top_rep_direct_revenue": top_rep.get("direct_revenue"),
+        "top_rep_inherited_revenue": top_rep.get("transferred_in_revenue"),
+        "top_rep_territory_count": _clean_int(top_rep.get("territory_count")),
+        "top_rep_replaced_rep_count": _clean_int(top_rep.get("replaced_rep_count")),
+        "top_rep_replaced_rep_names": _business_rep_csv(top_rep.get("replaced_rep_names")),
+        "territory_count": len(sections["territories"]),
+        "territories": sections["territories"][:3],
+        "replacement_pairs": sections["replacement_pairs"][:6],
+        "replacement_names": replacement_names,
+    }
+    return sections
+
+
+def _month_bucket_sort_key(value: Any) -> tuple[int, str]:
+    token = str(value or "").strip()
+    if not token:
+        return (10**9, "")
+    try:
+        period = pd.Period(token, freq="M")
+        return (int(period.ordinal), token)
+    except Exception:
+        return (10**9, token)
+
+
+def _build_rank_change_map(rows: List[Dict[str, Any]]) -> Dict[str, int | None]:
+    current_rank = {
+        str(row.get("rep_id") or row.get("rep_key") or ""): idx + 1
+        for idx, row in enumerate(_sort_rollup_records(rows, "revenue", "desc"))
+        if row.get("rep_id") or row.get("rep_key")
+    }
+    prior_rank = {
+        str(row.get("rep_id") or row.get("rep_key") or ""): idx + 1
+        for idx, row in enumerate(
+            sorted(
+                rows,
+                key=lambda row: (_clean_float(row.get("prior_revenue")), _business_rep_name(row.get("rep_name"), row.get("rep_id"))),
+                reverse=True,
+            )
+        )
+        if row.get("rep_id") or row.get("rep_key")
+    }
+    changes: Dict[str, int | None] = {}
+    for rep_id, rank in current_rank.items():
+        prev = prior_rank.get(rep_id)
+        changes[rep_id] = (prev - rank) if prev else None
+    return changes
+
+
+def _top_row_by(rows: List[Dict[str, Any]], key: str, *, reverse: bool = True) -> Dict[str, Any] | None:
+    ranked = [
+        row for row in rows
+        if _clean_optional(row.get(key)) is not None
+    ]
+    if not ranked:
+        return None
+    return sorted(ranked, key=lambda row: _clean_float(row.get(key)), reverse=reverse)[0]
+
+
+def _salesrep_page_insights(kpis: Dict[str, Any], rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    highest_growth = _top_row_by(rows, "mom_revenue_pct", reverse=True)
+    biggest_drag = _top_row_by(rows, "yoy_revenue_pct", reverse=False)
+    highest_inherited = _top_row_by(rows, "inherited_revenue_share_pct", reverse=True)
+    largest_concentration = _top_row_by(rows, "top_customer_share", reverse=True)
+    best_margin = _top_row_by(
+        [row for row in rows if _clean_float(row.get("revenue")) > 0],
+        "margin_pct",
+        reverse=True,
+    )
+    chips: List[Dict[str, Any]] = []
+
+    def _append_chip(key: str, label: str, row: Dict[str, Any] | None, metric_key: str, formatter: str) -> None:
+        if not row:
+            return
+        rep_name = _business_rep_name(row.get("rep_name"), row.get("rep_id"))
+        metric_val = _clean_optional(row.get(metric_key))
+        if metric_val is None:
+            return
+        if formatter == "pct":
+            value = metric_val
+            display = f"{metric_val:+.1f}%"
+        elif formatter == "share":
+            value = metric_val
+            display = f"{metric_val:.1f}%"
+        else:
+            value = metric_val
+            display = f"${metric_val:,.0f}"
+        chips.append(
+            {
+                "key": key,
+                "label": label,
+                "rep_id": row.get("rep_id"),
+                "rep_name": rep_name,
+                "metric_key": metric_key,
+                "metric_value": value,
+                "display_value": display,
+            }
+        )
+
+    _append_chip("highest_growth_rep", "Highest Growth Rep", highest_growth, "mom_revenue_pct", "pct")
+    _append_chip("biggest_yoy_drag", "Biggest YoY Drag", biggest_drag, "yoy_revenue_pct", "pct")
+    _append_chip("highest_inherited_exposure", "Highest Inherited Exposure", highest_inherited, "inherited_revenue_share_pct", "share")
+    _append_chip("largest_concentration_risk", "Largest Concentration Risk", largest_concentration, "top_customer_share", "share")
+    _append_chip("best_margin_performer", "Best Margin Performer", best_margin, "margin_pct", "share")
+
+    narrative_parts: List[str] = []
+    if highest_growth:
+        narrative_parts.append(
+            f"{_business_rep_name(highest_growth.get('rep_name'), highest_growth.get('rep_id'))} is the strongest MoM gainer"
+        )
+    if biggest_drag:
+        narrative_parts.append(
+            f"{_business_rep_name(biggest_drag.get('rep_name'), biggest_drag.get('rep_id'))} is the biggest YoY drag"
+        )
+    risky_count = sum(1 for row in rows if _clean_float(row.get("top_customer_share")) > RISK_TOP_CUSTOMER_THRESHOLD)
+    if risky_count:
+        narrative_parts.append(f"{risky_count} rep(s) are above the top-customer concentration threshold")
+
+    return {
+        "chips": chips[:5],
+        "narrative": ". ".join(narrative_parts) if narrative_parts else (kpis.get("what_changed") or ""),
+        "strongest_signal": chips[0] if chips else None,
+        "weakest_signal": next((chip for chip in chips if chip.get("key") == "biggest_yoy_drag"), None),
+    }
+
+
 def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, Any]:
     started = time.perf_counter()
-    cols = fact_store.list_columns()
-    cols_map = _required_columns(cols)
-    missing = [k for k in ("date", "revenue", "order", "customer") if not cols_map.get(k)]
-    if missing:
-        return {"error": {"message": f"Required columns missing for salesreps bundle: {', '.join(missing)}"}, "meta": {"cached": False}}
+    context = _salesrep_attribution_context(filters, scope, args)
+    if context.get("error"):
+        return {"error": context["error"], "meta": {"cached": False}}
 
-    rep_key_expr, rep_name_expr = _rep_exprs(cols)
-    where_sql, params, start_iso, end_iso = fact_store.build_where_clause(filters, cols, scope, apply_default_window=True)
-    base_sql = _scoped_sql(cols_map, where_sql, rep_key_expr, rep_name_expr)
-    if not base_sql:
-        return {"error": {"message": "Salesreps base query could not be built"}, "meta": {"cached": False}}
+    controls: salesrep_ownership.AttributionControls = context["controls"]
+    bridge_meta: salesrep_ownership.OwnershipBridgeMeta = context["bridge_meta"]
+    successor_meta: salesrep_ownership.SuccessorMapMeta = context["successor_meta"]
+    windows = context["windows"]
+    cte_sql = context["cte_sql"]
+    params = list(context["params"])
+    start_iso = windows.get("window_start")
+    end_iso = windows.get("window_end_display") or windows.get("window_end_exclusive")
 
     page_num, page_size = _pagination(args)
     sort_by, sort_dir = _sort_params(args)
@@ -874,21 +3338,93 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
         top_n = TOP_N_DEFAULT
     top_n = max(5, min(top_n, 25))
 
-    kpis_df = fact_store.execute_sql_df(_kpis_sql(base_sql), params, tag="salesreps.kpis")
-    rollup_df = fact_store.execute_sql_df(_rollup_sql(base_sql), params, tag="salesreps.rollup")
-    trend_df = fact_store.execute_sql_df(_trend_sql(base_sql, top_n), params, tag="salesreps.trend")
+    kpis_df = fact_store.execute_sql_df(_kpis_sql(cte_sql), params, tag="salesreps.kpis")
+    rollup_df = fact_store.execute_sql_df(_rollup_sql(cte_sql), params, tag="salesreps.rollup")
+    trend_df = fact_store.execute_sql_df(_trend_sql(cte_sql, top_n), params, tag="salesreps.trend")
+    analysis_df = fact_store.execute_sql_df(_analysis_sql(cte_sql), params, tag="salesreps.analysis")
     kpis_df = _normalize_frame(kpis_df)
     rollup_df = _normalize_frame(rollup_df)
     trend_df = _normalize_frame(trend_df)
+    analysis_df = _normalize_frame(analysis_df)
+
+    last_refresh = (
+        (fact_store.get_meta() or {}).get("last_refresh_utc")
+        or (fact_store.get_meta() or {}).get("watermark_dt")
+        or (fact_store.get_meta() or {}).get("watermark")
+        or None
+    )
+
+    base_meta = {
+        "page_id": "salesreps",
+        "window_start": start_iso,
+        "window_end": end_iso,
+        "window_end_exclusive": windows.get("window_end_exclusive"),
+        "prior_start": windows.get("prior_start"),
+        "prior_end_exclusive": windows.get("prior_end_exclusive"),
+        "yoy_start": windows.get("yoy_start"),
+        "yoy_end_exclusive": windows.get("yoy_end_exclusive"),
+        "units_label": "Units",
+        "asp_label": "ASP",
+        "asp_lb_label": "ASP / lb",
+        "metric": metric_token,
+        "search": search_term,
+        "attribution": controls.as_dict(),
+        "ownership_bridge": bridge_meta.as_dict(),
+        "ownership_succession": successor_meta.as_dict(),
+        "last_refresh": last_refresh,
+        "risk_thresholds": {
+            "top_customer_share": RISK_TOP_CUSTOMER_THRESHOLD,
+            "margin_pct": None,
+            "mom_profit_down_pct": RISK_MOM_PROFIT_DOWN_THRESHOLD,
+        },
+    }
+    warnings = list(bridge_meta.warnings) + list(successor_meta.warnings)
 
     if rollup_df.empty and kpis_df.empty:
         payload = {
-            "kpis": {"what_changed": "No sales rep activity for the selected filters."},
-            "trend": {"labels": [], "series": []},
-            "charts": {},
+            "kpis": {
+                "what_changed": "No sales rep activity for the selected filters.",
+                "last_refresh": last_refresh,
+            },
+            "trend": {
+                "labels": [],
+                "series": [],
+                "detail": [],
+                "monthly_compare": {
+                    "labels": [],
+                    "revenue": [],
+                    "revenue_yoy": [],
+                    "profit": [],
+                    "profit_yoy": [],
+                    "weight_lb": [],
+                    "weight_lb_yoy": [],
+                    "detail": [],
+                },
+            },
+            "charts": {
+                "trend": {"labels": [], "series": [], "detail": []},
+                "monthly_compare": {
+                    "labels": [],
+                    "revenue": [],
+                    "revenue_yoy": [],
+                    "profit": [],
+                    "profit_yoy": [],
+                    "weight_lb": [],
+                    "weight_lb_yoy": [],
+                    "detail": [],
+                },
+            },
             "table": {"rows": [], "page": page_num, "page_size": page_size, "total_rows": 0, "total_pages": 0},
             "risk_flags": [],
-            "meta": {"page_id": "salesreps", "window_start": start_iso, "window_end": end_iso},
+            "analysis": {},
+            "benchmarks": {"avg_revenue": None, "avg_profit": None, "avg_margin_pct": None, "avg_asp_lb": None, "avg_orders": None, "avg_customers": None},
+            "warnings": warnings,
+            "meta": {
+                **base_meta,
+                "ownership_snapshot": {"available": False, "rows": 0, "source": None},
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                "warning_count": len(warnings),
+            },
         }
         return payload
 
@@ -897,6 +3433,8 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
     cost = _clean_optional(krow.get("cost"))
     profit = _clean_optional(krow.get("profit"))
     margin_pct = _clean_optional(krow.get("margin_pct"))
+    minimum_margin_pct = _clean_optional(krow.get("minimum_margin_pct"))
+    target_margin_pct = _clean_optional(krow.get("target_margin_pct"))
     orders = _clean_int(krow.get("orders"))
     customers = _clean_int(krow.get("customers"))
     active_reps = _clean_int(krow.get("active_reps"))
@@ -907,66 +3445,182 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
     revenue_mom_pct = _clean_optional(krow.get("revenue_mom_pct"))
     profit_mom_pct = _clean_optional(krow.get("profit_mom_pct"))
     margin_mom_pct = _clean_optional(krow.get("margin_mom_pct"))
+    revenue_yoy_pct = _clean_optional(krow.get("revenue_yoy_pct"))
+    profit_yoy_pct = _clean_optional(krow.get("profit_yoy_pct"))
+    margin_yoy_delta = _clean_optional(krow.get("margin_yoy_delta"))
     cost_null_rows = _clean_int(krow.get("cost_null_rows"))
+    missing_packs_rows = _clean_int(krow.get("missing_packs_rows"))
     total_rows = _clean_int(krow.get("total_rows"))
     cost_coverage_pct = None
+    packs_coverage_pct = None
     if total_rows:
         cost_coverage_pct = (1 - (cost_null_rows / total_rows)) * 100.0
-    manifest_meta = fact_store.get_meta() or {}
-    last_refresh = (
-        manifest_meta.get("last_refresh_utc")
-        or manifest_meta.get("watermark_dt")
-        or manifest_meta.get("watermark")
-        or None
-    )
+        packs_coverage_pct = (1 - (missing_packs_rows / total_rows)) * 100.0
+    kpi_margin_status = margin_rules.classify_margin_status(margin_pct, minimum_margin_pct, target_margin_pct)
 
     kpis = {
         "revenue": revenue,
         "cost": cost,
         "profit": profit,
         "margin_pct": margin_pct,
+        "minimum_margin_pct": minimum_margin_pct,
+        "target_margin_pct": target_margin_pct,
+        "target_gap_pct_points": None if margin_pct is None or target_margin_pct is None else (margin_pct - target_margin_pct),
         "orders": orders,
         "customers": customers,
         "active_reps": active_reps,
+        "bridge_customers": _clean_int(krow.get("bridge_customers")),
+        "snapshot_customers": _clean_int(krow.get("snapshot_customers")),
+        "fact_fallback_customers": _clean_int(krow.get("fact_fallback_customers")),
         "units": units,
         "weight_lb": weight_lb,
         "asp": asp,
         "asp_lb": asp_lb,
+        "avg_order_value": _clean_optional(krow.get("avg_order_value")),
+        "revenue_per_customer": _clean_optional(krow.get("revenue_per_customer")),
         "revenue_mom_pct": revenue_mom_pct,
         "profit_mom_pct": profit_mom_pct,
         "margin_mom_pct": margin_mom_pct,
+        "revenue_yoy_pct": revenue_yoy_pct,
+        "profit_yoy_pct": profit_yoy_pct,
+        "margin_yoy_delta": margin_yoy_delta,
+        "active_customers": _clean_int(krow.get("active_customers")),
+        "direct_customers": _clean_int(krow.get("direct_customers")),
+        "inherited_customers": _clean_int(krow.get("inherited_customers")),
+        "transferred_in_customers": _clean_int(krow.get("transferred_in_customers")),
+        "unassigned_customers": _clean_int(krow.get("unassigned_customers")),
+        "direct_revenue": _clean_optional(krow.get("direct_revenue")),
+        "inherited_revenue": _clean_optional(krow.get("inherited_revenue")),
+        "unassigned_revenue": _clean_optional(krow.get("unassigned_revenue")),
         "cost_coverage_pct": cost_coverage_pct,
+        "packs_coverage_pct": packs_coverage_pct,
+        "attribution_mode": controls.attribution_mode,
+        "roster_mode": controls.roster_mode,
+        "transfer_only": bool(controls.transfer_only),
         "last_refresh": last_refresh,
         "start": start_iso,
         "end": end_iso,
+        **kpi_margin_status,
     }
 
-    # Trend payload (top reps)
-    trend_labels = sorted({str(r.month) for r in trend_df.itertuples()} if not trend_df.empty else [])
+    rep_trend_df = trend_df.loc[trend_df["dataset"] == "rep_trend"].copy() if "dataset" in trend_df.columns else pd.DataFrame()
+    monthly_compare_df = (
+        trend_df.loc[trend_df["dataset"] == "monthly_compare"].copy() if "dataset" in trend_df.columns else pd.DataFrame()
+    )
+
+    trend_labels = sorted(
+        {str(bucket) for bucket in rep_trend_df.get("bucket", pd.Series(dtype="string")).tolist()} if not rep_trend_df.empty else [],
+        key=_month_bucket_sort_key,
+    )
     series_map: Dict[str, Dict[str, float]] = {}
     rep_names: Dict[str, str] = {}
-    if not trend_df.empty:
-        for r in trend_df.itertuples():
+    trend_detail: List[Dict[str, Any]] = []
+    if not rep_trend_df.empty:
+        for r in rep_trend_df.itertuples():
             rep_key = getattr(r, "rep_key", None)
-            month = str(getattr(r, "month", ""))
+            month = str(getattr(r, "bucket", ""))
             if rep_key is None or not month:
                 continue
             series_map.setdefault(rep_key, {})[month] = _clean_float(getattr(r, "revenue", 0.0))
-            rep_names[rep_key] = getattr(r, "rep_name", None) or rep_key
+            rep_names[rep_key] = _business_rep_name(getattr(r, "rep_name", None), rep_key)
+            trend_detail.append(
+                {
+                    "bucket": month,
+                    "rep_id": rep_key,
+                    "rep_name": _business_rep_name(getattr(r, "rep_name", None), rep_key),
+                    "revenue": _clean_float(getattr(r, "revenue", 0.0)),
+                    "revenue_yoy": _clean_optional(getattr(r, "comparison_value", None)),
+                    "profit": _clean_optional(getattr(r, "profit", None)),
+                    "profit_yoy": _clean_optional(getattr(r, "comparison_profit", None)),
+                    "weight_lb": _clean_float(getattr(r, "weight_lb", 0.0)),
+                    "weight_lb_yoy": _clean_optional(getattr(r, "comparison_weight_lb", None)),
+                    "direct_revenue": _clean_optional(getattr(r, "direct_value", None)),
+                    "inherited_revenue": _clean_optional(getattr(r, "inherited_value", None)),
+                    "customers": _clean_int(getattr(r, "customers_value", 0)),
+                    "customers_yoy": _clean_optional(getattr(r, "comparison_customers_value", None)),
+                    "direct_customers": _clean_optional(getattr(r, "direct_customers_value", None)),
+                    "inherited_customers": _clean_optional(getattr(r, "inherited_customers_value", None)),
+                    "observed_days": _clean_int(getattr(r, "observed_days_value", 0)),
+                    "observed_days_yoy": _clean_optional(getattr(r, "comparison_observed_days_value", None)),
+                }
+            )
 
     trend_series: List[Dict[str, Any]] = []
     for rep_key, points in series_map.items():
         trend_series.append(
             {
                 "rep_id": rep_key,
-                "rep_name": rep_names.get(rep_key) or rep_key,
+                "rep_name": _business_rep_name(rep_names.get(rep_key), rep_key),
                 "revenue": [points.get(label, 0.0) for label in trend_labels],
             }
         )
 
-    # Charts built from rollup
-    charts: Dict[str, Any] = {}
+    monthly_compare_labels: List[str] = []
+    monthly_compare = {
+        "labels": [],
+        "revenue": [],
+        "revenue_yoy": [],
+        "profit": [],
+        "profit_yoy": [],
+        "weight_lb": [],
+        "weight_lb_yoy": [],
+        "detail": [],
+    }
+    if not monthly_compare_df.empty:
+        monthly_compare_df = monthly_compare_df.assign(
+            _bucket_sort=monthly_compare_df.get("bucket", pd.Series(dtype="string")).map(_month_bucket_sort_key)
+        ).sort_values("_bucket_sort").drop(columns=["_bucket_sort"], errors="ignore").reset_index(drop=True)
+        monthly_compare_labels = [str(v) for v in monthly_compare_df["bucket"].tolist()]
+        monthly_compare = {
+            "labels": monthly_compare_labels,
+            "revenue": [_clean_float(v) for v in monthly_compare_df.get("revenue", pd.Series(dtype="float")).tolist()],
+            "revenue_yoy": [_clean_float(v) for v in monthly_compare_df.get("comparison_value", pd.Series(dtype="float")).tolist()],
+            "profit": [_clean_optional(v) for v in monthly_compare_df.get("profit", pd.Series(dtype="float")).tolist()],
+            "profit_yoy": [_clean_optional(v) for v in monthly_compare_df.get("comparison_profit", pd.Series(dtype="float")).tolist()],
+            "weight_lb": [_clean_float(v) for v in monthly_compare_df.get("weight_lb", pd.Series(dtype="float")).tolist()],
+            "weight_lb_yoy": [
+                _clean_float(v)
+                for v in monthly_compare_df.get("comparison_weight_lb", pd.Series(dtype="float")).tolist()
+            ],
+            "detail": [
+                {
+                    "bucket": str(row.get("bucket") or ""),
+                    "revenue": _clean_float(row.get("revenue")),
+                    "revenue_yoy": _clean_optional(row.get("comparison_value")),
+                    "profit": _clean_optional(row.get("profit")),
+                    "profit_yoy": _clean_optional(row.get("comparison_profit")),
+                    "weight_lb": _clean_float(row.get("weight_lb")),
+                    "weight_lb_yoy": _clean_optional(row.get("comparison_weight_lb")),
+                    "direct_revenue": _clean_optional(row.get("direct_value")),
+                    "inherited_revenue": _clean_optional(row.get("inherited_value")),
+                    "customers": _clean_int(row.get("customers_value")),
+                    "customers_yoy": _clean_optional(row.get("comparison_customers_value")),
+                    "observed_days": _clean_int(row.get("observed_days_value")),
+                    "observed_days_yoy": _clean_optional(row.get("comparison_observed_days_value")),
+                }
+                for row in monthly_compare_df.to_dict(orient="records")
+            ],
+        }
+
     rollup_rows = [_sanitize_rollup_record(rec) for rec in _rollup_records(rollup_df)]
+    rank_change_map = _build_rank_change_map(rollup_rows)
+    for row in rollup_rows:
+        rep_id = str(row.get("rep_id") or row.get("rep_key") or "")
+        row["rank_change"] = rank_change_map.get(rep_id)
+    analysis = _build_analysis_sections(
+        analysis_df,
+        _sort_rollup_records(rollup_rows, "revenue", "desc"),
+    )
+    analysis["insights"] = _salesrep_page_insights(kpis, rollup_rows)
+    analysis["ownership_breakdown"] = {
+        "direct_revenue": kpis.get("direct_revenue"),
+        "inherited_revenue": kpis.get("inherited_revenue"),
+        "direct_customers": kpis.get("direct_customers"),
+        "inherited_customers": kpis.get("inherited_customers"),
+        "transferred_in_customers": kpis.get("transferred_in_customers"),
+        "unassigned_customers": kpis.get("unassigned_customers"),
+    }
+    charts: Dict[str, Any] = {}
     if rollup_rows:
         top_reps = _sort_rollup_records(rollup_rows, "revenue", "desc")[:10]
         charts["top_reps"] = [
@@ -974,11 +3628,18 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
                 "rep_id": row.get("rep_id"),
                 "rep_name": row.get("rep_name"),
                 "revenue": row.get("revenue"),
+                "direct_revenue": row.get("direct_revenue"),
+                "direct_profit": row.get("direct_profit"),
+                "direct_weight_lb": row.get("direct_weight_lb"),
+                "direct_margin_pct": row.get("direct_margin_pct"),
+                "direct_customers": row.get("direct_customers"),
+                "inherited_revenue": row.get("transferred_in_revenue"),
                 "profit": row.get("profit"),
                 "margin_pct": row.get("margin_pct"),
                 "orders": row.get("orders"),
                 "customers": row.get("customers"),
                 "weight_lb": row.get("weight_lb"),
+                "rank_change": row.get("rank_change"),
             }
             for row in top_reps
         ]
@@ -992,6 +3653,7 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
                 "revenue": row.get("revenue"),
                 "profit": row.get("profit"),
                 "margin_pct": row.get("margin_pct"),
+                "rank_change": row.get("rank_change"),
             }
             for row in rollup_rows
         ]
@@ -1042,6 +3704,7 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
                 "rep_name": row.get("rep_name"),
                 "margin_pct": row.get("margin_pct"),
                 "revenue": row.get("revenue"),
+                "rank_change": row.get("rank_change"),
             }
             for row in margin_rank
         ]
@@ -1063,46 +3726,224 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
             )
         charts["pareto"] = pareto_rows
 
+        ownership_rank = sorted(
+            rollup_rows,
+            key=lambda row: abs(_clean_float(row.get("ownership_delta_revenue"))),
+            reverse=True,
+        )[:10]
+        charts["ownership_delta"] = [
+            {
+                "rep_id": row.get("rep_id"),
+                "rep_name": row.get("rep_name"),
+                "historical_revenue": row.get("historical_revenue"),
+                "current_owner_revenue": row.get("current_owner_revenue"),
+                "ownership_delta_revenue": row.get("ownership_delta_revenue"),
+                "ownership_delta_pct": row.get("ownership_delta_pct"),
+            }
+            for row in ownership_rank
+            if any(
+                _clean_optional(row.get(field)) is not None
+                for field in ("historical_revenue", "current_owner_revenue", "ownership_delta_revenue")
+            )
+        ]
+
+        transfer_rank = sorted(
+            rollup_rows,
+            key=lambda row: max(
+                abs(_clean_float(row.get("transferred_in_revenue"))),
+                abs(_clean_float(row.get("transferred_out_revenue"))),
+            ),
+            reverse=True,
+        )[:10]
+        charts["transfers"] = [
+            {
+                "rep_id": row.get("rep_id"),
+                "rep_name": row.get("rep_name"),
+                "transferred_in_revenue": row.get("transferred_in_revenue"),
+                "transferred_out_revenue": row.get("transferred_out_revenue"),
+                "direct_revenue": row.get("direct_revenue"),
+                "inherited_customers": row.get("inherited_customers"),
+                "gained_customers": row.get("gained_customers"),
+                "lost_customers": row.get("lost_customers"),
+            }
+            for row in transfer_rank
+        ]
+
+        charts["protein_leaders"] = [
+            {
+                "rep_id": row.get("rep_id"),
+                "rep_name": row.get("rep_name"),
+                "protein_family": row.get("top_protein_family"),
+                "revenue": row.get("top_protein_revenue"),
+            }
+            for row in rollup_rows
+            if row.get("top_protein_family")
+        ]
+
+    charts["rep_trend_detail"] = trend_detail
+    charts["monthly_compare"] = monthly_compare
+
     table_source = rollup_rows
     if search_term:
         table_source = [
             row
             for row in rollup_rows
-            if search_term in str(row.get("rep_name") or "").strip().lower()
+            if (
+                search_term in str(row.get("rep_name") or "").strip().lower()
+                or search_term in str(row.get("top_customer_name") or "").strip().lower()
+                or search_term in str(row.get("top_territory_name") or "").strip().lower()
+            )
         ]
+    # Compute performance quartile ranking by revenue across all reps
+    if rollup_rows:
+        revenue_sorted = sorted(rollup_rows, key=lambda r: _clean_float(r.get("revenue")))
+        n = len(revenue_sorted)
+        for idx, row in enumerate(revenue_sorted):
+            # ntile(4): Q1=bottom 25%, Q4=top 25%
+            quartile = min(4, max(1, math.ceil((idx + 1) / n * 4)))
+            row["revenue_quartile"] = quartile
+            if quartile == 4:
+                row["quartile_label"] = "Top 25%"
+            elif quartile == 3:
+                row["quartile_label"] = "Mid-High"
+            elif quartile == 2:
+                row["quartile_label"] = "Mid-Low"
+            else:
+                row["quartile_label"] = "Bottom 25%"
+
+    # Compute team benchmarks (revenue-weighted where applicable)
+    # Revenue-weighted margin (not simple avg)
+    total_revenue_for_bench = sum(_clean_float(r.get("revenue")) for r in rollup_rows)
+    if total_revenue_for_bench > 0:
+        avg_margin_pct = sum(
+            _clean_float(r.get("revenue")) * (_clean_optional(r.get("margin_pct")) or 0.0)
+            for r in rollup_rows
+        ) / total_revenue_for_bench
+    else:
+        avg_margin_pct = None
+
+    benchmarks: Dict[str, Any] = {
+        "avg_revenue": (total_revenue_for_bench / len(rollup_rows)) if rollup_rows else None,
+        "avg_profit": (
+            sum(_clean_float(r.get("profit")) for r in rollup_rows) / len(rollup_rows)
+            if rollup_rows else None
+        ),
+        "avg_margin_pct": avg_margin_pct,  # Revenue-weighted margin (not simple avg)
+        "avg_asp_lb": (
+            sum(_clean_float(r.get("asp_lb")) for r in rollup_rows if r.get("asp_lb") is not None) / max(
+                sum(1 for r in rollup_rows if r.get("asp_lb") is not None), 1
+            ) if rollup_rows else None
+        ),
+        "avg_orders": (
+            sum(_clean_float(r.get("orders")) for r in rollup_rows) / len(rollup_rows)
+            if rollup_rows else None
+        ),
+        "avg_customers": (
+            sum(_clean_float(r.get("customers")) for r in rollup_rows) / len(rollup_rows)
+            if rollup_rows else None
+        ),
+    }
+
     rows, total_rows, total_pages, page_num = _build_table_rows(table_source, page_num, page_size, sort_by, sort_dir)
     total_reps = len(rollup_rows)
     kpis["active_reps"] = max(_clean_int(kpis.get("active_reps"), 0), total_reps)
+    kpis["territory_count"] = len(analysis.get("territories") or [])
+    kpis["replaced_rep_count"] = len(analysis.get("portfolio", {}).get("replacement_names") or [])
+    kpis["transferred_accounts_count"] = _clean_int(kpis.get("inherited_customers"))
+    kpis["transferred_in_revenue"] = sum(_clean_float(row.get("transferred_in_revenue")) for row in rollup_rows)
+    kpis["transferred_out_revenue"] = sum(_clean_float(row.get("transferred_out_revenue")) for row in rollup_rows)
+    kpis["current_owner_revenue"] = sum(_clean_float(row.get("current_owner_revenue")) for row in rollup_rows)
+    kpis["historical_revenue"] = sum(_clean_float(row.get("historical_revenue")) for row in rollup_rows)
+    if kpis.get("direct_revenue") is None:
+        kpis["direct_revenue"] = max(
+            _clean_float(kpis.get("revenue")) - _clean_float(kpis.get("inherited_revenue")),
+            0.0,
+        )
     kpis["what_changed"] = _what_changed_insight(kpis, rollup_df)
+    kpis["largest_gained_accounts_count"] = sum(1 for row in rollup_rows if _clean_int(row.get("gained_customers")) > 0)
+    kpis["largest_lost_accounts_count"] = sum(1 for row in rollup_rows if _clean_int(row.get("lost_customers")) > 0)
     risk_flags = _risk_flags(rollup_df)
+    dq_rows = analysis.get("data_quality") or []
+    snapshot_customers = _clean_int(kpis.get("snapshot_customers"))
+    fact_fallback_customers = sum(
+        _clean_int(item.get("customer_count"))
+        for item in dq_rows
+        if str(item.get("bucket") or "").strip().lower() == "fact_fallback"
+    )
+    inactive_owner_customers = sum(
+        _clean_int(item.get("customer_count"))
+        for item in dq_rows
+        if str(item.get("bucket") or "").strip().lower() == "inactive_current_owner"
+    )
+    mapped_customers = max(
+        _clean_int(kpis.get("active_customers"))
+        - _clean_int(kpis.get("unassigned_customers"))
+        - fact_fallback_customers
+        - inactive_owner_customers,
+        0,
+    )
+    if _clean_int(kpis.get("active_customers")) > 0:
+        kpis["ownership_coverage_pct"] = (mapped_customers / _clean_int(kpis.get("active_customers"))) * 100.0
+    else:
+        kpis["ownership_coverage_pct"] = None
+    if snapshot_customers > 0:
+        warnings = [
+            msg
+            for msg in warnings
+            if "ownership history bridge not configured" not in str(msg or "").strip().lower()
+        ]
+    if fact_fallback_customers > 0 and controls.is_current_owner_mode:
+        warnings.append(
+            f"{fact_fallback_customers} customer(s) are still using fact-row owner fallback; load ownership history for director-grade current-owner rollups."
+        )
+    if inactive_owner_customers > 0:
+        warnings.append(
+            f"{inactive_owner_customers} customer(s) are assigned to inactive current owners and were routed to Unassigned / Needs Review."
+        )
+    if _clean_int(kpis.get("unassigned_customers")) > 0:
+        risk_flags.append(
+            {
+                "key": "unassigned_customers",
+                "severity": "high",
+                "count": _clean_int(kpis.get("unassigned_customers")),
+                "label": "Customers missing current owner mapping",
+            }
+        )
+        warnings.append(
+            f"{_clean_int(kpis.get('unassigned_customers'))} customer(s) are in the Unassigned / Needs Review bucket."
+        )
 
     duration_ms = int((time.perf_counter() - started) * 1000)
     meta = {
-        "page_id": "salesreps",
-        "window_start": start_iso,
-        "window_end": end_iso,
+        **base_meta,
+        "ownership_snapshot": {
+            "available": bool(snapshot_customers > 0),
+            "rows": snapshot_customers,
+            "source": "fact_customer_snapshot" if snapshot_customers > 0 else None,
+        },
+        "packs_coverage": {
+            "total_orderlines": total_rows,
+            "has_packs_orderlines": max(total_rows - missing_packs_rows, 0),
+            "missing_packs_orderlines": missing_packs_rows,
+            "packs_coverage_pct": packs_coverage_pct,
+        },
         "date_min": krow.get("date_min"),
         "date_max": krow.get("date_max"),
         "elapsed_ms": duration_ms,
-        "units_label": "Units",
-        "asp_label": "ASP",
-        "asp_lb_label": "ASP / lb",
         "has_margin": margin_pct is not None,
-        "last_refresh": last_refresh,
-        "search": search_term,
-        "metric": metric_token,
-        "risk_thresholds": {
-            "top_customer_share": RISK_TOP_CUSTOMER_THRESHOLD,
-            "margin_pct": RISK_MARGIN_THRESHOLD,
-            "mom_profit_down_pct": RISK_MOM_PROFIT_DOWN_THRESHOLD,
-        },
+        "warning_count": len(dict.fromkeys(warnings)),
     }
 
     payload = {
         "kpis": kpis,
-        "trend": {"labels": trend_labels, "series": trend_series},
+        "trend": {
+            "labels": trend_labels,
+            "series": trend_series,
+            "detail": trend_detail,
+            "monthly_compare": monthly_compare,
+        },
         "charts": {
-            "trend": {"labels": trend_labels, "series": trend_series},
+            "trend": {"labels": trend_labels, "series": trend_series, "detail": trend_detail},
             **charts,
         },
         "table": {
@@ -1117,116 +3958,38 @@ def build_salesreps_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Di
             "all_rows": len(table_source),
         },
         "risk_flags": risk_flags,
+        "analysis": analysis,
+        "benchmarks": benchmarks,
+        "warnings": list(dict.fromkeys(warnings)),
         "meta": meta,
     }
     return payload
 
 
-def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, Any]:
-    cols = fact_store.list_columns()
-    cols_map = _required_columns(cols)
-    missing = [k for k in ("date", "revenue", "order", "customer") if not cols_map.get(k)]
-    if missing:
-        return {"error": {"message": f"Required columns missing for salesreps drilldown: {', '.join(missing)}"}, "meta": {"cached": False}}
+def build_efficiency_payload(filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, Any]:
+    # Reuse the main rollup but only return the eff chart part
+    payload = build_salesreps_bundle(filters, scope, args)
+    return {"eff": payload.get("charts", {}).get("eff"), "meta": payload.get("meta")}
 
-    rep_key_expr, rep_name_expr = _rep_exprs(cols)
-    base_where, params, start_iso, end_iso = fact_store.build_where_clause(
-        filters, cols, scope, apply_default_window=True
-    )
-    rep_match_sql = f"({rep_key_expr} = ? OR {rep_name_expr} = ?)"
-    where_sql = f"({base_where}) AND {rep_match_sql}"
-    params_rep = list(params) + [rep_id, rep_id]
-    scoped_sql = _scoped_sql(cols_map, where_sql, rep_key_expr, rep_name_expr)
-    if not scoped_sql:
-        return {"error": {"message": "Salesreps drilldown base query could not be built"}, "meta": {"cached": False}}
+
+def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], args: Any) -> Dict[str, Any]:
+    context = _salesrep_rep_context(rep_id, filters, scope, args)
+    if context.get("error"):
+        return {"error": context["error"], "meta": {"cached": False}}
+
+    controls: salesrep_ownership.AttributionControls = context["controls"]
+    bridge_meta: salesrep_ownership.OwnershipBridgeMeta = context["bridge_meta"]
+    successor_meta: salesrep_ownership.SuccessorMapMeta = context["successor_meta"]
+    windows = context["windows"]
+    scoped_sql = context["cte_sql"]
+    params_rep = context["params"]
+    start_iso = windows.get("window_start")
+    end_iso = windows.get("window_end_display") or windows.get("window_end_exclusive")
 
     at_risk_days = _clean_int(args.get("at_risk_days") if hasattr(args, "get") else None, 45)
     at_risk_days = max(7, min(at_risk_days, 365))
 
-    summary_sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
-        ref AS (
-            SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
-        ),
-        summary AS (
-            SELECT
-                MIN(rep_name) AS rep_name,
-                SUM(revenue) AS revenue,
-                SUM(cost) AS cost,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-                COUNT(DISTINCT order_id) AS orders,
-                COUNT(DISTINCT customer_id) AS customers,
-                SUM(units) AS units,
-                SUM(weight_lb) AS weight_lb,
-                CASE WHEN SUM(units) > 0 THEN SUM(revenue) / NULLIF(SUM(units), 0) ELSE NULL END AS asp,
-                CASE WHEN SUM(weight_lb) > 0 THEN SUM(revenue) / NULLIF(SUM(weight_lb), 0) ELSE NULL END AS asp_lb,
-                MIN(order_date) AS first_order,
-                MAX(order_date) AS last_order,
-                SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END) AS revenue_last_30,
-                SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 90 DAY THEN revenue ELSE 0 END) AS revenue_last_90,
-                SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 90 DAY AND order_date > ref.ref_date - INTERVAL 180 DAY THEN revenue ELSE 0 END) AS revenue_prev_90,
-                SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN cost ELSE 0 END) AS cost_last_30,
-                SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 90 DAY THEN cost ELSE 0 END) AS cost_last_90,
-                COUNT(DISTINCT CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN order_id END) AS orders_last_30,
-                COUNT(DISTINCT CASE WHEN order_date > ref.ref_date - INTERVAL 90 DAY THEN order_id END) AS orders_last_90,
-                SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
-                COUNT(*) AS total_rows,
-                DATE_DIFF('day', MAX(order_date), MAX(ref.ref_date)) AS days_since_last
-            FROM scoped, ref
-        ),
-        monthly AS (
-            SELECT
-                DATE_TRUNC('month', order_date) AS month_start,
-                SUM(revenue) AS revenue,
-                SUM(cost) AS cost,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-                COUNT(DISTINCT order_id) AS orders,
-                COUNT(DISTINCT customer_id) AS customers,
-                SUM(units) AS units,
-                SUM(weight_lb) AS weight_lb
-            FROM scoped
-            GROUP BY 1
-            ORDER BY 1
-        ),
-        weekly AS (
-            SELECT
-                DATE_TRUNC('week', order_date) AS week_start,
-                SUM(revenue) AS revenue,
-                SUM(cost) AS cost,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-                COUNT(DISTINCT order_id) AS orders,
-                COUNT(DISTINCT customer_id) AS customers,
-                SUM(units) AS units,
-                SUM(weight_lb) AS weight_lb
-            FROM scoped
-            GROUP BY 1
-            ORDER BY 1
-        )
-        SELECT
-            summary.*,
-            (SELECT list(strftime('%Y-%m', month_start)) FROM monthly) AS trend_labels,
-            (SELECT list(revenue) FROM monthly) AS trend_revenue,
-            (SELECT list(orders) FROM monthly) AS trend_orders,
-            (SELECT list(profit) FROM monthly) AS trend_profit,
-            (SELECT list(margin_pct) FROM monthly) AS trend_margin,
-            (SELECT list(customers) FROM monthly) AS trend_customers,
-            (SELECT list(units) FROM monthly) AS trend_units,
-            (SELECT list(strftime('%Y-%m-%d', week_start)) FROM weekly) AS trend_week_labels,
-            (SELECT list(revenue) FROM weekly) AS trend_week_revenue,
-            (SELECT list(orders) FROM weekly) AS trend_week_orders,
-            (SELECT list(profit) FROM weekly) AS trend_week_profit,
-            (SELECT list(margin_pct) FROM weekly) AS trend_week_margin,
-            (SELECT ref_date FROM ref) AS ref_date
-        FROM summary
-        LIMIT 1
-    """
-
-    summary_df = fact_store.execute_sql_df(summary_sql, params_rep, tag="salesreps.drilldown.summary")
+    summary_df = _normalize_frame(_salesrep_summary_frame(scoped_sql, params_rep))
     customers_df = _normalize_frame(_salesrep_customers_frame(scoped_sql, params_rep))
     products_df = _normalize_frame(_salesrep_products_frame(scoped_sql, params_rep))
 
@@ -1250,7 +4013,7 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
     weight_lb = _clean_float(srow.get("weight_lb"))
     asp = _clean_optional(srow.get("asp"))
     asp_lb = _clean_optional(srow.get("asp_lb"))
-    rep_name = srow.get("rep_name") or rep_id
+    rep_name = _business_rep_name(srow.get("rep_name"), rep_id)
     cost_null_rows = _clean_int(srow.get("cost_null_rows"))
     total_rows = _clean_int(srow.get("total_rows"))
     cost_coverage_pct = ((1 - (cost_null_rows / total_rows)) * 100.0) if total_rows else None
@@ -1291,6 +4054,18 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         "margin_pct": [_clean_optional(v) for v in _to_list(srow.get("trend_week_margin"))],
     }
     trend_weekly["rolling_revenue_4w"] = _rolling(trend_weekly["revenue"], 4)
+    trend_compare = {
+        "labels": [str(v) for v in _to_list(srow.get("compare_labels"))],
+        "revenue": [_clean_float(v, 0.0) for v in _to_list(srow.get("compare_revenue"))],
+        "revenue_yoy": [_clean_float(v, 0.0) for v in _to_list(srow.get("compare_revenue_yoy"))],
+        "profit": [_clean_optional(v) for v in _to_list(srow.get("compare_profit"))],
+        "profit_yoy": [_clean_optional(v) for v in _to_list(srow.get("compare_profit_yoy"))],
+        "weight_lb": [_clean_float(v, 0.0) for v in _to_list(srow.get("compare_weight_lb"))],
+        "weight_lb_yoy": [_clean_float(v, 0.0) for v in _to_list(srow.get("compare_weight_lb_yoy"))],
+    }
+    trend_monthly["revenue_yoy"] = list(trend_compare["revenue_yoy"])
+    trend_monthly["profit_yoy"] = list(trend_compare["profit_yoy"])
+    trend_monthly["weight_lb_yoy"] = list(trend_compare["weight_lb_yoy"])
 
     customers_df = customers_df.copy()
     products_df = products_df.copy()
@@ -1332,8 +4107,8 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
     margin_mom_pct = None
     if len(trend_margin) >= 2 and trend_margin[-1] is not None and trend_margin[-2] is not None:
         margin_mom_pct = float(trend_margin[-1]) - float(trend_margin[-2])
-    active_customers_prev = trend_customers[-2] if len(trend_customers) >= 2 else None
-    active_customers_curr = trend_customers[-1] if trend_customers else None
+    active_customers_prev = _clean_int(srow.get("active_customers_prev")) if srow.get("active_customers_prev") is not None else None
+    active_customers_curr = _clean_int(srow.get("active_customers_curr")) if srow.get("active_customers_curr") is not None else None
     active_customers_delta = (active_customers_curr - active_customers_prev) if (active_customers_curr is not None and active_customers_prev is not None) else None
 
     def _yoy(series_values: List[Any]) -> float | None:
@@ -1367,28 +4142,57 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         row["margin_pct"] = _clean_optional(row.get("margin_pct"))
         row["mom_revenue_delta"] = _clean_optional(row.get("mom_revenue_delta"))
         row["mom_revenue_pct"] = _clean_optional(row.get("mom_revenue_pct"))
+        row["yoy_revenue"] = _clean_optional(row.get("yoy_revenue"))
+        row["yoy_revenue_pct"] = _clean_optional(row.get("yoy_revenue_pct"))
         row["revenue"] = _clean_float(row.get("revenue"))
         row["profit"] = _clean_optional(row.get("profit"))
         row["orders"] = _clean_int(row.get("orders"))
         row["weight_lb"] = _clean_float(row.get("weight_lb"))
         row["asp_lb"] = _clean_optional(row.get("asp_lb"))
         row["last_order_date"] = str(row.get("last_order_date"))[:10] if row.get("last_order_date") is not None else None
+        row["last_sale_date"] = str(row.get("last_sale_date"))[:10] if row.get("last_sale_date") is not None else None
         row["customer_id"] = row.get("customer_id")
         row["customer_name"] = row.get("customer_name") or row.get("customer_id")
+        row["account_owner_name"] = _business_rep_name(
+            row.get("account_owner_name"),
+            row.get("account_owner_id"),
+        )
+        row["last_sales_rep_name"] = _business_rep_name(
+            row.get("last_sales_rep_name"),
+            row.get("last_sales_rep_id"),
+        )
+        row["owner_missing"] = _clean_int(row.get("owner_missing"))
+        row["inherited_flag"] = _clean_int(row.get("inherited_flag"))
 
     for row in products_records:
         row["margin_pct"] = _clean_optional(row.get("margin_pct"))
         row["mom_revenue_delta"] = _clean_optional(row.get("mom_revenue_delta"))
         row["mom_revenue_pct"] = _clean_optional(row.get("mom_revenue_pct"))
         row["price_change_pct"] = _clean_optional(row.get("price_change_pct"))
+        row["yoy_revenue"] = _clean_optional(row.get("yoy_revenue"))
+        row["yoy_revenue_pct"] = _clean_optional(row.get("yoy_revenue_pct"))
         row["revenue"] = _clean_float(row.get("revenue"))
         row["profit"] = _clean_optional(row.get("profit"))
         row["orders"] = _clean_int(row.get("orders"))
         row["weight_lb"] = _clean_float(row.get("weight_lb"))
         row["asp_lb"] = _clean_optional(row.get("asp_lb"))
+        row["cost"] = (
+            row["revenue"] - row["profit"]
+            if row.get("revenue") is not None and row.get("profit") is not None
+            else None
+        )
+        row["effective_cost_basis"] = row.get("cost")
+        row["cost_lb"] = (
+            (row["cost"] / row["weight_lb"])
+            if row.get("cost") is not None and row.get("weight_lb") not in (None, 0)
+            else None
+        )
+        row["effective_cost_lb"] = row.get("cost_lb")
+        row["current_unit_price"] = row.get("asp_lb")
         row["last_order_date"] = str(row.get("last_order_date"))[:10] if row.get("last_order_date") is not None else None
         row["product_id"] = row.get("product_id")
         row["product_name"] = row.get("product_name") or row.get("product_id")
+        row["protein_family"] = row.get("protein_family") or row.get("category_name")
         row["volatility"] = None
 
     gainers_customers = sorted(customers_records, key=lambda r: _clean_float(r.get("mom_revenue_delta")), reverse=True)[:10]
@@ -1415,17 +4219,29 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         reverse=True,
     )[:200]
 
+    products_records = margin_rules.annotate_margin_rows(
+        products_records,
+        protein_keys=("protein_family", "category_name", "top_protein_family"),
+        category_keys=("category_name", "protein_family"),
+        revenue_key="revenue",
+        cost_key="cost",
+        profit_key="profit",
+        margin_key="margin_pct",
+        unit_cost_key="cost_lb",
+        unit_price_key="asp_lb",
+    )
     margin_risk_rows: List[Dict[str, Any]] = []
     for row in products_records:
         m = _clean_optional(row.get("margin_pct"))
         p = _clean_optional(row.get("profit"))
         rev = _clean_float(row.get("revenue"))
+        target_margin_pct = _clean_optional(row.get("target_margin_pct"))
         if m is None and p is None:
             continue
-        if (m is not None and m < RISK_MARGIN_THRESHOLD) or (p is not None and p < 0):
+        if (m is not None and target_margin_pct is not None and m < target_margin_pct) or (p is not None and p < 0):
             leakage = None
-            if m is not None:
-                leakage = max(((RISK_MARGIN_THRESHOLD - m) / 100.0) * rev, 0.0)
+            if m is not None and target_margin_pct is not None:
+                leakage = max(((target_margin_pct - m) / 100.0) * rev, 0.0)
             row_out = dict(row)
             row_out["leakage_to_target"] = leakage
             row_out["negative_margin_flag"] = 1 if (p is not None and p < 0) else 0
@@ -1436,9 +4252,21 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         reverse=True,
     )[:200]
 
-    below_target_count = sum(1 for r in margin_risk_rows if _clean_optional(r.get("margin_pct")) is not None and _clean_float(r.get("margin_pct")) < RISK_MARGIN_THRESHOLD)
+    below_target_count = sum(
+        1
+        for r in margin_risk_rows
+        if _clean_optional(r.get("margin_pct")) is not None
+        and _clean_optional(r.get("target_margin_pct")) is not None
+        and _clean_float(r.get("margin_pct")) < _clean_float(r.get("target_margin_pct"))
+    )
     negative_margin_count = sum(1 for r in margin_risk_rows if _clean_int(r.get("negative_margin_flag")) == 1)
-    below_target_revenue = sum(_clean_float(r.get("revenue")) for r in margin_risk_rows if _clean_optional(r.get("margin_pct")) is not None and _clean_float(r.get("margin_pct")) < RISK_MARGIN_THRESHOLD)
+    below_target_revenue = sum(
+        _clean_float(r.get("revenue"))
+        for r in margin_risk_rows
+        if _clean_optional(r.get("margin_pct")) is not None
+        and _clean_optional(r.get("target_margin_pct")) is not None
+        and _clean_float(r.get("margin_pct")) < _clean_float(r.get("target_margin_pct"))
+    )
     negative_margin_revenue = sum(_clean_float(r.get("revenue")) for r in margin_risk_rows if _clean_int(r.get("negative_margin_flag")) == 1)
 
     rev_prev = trend_revenue[-2] if len(trend_revenue) >= 2 else None
@@ -1489,7 +4317,7 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
             "key": "margin_below_target_skus",
             "severity": "medium" if below_target_count > 0 else "ok",
             "count": below_target_count,
-            "label": f"SKUs below {RISK_MARGIN_THRESHOLD:.0f}% margin",
+            "label": "SKUs below protein target margin",
         },
         {
             "key": "negative_margin_skus",
@@ -1498,6 +4326,26 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
             "label": "Negative margin SKUs",
         },
     ]
+    warnings = list(bridge_meta.warnings) + list(successor_meta.warnings)
+    snapshot_customers = _clean_int(srow.get("snapshot_customers"))
+    if snapshot_customers > 0:
+        warnings = [
+            msg
+            for msg in warnings
+            if "ownership history bridge not configured" not in str(msg or "").strip().lower()
+        ]
+    if _clean_int(srow.get("unassigned_customers")) > 0:
+        risk_flags.append(
+            {
+                "key": "unassigned_customers",
+                "severity": "high",
+                "count": _clean_int(srow.get("unassigned_customers")),
+                "label": "Customers missing current owner mapping",
+            }
+        )
+        warnings.append(
+            f"{_clean_int(srow.get('unassigned_customers'))} customer(s) are in the Unassigned / Needs Review bucket."
+        )
 
     manifest_meta = fact_store.get_meta() or {}
     last_refresh = (
@@ -1516,6 +4364,9 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         "margin_pct": margin_pct,
         "orders": orders,
         "customers": customers,
+        "bridge_customers": _clean_int(srow.get("bridge_customers")),
+        "snapshot_customers": snapshot_customers,
+        "fact_fallback_customers": _clean_int(srow.get("fact_fallback_customers")),
         "units": units,
         "weight_lb": weight_lb,
         "asp": asp,
@@ -1543,13 +4394,31 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         "revenue_yoy_pct": revenue_yoy_pct,
         "profit_yoy_pct": profit_yoy_pct,
         "margin_yoy_pct": margin_yoy_pct,
+        "current_owned_customers": _clean_int(srow.get("current_owned_customers")),
+        "inherited_customers": _clean_int(srow.get("inherited_customers")),
+        "gained_customers": _clean_int(srow.get("gained_customers")),
+        "lost_customers": _clean_int(srow.get("lost_customers")),
+        "unassigned_customers": _clean_int(srow.get("unassigned_customers")),
+        "inherited_revenue": _clean_optional(srow.get("inherited_revenue")),
+        "transferred_in_revenue": _clean_optional(srow.get("transferred_in_revenue")),
+        "transferred_out_revenue": _clean_optional(srow.get("transferred_out_revenue")),
+        "current_owner_revenue": _clean_optional(srow.get("current_owner_revenue")),
+        "historical_revenue": _clean_optional(srow.get("historical_revenue")),
+        "ownership_delta_revenue": _clean_optional(srow.get("current_owner_revenue")) - _clean_optional(srow.get("historical_revenue"))
+        if _clean_optional(srow.get("current_owner_revenue")) is not None and _clean_optional(srow.get("historical_revenue")) is not None
+        else None,
         "active_customers_curr": active_customers_curr,
         "active_customers_prev": active_customers_prev,
         "active_customers_delta": active_customers_delta,
+        "avg_order_value": (revenue / orders) if orders else None,
+        "revenue_per_customer": (revenue / customers) if customers else None,
         "below_target_margin_skus": below_target_count,
         "below_target_margin_revenue": below_target_revenue,
         "negative_margin_skus": negative_margin_count,
         "negative_margin_revenue": negative_margin_revenue,
+        "attribution_mode": controls.attribution_mode,
+        "roster_mode": controls.roster_mode,
+        "transfer_only": bool(controls.transfer_only),
         "last_refresh": last_refresh,
         "what_changed": what_changed,
         "start": start_iso,
@@ -1576,16 +4445,25 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
             "asp_lb": _clean_optional(c.get("asp_lb")),
             "mom_revenue_delta": _clean_optional(c.get("mom_revenue_delta")),
             "mom_revenue_pct": _clean_optional(c.get("mom_revenue_pct")),
+            "yoy_revenue_pct": _clean_optional(c.get("yoy_revenue_pct")),
+            "account_owner_name": c.get("account_owner_name"),
+            "last_sales_rep_name": c.get("last_sales_rep_name"),
+            "inherited_flag": _clean_int(c.get("inherited_flag")),
+            "owner_missing": _clean_int(c.get("owner_missing")),
             "last_order_date": c.get("last_order_date"),
         }
         for c in customers_records[:100]
     ]
+
+    # Rolling 30-day window: last 30 days vs days 31–60 prior (equal-length windows for fair comparison)
+    lost_accounts = _salesrep_lost_accounts(customers_records, ref_date)
 
     payload = {
         "kpis": kpis,
         "trend": {
             "monthly": trend_monthly,
             "weekly": trend_weekly,
+            "monthly_compare": trend_compare,
             "default_grain": "monthly",
         },
         "table": {"rows": table_rows, "page": 1, "page_size": len(table_rows), "total": len(table_rows)},
@@ -1603,6 +4481,7 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
                 "decliners": decliners_products,
             },
         },
+        "lost_accounts": lost_accounts,
         "decomposition": {
             "price_impact": price_impact,
             "volume_impact": volume_impact,
@@ -1613,11 +4492,18 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
         "charts": {
             "trend": trend_monthly,
             "trend_weekly": trend_weekly,
+            "monthly_compare": trend_compare,
             "top_customers": customers_records[:20],
             "top_customers_profit": sorted(customers_records, key=lambda r: (_clean_float(r.get("profit")), _clean_float(r.get("revenue"))), reverse=True)[:20],
             "top_products": products_records[:20],
             "worst_products": sorted(products_records, key=lambda r: (_clean_float(r.get("profit")), _clean_float(r.get("revenue"))))[:20],
             "mix": products_records[:20],
+            "ownership_compare": {
+                "historical_revenue": _clean_optional(srow.get("historical_revenue")),
+                "current_owner_revenue": _clean_optional(srow.get("current_owner_revenue")),
+                "transferred_in_revenue": _clean_optional(srow.get("transferred_in_revenue")),
+                "transferred_out_revenue": _clean_optional(srow.get("transferred_out_revenue")),
+            },
             "concentration": {
                 "top_customer_share": _clean_optional(top_customer_share),
                 "top5_customer_share": _clean_optional(top5_customer_share),
@@ -1625,6 +4511,7 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
             },
         },
         "risk_flags": risk_flags,
+        "warnings": list(dict.fromkeys(warnings)),
         "insights": {
             "what_changed": what_changed,
             "drivers": {
@@ -1639,9 +4526,18 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
             "window_start": start_iso,
             "window_end": end_iso,
             "last_refresh": last_refresh,
+            "attribution": controls.as_dict(),
+            "ownership_bridge": bridge_meta.as_dict(),
+            "ownership_succession": successor_meta.as_dict(),
+            "ownership_snapshot": {
+                "available": bool(snapshot_customers > 0),
+                "rows": snapshot_customers,
+                "source": "fact_customer_snapshot" if snapshot_customers > 0 else None,
+            },
+            "warning_count": len(dict.fromkeys(warnings)),
             "risk_thresholds": {
                 "top_customer_share": 0.25,
-                "margin_pct": RISK_MARGIN_THRESHOLD,
+                "margin_pct": None,
                 "at_risk_days": at_risk_days,
             },
             "dataset_version": fact_store.cache_buster(),
@@ -1650,22 +4546,82 @@ def build_salesreps_drilldown(rep_id: str, filters: Any, scope: Dict[str, Any], 
     return payload
 
 
+def _sanitize_business_rep_columns(df, columns: Sequence[tuple[str, str | None]]) -> pd.DataFrame:
+    work = _normalize_frame(df)
+    if work.empty:
+        return work
+    work = work.copy()
+    for name_col, id_col in columns:
+        if name_col not in work.columns and (not id_col or id_col not in work.columns):
+            continue
+        work[name_col] = work.apply(
+            lambda row: _business_rep_name(
+                row.get(name_col),
+                row.get(id_col) if id_col else None,
+            ),
+            axis=1,
+        )
+    return work
+
+
+def _sanitize_salesrep_business_dataset(df, dataset: str) -> pd.DataFrame:
+    work = _normalize_frame(df)
+    if work.empty:
+        return work
+    token = str(dataset or "").strip().lower()
+    work = work.copy()
+
+    if token in {"summary", "all"} and "rep_name" in work.columns:
+        work["rep_name"] = work.apply(
+            lambda row: _business_rep_name(row.get("rep_name"), row.get("rep_id") or row.get("rep_key")),
+            axis=1,
+        )
+
+    if token in {"customers"}:
+        work = _sanitize_business_rep_columns(
+            work,
+            (
+                ("account_owner_name", "account_owner_id"),
+                ("last_sales_rep_name", "last_sales_rep_id"),
+            ),
+        )
+        work = work.drop(columns=["account_owner_id", "last_sales_rep_id"], errors="ignore")
+
+    if token in {"history", "all_history"}:
+        work = _sanitize_business_rep_columns(
+            work,
+            (
+                ("rep_name", "rep_key"),
+                ("historical_rep_name", "historical_rep_id"),
+                ("current_owner_name", "current_owner_id"),
+                ("transaction_rep_name", "transaction_rep_id"),
+                ("last_sales_rep_name", "last_sales_rep_id"),
+            ),
+        )
+        work = work.drop(
+            columns=[
+                "rep_key",
+                "historical_rep_id",
+                "current_owner_id",
+                "transaction_rep_id",
+                "last_sales_rep_id",
+            ],
+            errors="ignore",
+        )
+
+    return work
+
+
 def build_salesreps_export_frame(filters: Any, scope: Dict[str, Any], args: Any):
-    cols = fact_store.list_columns()
-    cols_map = _required_columns(cols)
-    missing = [k for k in ("date", "revenue", "order", "customer") if not cols_map.get(k)]
-    if missing:
-        raise RuntimeError(f"Required columns missing for salesreps export: {', '.join(missing)}")
+    context = _salesrep_attribution_context(filters, scope, args)
+    if context.get("error"):
+        raise RuntimeError(context["error"]["message"])
 
-    rep_key_expr, rep_name_expr = _rep_exprs(cols)
-    where_sql, params, _, _ = fact_store.build_where_clause(
-        filters, cols, scope, apply_default_window=True
+    rollup_df = fact_store.execute_sql_df(
+        _rollup_sql(context["cte_sql"]),
+        context["params"],
+        tag="salesreps.export.rollup",
     )
-    base_sql = _scoped_sql(cols_map, where_sql, rep_key_expr, rep_name_expr)
-    if not base_sql:
-        raise RuntimeError("Salesreps export base query could not be built")
-
-    rollup_df = fact_store.execute_sql_df(_rollup_sql(base_sql), params, tag="salesreps.export.rollup")
     rollup_df = _normalize_frame(rollup_df)
     if rollup_df.empty:
         return rollup_df
@@ -1678,7 +4634,9 @@ def build_salesreps_export_frame(filters: Any, scope: Dict[str, Any], args: Any)
     if work is None or work.empty:
         return work
 
-    work = work.copy()
+    work = _sanitize_salesrep_business_dataset(work, "summary").copy()
+    if "replaced_rep_names" in work.columns:
+        work["replaced_rep_names"] = work["replaced_rep_names"].map(_business_rep_csv)
     for src, dst in (
         ("margin_pct", "margin_pct_export"),
         ("top_customer_share", "top_customer_share_pct_export"),
@@ -1695,17 +4653,32 @@ def build_salesreps_export_frame(filters: Any, scope: Dict[str, Any], args: Any)
             work[dst] = None
 
     ordered = [
-        ("rep_key", "Rep ID"),
         ("rep_name", "Rep Name"),
         ("revenue", "Revenue"),
         ("profit", "Profit"),
         ("margin_pct_export", "Margin %"),
         ("orders", "Orders"),
         ("customers", "Customers"),
+        ("active_customers", "Active Customers"),
+        ("current_owned_customers", "Current Owned Customers"),
+        ("inherited_customers", "Inherited Customers"),
+        ("gained_customers", "Gained Customers"),
+        ("lost_customers", "Lost Customers"),
+        ("transferred_in_revenue", "Transferred In Revenue"),
+        ("transferred_out_revenue", "Transferred Out Revenue"),
+        ("current_owner_revenue", "Current Owner Revenue"),
+        ("historical_revenue", "Historical Revenue"),
+        ("ownership_delta_revenue", "Ownership Delta Revenue"),
         ("weight_lb", "Weight (lb)"),
         ("units", "Units"),
         ("asp_lb", "ASP/LB"),
         ("asp", "ASP"),
+        ("avg_order_value", "Avg Order Value"),
+        ("revenue_per_customer", "Revenue Per Customer"),
+        ("top_territory_name", "Top Territory"),
+        ("replaced_rep_names", "Replaced Reps"),
+        ("top_protein_family", "Top Protein"),
+        ("top_protein_revenue", "Top Protein Revenue"),
         ("top_customer_share_pct_export", "Top Customer %"),
         ("top_customer_name", "Top Customer Name"),
         ("top_customer_revenue", "Top Customer Revenue"),
@@ -1719,105 +4692,225 @@ def build_salesreps_export_frame(filters: Any, scope: Dict[str, Any], args: Any)
 
 
 def build_salesrep_history_frame(rep_id: str, filters: Any, scope: Dict[str, Any], args: Any):
-    cols = fact_store.list_columns()
-    cols_map = _required_columns(cols)
-    missing = [k for k in ("date", "revenue", "order", "customer") if not cols_map.get(k)]
-    if missing:
-        raise RuntimeError(f"Required columns missing for salesrep history: {', '.join(missing)}")
+    scoped_sql, params_rep, _, _ = _salesrep_export_context(rep_id, filters, scope, args)
+    return _sanitize_salesrep_business_dataset(_salesrep_history_frame(scoped_sql, params_rep), "history")
 
-    rep_key_expr, rep_name_expr = _rep_exprs(cols)
-    base_where, params, _, _ = fact_store.build_where_clause(
-        filters, cols, scope, apply_default_window=True
+
+def _salesrep_export_context(
+    rep_id: str,
+    filters: Any,
+    scope: Dict[str, Any],
+    args: Any | None = None,
+) -> tuple[str, list[Any], str | None, str | None]:
+    context = _salesrep_rep_context(rep_id, filters, scope, args or {})
+    if context.get("error"):
+        raise RuntimeError(context["error"]["message"])
+    windows = context["windows"]
+    return (
+        context["cte_sql"],
+        list(context["params"]),
+        windows.get("window_start"),
+        windows.get("window_end_display") or windows.get("window_end_exclusive"),
     )
-    rep_match_sql = f"({rep_key_expr} = ? OR {rep_name_expr} = ?)"
-    where_sql = f"({base_where}) AND {rep_match_sql}"
-    params_rep = list(params) + [rep_id, rep_id]
-    scoped_sql = _scoped_sql(cols_map, where_sql, rep_key_expr, rep_name_expr)
-    if not scoped_sql:
-        raise RuntimeError("Salesrep history base query could not be built")
-
-    history_sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        )
-        SELECT
-            rep_key,
-            rep_name,
-            order_date,
-            order_id,
-            customer_id,
-            customer_name,
-            product_id,
-            product_name,
-            revenue,
-            cost,
-            missing_packs,
-            CASE WHEN cost IS NULL THEN NULL ELSE revenue - cost END AS profit,
-            units,
-            weight_lb
-        FROM scoped
-        ORDER BY order_date DESC, order_id
-    """
-    return fact_store.execute_sql_df(history_sql, params_rep, tag="salesreps.drilldown.history")
-
-
-def _salesrep_export_context(rep_id: str, filters: Any, scope: Dict[str, Any]) -> tuple[str, list[Any], str | None, str | None]:
-    cols = fact_store.list_columns()
-    cols_map = _required_columns(cols)
-    missing = [k for k in ("date", "revenue", "order", "customer") if not cols_map.get(k)]
-    if missing:
-        raise RuntimeError(f"Required columns missing for salesrep export: {', '.join(missing)}")
-
-    rep_key_expr, rep_name_expr = _rep_exprs(cols)
-    base_where, params, start_iso, end_iso = fact_store.build_where_clause(
-        filters, cols, scope, apply_default_window=True
-    )
-    rep_match_sql = f"({rep_key_expr} = ? OR {rep_name_expr} = ?)"
-    where_sql = f"({base_where}) AND {rep_match_sql}"
-    params_rep = list(params) + [rep_id, rep_id]
-    scoped_sql = _scoped_sql(cols_map, where_sql, rep_key_expr, rep_name_expr)
-    if not scoped_sql:
-        raise RuntimeError("Salesrep export base query could not be built")
-    return scoped_sql, params_rep, start_iso, end_iso
 
 
 def _salesrep_summary_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
+        WITH
+        {scoped_sql},
+        ref AS (
+            SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
+        ),
+        customer_rollup AS (
+            SELECT
+                customer_id,
+                ANY_VALUE(customer_name) AS customer_name,
+                ANY_VALUE(current_owner_id) AS current_owner_id,
+                ANY_VALUE(current_owner_name) AS current_owner_name,
+                ANY_VALUE(last_sales_rep_id) AS last_sales_rep_id,
+                ANY_VALUE(last_sales_rep_name) AS last_sales_rep_name,
+                MAX(last_sale_date) AS last_sale_date,
+                MAX(owner_missing) AS owner_missing,
+                MAX(inherited_flag) AS inherited_flag,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_prior_window = 1 THEN revenue ELSE 0 END) AS prior_revenue,
+                SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue
+            FROM rep_scope
+            WHERE customer_id IS NOT NULL AND customer_id <> ''
+            GROUP BY 1
+        ),
+        summary AS (
+            SELECT
+                MIN(rep_name) AS rep_name,
+                SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+                SUM(CASE WHEN is_current_window = 1 THEN cost END) AS cost,
+                SUM(CASE WHEN is_current_window = 1 THEN profit END) AS profit,
+                CASE
+                    WHEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) > 0
+                         AND SUM(CASE WHEN is_current_window = 1 THEN profit END) IS NOT NULL
+                    THEN SUM(CASE WHEN is_current_window = 1 THEN profit END)
+                        / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END), 0) * 100
+                    ELSE NULL
+                END AS margin_pct,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN order_id END) AS orders,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS customers,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN product_id END) AS products,
+                SUM(CASE WHEN is_current_window = 1 THEN units ELSE 0 END) AS units,
+                SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) AS weight_lb,
+                CASE
+                    WHEN SUM(CASE WHEN is_current_window = 1 THEN units ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN units ELSE 0 END), 0)
+                    ELSE NULL
+                END AS asp,
+                CASE
+                    WHEN SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END), 0)
+                    ELSE NULL
+                END AS asp_lb,
+                MIN(CASE WHEN is_current_window = 1 THEN order_date END) AS first_order_date,
+                MAX(CASE WHEN is_current_window = 1 THEN order_date END) AS last_order_date,
+                SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END) AS revenue_last_30,
+                SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 90 DAY THEN revenue ELSE 0 END) AS revenue_last_90,
+                SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 90 DAY AND order_date > ref.ref_date - INTERVAL 180 DAY THEN revenue ELSE 0 END) AS revenue_prev_90,
+                SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN cost ELSE 0 END) AS cost_last_30,
+                SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 90 DAY THEN cost ELSE 0 END) AS cost_last_90,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN order_id END) AS orders_last_30,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 90 DAY THEN order_id END) AS orders_last_90,
+                SUM(CASE WHEN is_current_window = 1 AND cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
+                COUNT(CASE WHEN is_current_window = 1 THEN 1 END) AS total_rows,
+                DATE_DIFF('day', MAX(CASE WHEN is_current_window = 1 THEN order_date END), MAX(ref.ref_date)) AS days_since_last,
+                SUM(CASE WHEN is_prior_window = 1 THEN revenue ELSE 0 END) AS prior_revenue,
+                SUM(CASE WHEN is_prior_window = 1 THEN profit END) AS prior_profit,
+                SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue,
+                SUM(CASE WHEN is_yoy_window = 1 THEN profit END) AS yoy_profit,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key THEN revenue ELSE 0 END) AS current_owner_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND historical_rep_id = rep_key THEN revenue ELSE 0 END) AS historical_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND current_owner_id = rep_key AND inherited_flag = 1 THEN revenue ELSE 0 END) AS transferred_in_revenue,
+                SUM(CASE WHEN is_current_window = 1 AND historical_rep_id = rep_key AND ownership_changed = 1 THEN revenue ELSE 0 END) AS transferred_out_revenue,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND current_owner_id = rep_key THEN customer_id END) AS current_owned_customers,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND owner_missing = 1 THEN customer_id END) AS unassigned_customers,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND owner_source = 'ownership_bridge' THEN customer_id END) AS bridge_customers,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND owner_source = 'fact_customer_snapshot' THEN customer_id END) AS snapshot_customers,
+                COUNT(DISTINCT CASE WHEN is_current_window = 1 AND owner_source = 'fact_current_owner' THEN customer_id END) AS fact_fallback_customers
+            FROM rep_scope, ref
+        ),
+        portfolio AS (
+            SELECT
+                COUNT(DISTINCT CASE WHEN revenue > 0 THEN customer_id END) AS active_customers_curr,
+                COUNT(DISTINCT CASE WHEN prior_revenue > 0 THEN customer_id END) AS active_customers_prev,
+                COUNT(DISTINCT CASE WHEN revenue > 0 AND prior_revenue = 0 THEN customer_id END) AS gained_customers,
+                COUNT(DISTINCT CASE WHEN revenue = 0 AND prior_revenue > 0 THEN customer_id END) AS lost_customers,
+                COUNT(DISTINCT CASE WHEN revenue > 0 AND inherited_flag = 1 THEN customer_id END) AS inherited_customers,
+                SUM(CASE WHEN revenue > 0 AND inherited_flag = 1 THEN revenue ELSE 0 END) AS inherited_revenue
+            FROM customer_rollup
+        ),
+        monthly AS (
+            SELECT
+                DATE_TRUNC('month', order_date) AS month_start,
+                SUM(revenue) AS revenue,
+                SUM(cost) AS cost,
+                SUM(profit) AS profit,
+                CASE WHEN SUM(revenue) > 0 AND SUM(profit) IS NOT NULL THEN SUM(profit) / NULLIF(SUM(revenue), 0) * 100 ELSE NULL END AS margin_pct,
+                COUNT(DISTINCT order_id) AS orders,
+                COUNT(DISTINCT customer_id) AS customers,
+                SUM(units) AS units,
+                SUM(weight_lb) AS weight_lb
+            FROM scoped
+            GROUP BY 1
+            ORDER BY 1
+        ),
+        weekly AS (
+            SELECT
+                DATE_TRUNC('week', order_date) AS week_start,
+                SUM(revenue) AS revenue,
+                SUM(cost) AS cost,
+                SUM(profit) AS profit,
+                CASE WHEN SUM(revenue) > 0 AND SUM(profit) IS NOT NULL THEN SUM(profit) / NULLIF(SUM(revenue), 0) * 100 ELSE NULL END AS margin_pct,
+                COUNT(DISTINCT order_id) AS orders,
+                COUNT(DISTINCT customer_id) AS customers,
+                SUM(units) AS units,
+                SUM(weight_lb) AS weight_lb
+            FROM scoped
+            GROUP BY 1
+            ORDER BY 1
+        ),
+        monthly_compare_rows AS (
+            SELECT
+                DATE_TRUNC('month', order_date) AS aligned_month,
+                CAST(revenue AS DOUBLE) AS revenue_current,
+                NULL::DOUBLE AS revenue_yoy,
+                CAST(profit AS DOUBLE) AS profit_current,
+                NULL::DOUBLE AS profit_yoy,
+                CAST(weight_lb AS DOUBLE) AS weight_current,
+                NULL::DOUBLE AS weight_lb_yoy
+            FROM rep_scope
+            WHERE is_current_window = 1
+            UNION ALL
+            SELECT
+                DATE_TRUNC('month', order_date + INTERVAL 1 YEAR) AS aligned_month,
+                NULL::DOUBLE AS revenue_current,
+                CAST(revenue AS DOUBLE) AS revenue_yoy,
+                NULL::DOUBLE AS profit_current,
+                CAST(profit AS DOUBLE) AS profit_yoy,
+                NULL::DOUBLE AS weight_current,
+                CAST(weight_lb AS DOUBLE) AS weight_lb_yoy
+            FROM rep_scope
+            WHERE is_yoy_window = 1
+        ),
+        monthly_compare AS (
+            SELECT
+                aligned_month,
+                SUM(revenue_current) AS revenue,
+                SUM(revenue_yoy) AS revenue_yoy,
+                SUM(profit_current) AS profit,
+                SUM(profit_yoy) AS profit_yoy,
+                SUM(weight_current) AS weight_lb,
+                SUM(weight_lb_yoy) AS weight_lb_yoy
+            FROM monthly_compare_rows
+            GROUP BY 1
+            ORDER BY 1
         )
         SELECT
-            MIN(rep_name) AS rep_name,
-            SUM(revenue) AS revenue,
-            SUM(cost) AS cost,
-            CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-            CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-            COUNT(DISTINCT order_id) AS orders,
-            COUNT(DISTINCT customer_id) AS customers,
-            COUNT(DISTINCT product_id) AS products,
-            SUM(units) AS units,
-            SUM(weight_lb) AS weight_lb,
-            CASE WHEN SUM(units) > 0 THEN SUM(revenue) / NULLIF(SUM(units), 0) ELSE NULL END AS asp,
-            CASE WHEN SUM(weight_lb) > 0 THEN SUM(revenue) / NULLIF(SUM(weight_lb), 0) ELSE NULL END AS asp_lb,
-            MIN(order_date) AS first_order_date,
-            MAX(order_date) AS last_order_date,
-            SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS cost_null_rows,
-            COUNT(*) AS total_rows
-        FROM scoped
+            summary.*,
+            portfolio.*,
+            (SELECT list(strftime('%Y-%m', month_start)) FROM monthly) AS trend_labels,
+            (SELECT list(revenue) FROM monthly) AS trend_revenue,
+            (SELECT list(orders) FROM monthly) AS trend_orders,
+            (SELECT list(profit) FROM monthly) AS trend_profit,
+            (SELECT list(margin_pct) FROM monthly) AS trend_margin,
+            (SELECT list(customers) FROM monthly) AS trend_customers,
+            (SELECT list(units) FROM monthly) AS trend_units,
+            (SELECT list(strftime('%Y-%m-%d', week_start)) FROM weekly) AS trend_week_labels,
+            (SELECT list(revenue) FROM weekly) AS trend_week_revenue,
+            (SELECT list(orders) FROM weekly) AS trend_week_orders,
+            (SELECT list(profit) FROM weekly) AS trend_week_profit,
+            (SELECT list(margin_pct) FROM weekly) AS trend_week_margin,
+            (SELECT list(strftime('%Y-%m', aligned_month)) FROM monthly_compare) AS compare_labels,
+            (SELECT list(revenue) FROM monthly_compare) AS compare_revenue,
+            (SELECT list(revenue_yoy) FROM monthly_compare) AS compare_revenue_yoy,
+            (SELECT list(profit) FROM monthly_compare) AS compare_profit,
+            (SELECT list(profit_yoy) FROM monthly_compare) AS compare_profit_yoy,
+            (SELECT list(weight_lb) FROM monthly_compare) AS compare_weight_lb,
+            (SELECT list(weight_lb_yoy) FROM monthly_compare) AS compare_weight_lb_yoy,
+            (SELECT ref_date FROM ref) AS ref_date
+        FROM summary
+        CROSS JOIN portfolio
+        LIMIT 1
     """
     return fact_store.execute_sql_df(sql, params_rep, tag="salesreps.export.summary")
 
 
 def _salesrep_trend_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        )
+        WITH
+        {scoped_sql}
         SELECT
             strftime('%Y-%m', order_date) AS month,
             SUM(revenue) AS revenue,
-            CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-            CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
+            SUM(profit) AS profit,
+            CASE WHEN SUM(revenue) > 0 AND SUM(profit) IS NOT NULL THEN SUM(profit) / NULLIF(SUM(revenue), 0) * 100 ELSE NULL END AS margin_pct,
             COUNT(DISTINCT order_id) AS orders,
             COUNT(DISTINCT customer_id) AS customers,
             COUNT(DISTINCT product_id) AS products,
@@ -1832,40 +4925,67 @@ def _salesrep_trend_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
 
 def _salesrep_customers_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
+        WITH
+        {scoped_sql},
         ref AS (
             SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
         )
         SELECT
             customer_id,
             ANY_VALUE(customer_name) AS customer_name,
-            SUM(revenue) AS revenue,
-            CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-            CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-            COUNT(DISTINCT order_id) AS orders,
-            COUNT(DISTINCT product_id) AS products,
-            SUM(units) AS units,
-            SUM(weight_lb) AS weight_lb,
-            CASE WHEN SUM(weight_lb) > 0 THEN SUM(revenue) / NULLIF(SUM(weight_lb), 0) ELSE NULL END AS asp_lb,
-            MAX(order_date) AS last_order_date,
-            SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END) AS revenue_last_30,
-            SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) AS revenue_prev_30,
+            ANY_VALUE(current_owner_id) AS account_owner_id,
+            ANY_VALUE(current_owner_name) AS account_owner_name,
+            ANY_VALUE(last_sales_rep_id) AS last_sales_rep_id,
+            ANY_VALUE(last_sales_rep_name) AS last_sales_rep_name,
+            SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS revenue,
+            SUM(CASE WHEN is_current_window = 1 THEN profit END) AS profit,
+            CASE
+                WHEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) > 0
+                     AND SUM(CASE WHEN is_current_window = 1 THEN profit END) IS NOT NULL
+                THEN SUM(CASE WHEN is_current_window = 1 THEN profit END)
+                    / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END), 0) * 100
+                ELSE NULL
+            END AS margin_pct,
+            COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN order_id END) AS orders,
+            COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN product_id END) AS products,
+            SUM(CASE WHEN is_current_window = 1 THEN units ELSE 0 END) AS units,
+            SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) AS weight_lb,
+            CASE
+                WHEN SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) > 0
+                THEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END)
+                    / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END), 0)
+                ELSE NULL
+            END AS asp_lb,
+            MAX(CASE WHEN is_current_window = 1 THEN order_date END) AS last_order_date,
+            MAX(last_sale_date) AS last_sale_date,
+            MAX(owner_source) AS owner_source,
+            MAX(owner_missing) AS owner_missing,
+            MAX(inherited_flag) AS inherited_flag,
+            SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS yoy_revenue,
+            SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END) AS revenue_last_30,
+            SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) AS revenue_prev_30,
             (
-                SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
-                - SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
+                SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
+                - SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
             ) AS mom_revenue_delta,
             CASE
-                WHEN SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) > 0
+                WHEN SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) > 0
                 THEN (
-                    SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
-                    - SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
+                    SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
+                    - SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
                 )
-                / NULLIF(SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END), 0) * 100
+                / NULLIF(SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END), 0) * 100
                 ELSE NULL
-            END AS mom_revenue_pct
-        FROM scoped, ref
+            END AS mom_revenue_pct,
+            CASE
+                WHEN SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) > 0
+                THEN (
+                    SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END)
+                    - SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END)
+                ) / NULLIF(SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END), 0) * 100
+                ELSE NULL
+            END AS yoy_revenue_pct
+        FROM rep_scope, ref
         WHERE customer_id IS NOT NULL AND customer_id <> ''
         GROUP BY 1
         ORDER BY revenue DESC NULLS LAST, customer_id
@@ -1875,68 +4995,89 @@ def _salesrep_customers_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
 
 def _salesrep_products_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
+        WITH
+        {scoped_sql},
         ref AS (
             SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
         )
         SELECT
-            product_id,
-            ANY_VALUE(product_name) AS product_name,
-            SUM(revenue) AS revenue,
-            CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-            CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
-            COUNT(DISTINCT order_id) AS orders,
-            COUNT(DISTINCT customer_id) AS customers,
-            SUM(units) AS units,
-            SUM(weight_lb) AS weight_lb,
-            CASE WHEN SUM(weight_lb) > 0 THEN SUM(revenue) / NULLIF(SUM(weight_lb), 0) ELSE NULL END AS asp_lb,
-            MAX(order_date) AS last_order_date,
-            SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END) AS revenue_last_30,
-            SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) AS revenue_prev_30,
-            (
-                SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
-                - SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
-            ) AS mom_revenue_delta,
-            CASE
-                WHEN SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) > 0
-                THEN (
-                    SUM(CASE WHEN order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
-                    - SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
-                )
-                / NULLIF(SUM(CASE WHEN order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END), 0) * 100
+            CAST(product_id AS VARCHAR) AS product_id,
+            CAST(MIN(product_name) AS VARCHAR) AS product_name,
+            CAST(MIN(protein_family) AS VARCHAR) AS protein_family,
+            CAST(MIN(category_name) AS VARCHAR) AS category_name,
+            CAST(SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) AS DOUBLE) AS revenue,
+            CAST(SUM(CASE WHEN is_current_window = 1 THEN profit END) AS DOUBLE) AS profit,
+            CAST(CASE
+                WHEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END) > 0
+                     AND SUM(CASE WHEN is_current_window = 1 THEN profit END) IS NOT NULL
+                THEN SUM(CASE WHEN is_current_window = 1 THEN profit END)
+                    / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END), 0) * 100
                 ELSE NULL
-            END AS mom_revenue_pct,
-            CASE WHEN SUM(weight_lb) FILTER (WHERE order_date > ref.ref_date - INTERVAL 30 DAY) > 0
-                 THEN SUM(revenue) FILTER (WHERE order_date > ref.ref_date - INTERVAL 30 DAY)
-                      / NULLIF(SUM(weight_lb) FILTER (WHERE order_date > ref.ref_date - INTERVAL 30 DAY), 0)
+            END AS DOUBLE) AS margin_pct,
+            CAST(COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN order_id END) AS BIGINT) AS orders,
+            CAST(COUNT(DISTINCT CASE WHEN is_current_window = 1 THEN customer_id END) AS BIGINT) AS customers,
+            CAST(SUM(CASE WHEN is_current_window = 1 THEN units ELSE 0 END) AS DOUBLE) AS units,
+            CAST(SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) AS DOUBLE) AS weight_lb,
+            CAST(CASE
+                WHEN SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END) > 0
+                THEN SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END)
+                    / NULLIF(SUM(CASE WHEN is_current_window = 1 THEN weight_lb ELSE 0 END), 0)
+                ELSE NULL
+            END AS DOUBLE) AS asp_lb,
+            CAST(MAX(CASE WHEN is_current_window = 1 THEN order_date END) AS DATE) AS last_order_date,
+            CAST(SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) AS DOUBLE) AS yoy_revenue,
+            CAST(SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END) AS DOUBLE) AS revenue_last_30,
+            CAST(SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) AS DOUBLE) AS revenue_prev_30,
+            CAST((
+                SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
+                - SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
+            ) AS DOUBLE) AS mom_revenue_delta,
+            CAST(CASE
+                WHEN SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END) > 0
+                THEN (
+                    SUM(CASE WHEN is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY THEN revenue ELSE 0 END)
+                    - SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END)
+                )
+                / NULLIF(SUM(CASE WHEN is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY THEN revenue ELSE 0 END), 0) * 100
+                ELSE NULL
+            END AS DOUBLE) AS mom_revenue_pct,
+            CAST(CASE WHEN SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY) > 0
+                 THEN SUM(revenue) FILTER (WHERE is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY)
+                      / NULLIF(SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY), 0)
                  ELSE NULL
-            END AS asp_lb_last_30,
-            CASE WHEN SUM(weight_lb) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY) > 0
-                 THEN SUM(revenue) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY)
-                      / NULLIF(SUM(weight_lb) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY), 0)
+            END AS DOUBLE) AS asp_lb_last_30,
+            CAST(CASE WHEN SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY) > 0
+                 THEN SUM(revenue) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY)
+                      / NULLIF(SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY), 0)
                  ELSE NULL
-            END AS asp_lb_prev_30,
-            CASE
-                WHEN SUM(weight_lb) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY) > 0
-                     AND SUM(revenue) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY) > 0
+            END AS DOUBLE) AS asp_lb_prev_30,
+            CAST(CASE
+                WHEN SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY) > 0
+                     AND SUM(revenue) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY) > 0
                 THEN (
                     (
-                        SUM(revenue) FILTER (WHERE order_date > ref.ref_date - INTERVAL 30 DAY)
-                        / NULLIF(SUM(weight_lb) FILTER (WHERE order_date > ref.ref_date - INTERVAL 30 DAY), 0)
+                        SUM(revenue) FILTER (WHERE is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY)
+                        / NULLIF(SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date > ref.ref_date - INTERVAL 30 DAY), 0)
                     ) - (
-                        SUM(revenue) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY)
-                        / NULLIF(SUM(weight_lb) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY), 0)
+                        SUM(revenue) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY)
+                        / NULLIF(SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY), 0)
                     )
                 ) / NULLIF(
-                    SUM(revenue) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY)
-                    / NULLIF(SUM(weight_lb) FILTER (WHERE order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY), 0),
+                    SUM(revenue) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY)
+                    / NULLIF(SUM(weight_lb) FILTER (WHERE is_current_window = 1 AND order_date <= ref.ref_date - INTERVAL 30 DAY AND order_date > ref.ref_date - INTERVAL 60 DAY), 0),
                     0
                 ) * 100
                 ELSE NULL
-            END AS price_change_pct
-        FROM scoped, ref
+            END AS DOUBLE) AS price_change_pct,
+            CAST(CASE
+                WHEN SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END) > 0
+                THEN (
+                    SUM(CASE WHEN is_current_window = 1 THEN revenue ELSE 0 END)
+                    - SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END)
+                ) / NULLIF(SUM(CASE WHEN is_yoy_window = 1 THEN revenue ELSE 0 END), 0) * 100
+                ELSE NULL
+            END AS DOUBLE) AS yoy_revenue_pct
+        FROM rep_scope, ref
         WHERE product_id IS NOT NULL AND product_id <> ''
         GROUP BY 1
         ORDER BY revenue DESC NULLS LAST, product_id
@@ -1946,9 +5087,8 @@ def _salesrep_products_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
 
 def _salesrep_movers_customers_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
+        WITH
+        {scoped_sql},
         ref AS (
             SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
         ),
@@ -1978,9 +5118,8 @@ def _salesrep_movers_customers_frame(scoped_sql: str, params_rep: list[Any]) -> 
 
 def _salesrep_movers_products_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
+        WITH
+        {scoped_sql},
         ref AS (
             SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
         ),
@@ -2008,18 +5147,19 @@ def _salesrep_movers_products_frame(scoped_sql: str, params_rep: list[Any]) -> A
     return fact_store.execute_sql_df(sql, params_rep, tag="salesreps.export.movers_products")
 
 
-def _salesrep_margin_risk_frame(scoped_sql: str, params_rep: list[Any], target_margin_pct: float = RISK_MARGIN_THRESHOLD) -> Any:
+def _salesrep_margin_risk_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
+        WITH
+        {scoped_sql},
         product_rollup AS (
             SELECT
                 product_id,
                 ANY_VALUE(product_name) AS product_name,
+                ANY_VALUE(protein_family) AS protein_family,
+                ANY_VALUE(category_name) AS category_name,
                 SUM(revenue) AS revenue,
-                CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
-                CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
+                SUM(profit) AS profit,
+                CASE WHEN SUM(revenue) > 0 AND SUM(profit) IS NOT NULL THEN SUM(profit) / NULLIF(SUM(revenue), 0) * 100 ELSE NULL END AS margin_pct,
                 COUNT(DISTINCT order_id) AS orders,
                 SUM(weight_lb) AS weight_lb,
                 CASE WHEN SUM(weight_lb) > 0 THEN SUM(revenue) / NULLIF(SUM(weight_lb), 0) ELSE NULL END AS asp_lb
@@ -2030,23 +5170,54 @@ def _salesrep_margin_risk_frame(scoped_sql: str, params_rep: list[Any], target_m
         SELECT
             product_id,
             product_name,
+            protein_family,
+            category_name,
             revenue,
             profit,
             margin_pct,
             orders,
             weight_lb,
             asp_lb,
-            CASE
-                WHEN margin_pct IS NULL THEN NULL
-                WHEN margin_pct < {float(target_margin_pct)} THEN ({float(target_margin_pct)} - margin_pct) / 100.0 * revenue
-                ELSE 0
-            END AS leakage_to_target,
             CASE WHEN profit IS NOT NULL AND profit < 0 THEN 1 ELSE 0 END AS negative_margin_flag
         FROM product_rollup
-        WHERE (margin_pct IS NOT NULL AND margin_pct < {float(target_margin_pct)}) OR (profit IS NOT NULL AND profit < 0)
-        ORDER BY leakage_to_target DESC NULLS LAST, product_id
+        WHERE margin_pct IS NOT NULL OR (profit IS NOT NULL AND profit < 0)
+        ORDER BY revenue DESC NULLS LAST, product_id
     """
-    return fact_store.execute_sql_df(sql, params_rep, tag="salesreps.export.margin_risk")
+    frame = fact_store.execute_sql_df(sql, params_rep, tag="salesreps.export.margin_risk")
+    if frame.empty:
+        return frame
+    frame["cost"] = (
+        pd.to_numeric(frame.get("revenue"), errors="coerce")
+        - pd.to_numeric(frame.get("profit"), errors="coerce")
+    )
+    frame["effective_cost_basis"] = pd.to_numeric(frame.get("cost"), errors="coerce")
+    frame["cost_lb"] = np.where(
+        pd.to_numeric(frame.get("weight_lb"), errors="coerce") > 0,
+        pd.to_numeric(frame.get("cost"), errors="coerce")
+        / pd.to_numeric(frame.get("weight_lb"), errors="coerce"),
+        np.nan,
+    )
+    frame["effective_cost_lb"] = pd.to_numeric(frame.get("cost_lb"), errors="coerce")
+    frame = margin_rules.annotate_margin_frame(
+        frame,
+        protein_col="protein_family",
+        category_col="category_name",
+        revenue_col="revenue",
+        cost_col="cost",
+        profit_col="profit",
+        margin_col="margin_pct",
+        unit_cost_col="cost_lb",
+        unit_price_col="asp_lb",
+    )
+    frame["leakage_to_target"] = pd.to_numeric(frame.get("profit_uplift_to_target"), errors="coerce").fillna(0.0)
+    frame = frame[
+        (
+            pd.to_numeric(frame.get("margin_pct"), errors="coerce")
+            < pd.to_numeric(frame.get("target_margin_pct"), errors="coerce")
+        )
+        | (pd.to_numeric(frame.get("profit"), errors="coerce") < 0)
+    ].copy()
+    return frame.sort_values(["leakage_to_target", "revenue"], ascending=[False, False])
 
 
 def _salesrep_at_risk_customers_frame(
@@ -2054,9 +5225,8 @@ def _salesrep_at_risk_customers_frame(
 ) -> Any:
     inactivity_days = max(7, min(int(inactivity_days), 365))
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        ),
+        WITH
+        {scoped_sql},
         ref AS (
             SELECT COALESCE(MAX(order_date), CURRENT_DATE) AS ref_date FROM scoped
         ),
@@ -2089,21 +5259,36 @@ def _salesrep_at_risk_customers_frame(
 
 def _salesrep_history_frame(scoped_sql: str, params_rep: list[Any]) -> Any:
     sql = f"""
-        WITH scoped AS (
-            {scoped_sql}
-        )
+        WITH
+        {scoped_sql}
         SELECT
             rep_key,
             rep_name,
+            historical_rep_id,
+            historical_rep_name,
+            current_owner_id,
+            current_owner_name,
+            transaction_rep_id,
+            transaction_rep_name,
+            last_sales_rep_id,
+            last_sales_rep_name,
+            last_sale_date,
+            territory_id,
+            territory_name,
+            owner_source,
+            owner_missing,
+            ownership_changed,
             order_date,
             order_id,
             customer_id,
             customer_name,
             product_id,
             product_name,
+            protein_family,
+            category_name,
             revenue,
             cost,
-            CASE WHEN cost IS NULL THEN NULL ELSE revenue - cost END AS profit,
+            profit,
             units,
             weight_lb,
             missing_packs
@@ -2133,18 +5318,17 @@ def _salesrep_metadata_frame(
     dataset_version: str,
     export_type: str,
 ) -> pd.DataFrame:
-    rep_name = rep_id
+    rep_name = _business_rep_name(None, rep_id)
     try:
         if summary_df is not None and not summary_df.empty:
-            rep_name = str(summary_df.iloc[0].get("rep_name") or rep_id)
+            rep_name = _business_rep_name(summary_df.iloc[0].get("rep_name"), rep_id)
     except Exception:
-        rep_name = rep_id
+        rep_name = _business_rep_name(None, rep_id)
     start = getattr(filters, "start", None)
     end = getattr(filters, "end", None)
     generated_at = pd.Timestamp.utcnow().isoformat()
     return pd.DataFrame(
         [
-            {"key": "rep_id", "value": rep_id},
             {"key": "rep_name", "value": rep_name},
             {"key": "export_type", "value": export_type},
             {"key": "window_start", "value": str(start) if start is not None else ""},
@@ -2191,46 +5375,52 @@ def build_salesrep_export_dataset(rep_id: str, filters: Any, scope: Dict[str, An
         "atrisk": "at_risk",
     }
     token = aliases.get(token, token)
-    scoped_sql, params_rep, _, _ = _salesrep_export_context(rep_id, filters, scope)
+    scoped_sql, params_rep, _, _ = _salesrep_export_context(rep_id, filters, scope, args)
     inactivity_days = _clean_int(args.get("at_risk_days") if hasattr(args, "get") else None, 45)
 
     if token == "summary":
-        return _salesrep_summary_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_summary_frame(scoped_sql, params_rep), token)
     if token == "trend":
-        return _salesrep_trend_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_trend_frame(scoped_sql, params_rep), token)
     if token == "customers":
-        return _salesrep_customers_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_customers_frame(scoped_sql, params_rep), token)
     if token == "products":
-        return _salesrep_products_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_products_frame(scoped_sql, params_rep), token)
     if token == "mix":
         products_df = _salesrep_products_frame(scoped_sql, params_rep)
-        return _salesrep_mix_frame(products_df)
+        return _sanitize_salesrep_business_dataset(_salesrep_mix_frame(products_df), token)
     if token in {"history", "all_history"}:
-        return _salesrep_history_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_history_frame(scoped_sql, params_rep), token)
     if token == "movers_customers":
-        return _salesrep_movers_customers_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_movers_customers_frame(scoped_sql, params_rep), token)
     if token == "movers_products":
-        return _salesrep_movers_products_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_movers_products_frame(scoped_sql, params_rep), token)
     if token == "margin_risk":
-        return _salesrep_margin_risk_frame(scoped_sql, params_rep)
+        return _sanitize_salesrep_business_dataset(_salesrep_margin_risk_frame(scoped_sql, params_rep), token)
     if token == "at_risk":
-        return _salesrep_at_risk_customers_frame(scoped_sql, params_rep, inactivity_days=inactivity_days)
+        return _sanitize_salesrep_business_dataset(
+            _salesrep_at_risk_customers_frame(scoped_sql, params_rep, inactivity_days=inactivity_days),
+            token,
+        )
 
     raise ValueError(f"Unsupported export dataset: {dataset}")
 
 
 def build_salesrep_export_sheets(rep_id: str, filters: Any, scope: Dict[str, Any], args: Any, include_history: bool = False):
-    scoped_sql, params_rep, _, _ = _salesrep_export_context(rep_id, filters, scope)
-    summary_df = _salesrep_summary_frame(scoped_sql, params_rep)
-    trend_df = _salesrep_trend_frame(scoped_sql, params_rep)
-    customers_df = _salesrep_customers_frame(scoped_sql, params_rep)
-    products_df = _salesrep_products_frame(scoped_sql, params_rep)
-    mix_df = _salesrep_mix_frame(products_df)
-    movers_customers_df = _salesrep_movers_customers_frame(scoped_sql, params_rep)
-    movers_products_df = _salesrep_movers_products_frame(scoped_sql, params_rep)
-    margin_risk_df = _salesrep_margin_risk_frame(scoped_sql, params_rep)
+    scoped_sql, params_rep, _, _ = _salesrep_export_context(rep_id, filters, scope, args)
+    summary_df = _sanitize_salesrep_business_dataset(_salesrep_summary_frame(scoped_sql, params_rep), "summary")
+    trend_df = _sanitize_salesrep_business_dataset(_salesrep_trend_frame(scoped_sql, params_rep), "trend")
+    customers_df = _sanitize_salesrep_business_dataset(_salesrep_customers_frame(scoped_sql, params_rep), "customers")
+    products_df = _sanitize_salesrep_business_dataset(_salesrep_products_frame(scoped_sql, params_rep), "products")
+    mix_df = _sanitize_salesrep_business_dataset(_salesrep_mix_frame(products_df), "mix")
+    movers_customers_df = _sanitize_salesrep_business_dataset(_salesrep_movers_customers_frame(scoped_sql, params_rep), "movers_customers")
+    movers_products_df = _sanitize_salesrep_business_dataset(_salesrep_movers_products_frame(scoped_sql, params_rep), "movers_products")
+    margin_risk_df = _sanitize_salesrep_business_dataset(_salesrep_margin_risk_frame(scoped_sql, params_rep), "margin_risk")
     inactivity_days = _clean_int(args.get("at_risk_days") if hasattr(args, "get") else None, 45)
-    at_risk_df = _salesrep_at_risk_customers_frame(scoped_sql, params_rep, inactivity_days=inactivity_days)
+    at_risk_df = _sanitize_salesrep_business_dataset(
+        _salesrep_at_risk_customers_frame(scoped_sql, params_rep, inactivity_days=inactivity_days),
+        "at_risk",
+    )
     metadata_df = _salesrep_metadata_frame(
         rep_id,
         summary_df,
@@ -2252,5 +5442,5 @@ def build_salesrep_export_sheets(rep_id: str, filters: Any, scope: Dict[str, Any
         "At_Risk_Customers": at_risk_df,
     }
     if include_history:
-        sheets["History"] = _salesrep_history_frame(scoped_sql, params_rep)
+        sheets["History"] = _sanitize_salesrep_business_dataset(_salesrep_history_frame(scoped_sql, params_rep), "history")
     return sheets

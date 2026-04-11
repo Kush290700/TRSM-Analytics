@@ -27,6 +27,7 @@ from app.core.exceptions import DatasetNotBuiltError
 from app.services import fact_store
 from app.services.filters import (
     FilterParams,
+    get_fiscal_periods,
     parse_filters,
     apply_filters as apply_filter_params,
     filter_args_present,
@@ -264,7 +265,7 @@ def _overview_effective_filters() -> tuple[FilterParams, bool, bool]:
     Returns (filters, include_current_month, defaulted_window).
 
     Overview-specific behavior:
-    - Default to the last 3 months including current month.
+    - Default to the current fiscal year including the current day.
     - Ignore deprecated include_current_month toggles/params from old clients.
     """
     include_current_month = True
@@ -293,7 +294,9 @@ def _overview_effective_filters() -> tuple[FilterParams, bool, bool]:
     if (explicit_request and not user_supplied_dates and not user_supplied_preset) or (
         not explicit_request and not has_sticky
     ):
-        start, end = _closed_month_window(months=3, include_current_month=True)
+        fiscal_window = get_fiscal_periods().get("current_fy") or {}
+        start = fiscal_window.get("start")
+        end = fiscal_window.get("end")
         defaulted_window = True
     else:
         start = getattr(parsed, "start", None)

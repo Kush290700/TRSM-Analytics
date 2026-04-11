@@ -29,6 +29,24 @@ from app.services import watermark_store
 logger = logging.getLogger(__name__)
 
 
+def _duckdb_lifecycle_logging_enabled() -> bool:
+    return str(os.getenv("DEBUG_DUCKDB") or os.getenv("DEBUG_OBS") or os.getenv("DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _request_query_cache_bucket() -> Dict[str, pd.DataFrame] | None:
+    if not has_request_context():
+        return None
+    try:
+        bucket = getattr(g, "_duckdb_request_cache", None)
+        if isinstance(bucket, dict):
+            return bucket
+        bucket = {}
+        g._duckdb_request_cache = bucket
+        return bucket
+    except Exception:
+        return None
+
+
 _cache_lock = threading.RLock()
 _refresh_lock = threading.RLock()
 _cached_frames: Dict[Tuple[str, ...], Dict[str, Any]] = {}
@@ -340,7 +358,8 @@ def _register_fact_view(conn: duckdb.DuckDBPyConnection) -> None:
         req_id = getattr(g, "request_id", None)
     except Exception:
         req_id = None
-    logger.info("duckdb.view_initialized", extra={"path": pattern, "request_id": req_id})
+    log_fn = logger.info if _duckdb_lifecycle_logging_enabled() else logger.debug
+    log_fn("duckdb.view_initialized", extra={"path": pattern, "request_id": req_id})
 
 
 def _duck_state() -> Dict[str, Any]:
@@ -555,6 +574,7 @@ def _has_explicit_date(filters: Any) -> bool:
                 "date_preset",
                 "preset",
                 "range_preset",
+                "date_type",
             }
             return bool(keys & date_keys)
     except Exception:
@@ -859,19 +879,32 @@ def _execute_df(sql: str, params: List[Any], *, tag: str, cache_key: Optional[st
         request_id = getattr(g, "request_id", None)
     except Exception:
         request_id = None
+    request_cache = _request_query_cache_bucket()
+    request_cache_key = None
     key = None
-    if cache_key:
+    if cache_key or request_cache is not None:
         payload = {"sql": sql, "params": params, "version": version}
         raw = json.dumps(payload, sort_keys=True, default=str)
-        key = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        request_cache_key = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        if request_cache is not None:
+            cached_request = request_cache.get(request_cache_key)
+            if isinstance(cached_request, pd.DataFrame):
+                return cached_request.copy()
+    if cache_key:
+        key = request_cache_key
         with _duck_lock:
             cached = _duck_cache.get(key)
             if cached is not None:
+                if request_cache is not None and request_cache_key:
+                    request_cache[request_cache_key] = cached.copy()
                 return cached.copy()
             inflight = _inflight_queries.get(key)
             if inflight:
                 try:
-                    return inflight.result().copy()
+                    frame = inflight.result().copy()
+                    if request_cache is not None and request_cache_key:
+                        request_cache[request_cache_key] = frame.copy()
+                    return frame
                 except Exception:
                     _inflight_queries.pop(key, None)
             fut = Future()
@@ -931,6 +964,8 @@ def _execute_df(sql: str, params: List[Any], *, tag: str, cache_key: Optional[st
             df = pd.DataFrame.from_records(rows, columns=cols)
         df = _strip_no_value_sentinels(df)
         rows = len(df)
+        if request_cache is not None and request_cache_key:
+            request_cache[request_cache_key] = df.copy()
         if key:
             with _duck_lock:
                 _duck_cache[key] = df.copy()

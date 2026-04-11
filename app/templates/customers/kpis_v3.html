@@ -131,6 +131,21 @@
           <div class="kpi-label">Margin % <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Profit divided by revenue."></i></div>
           <div class="kpi-value">{{ fmt_percent(summary.get('margin_pct')) }}</div>
           <div class="kpi-delta">{{ delta_line('margin_pct', 'percent') }}</div>
+          <div class="small text-muted">
+            {% if summary.get('margin_target_pct') is not none or summary.get('target_margin_pct') is not none %}
+              Target {{ fmt_percent(summary.get('margin_target_pct') if summary.get('margin_target_pct') is not none else summary.get('target_margin_pct')) }}
+            {% else %}
+              Target n/a
+            {% endif %}
+            {% if summary.get('minimum_margin_pct') is not none %}
+              · Min {{ fmt_percent(summary.get('minimum_margin_pct')) }}
+            {% endif %}
+            {% if summary.get('margin_gap_pct') is not none %}
+              · {{ '%.1f'|format((summary.get('margin_pct') or 0) - ((summary.get('margin_target_pct') if summary.get('margin_target_pct') is not none else summary.get('target_margin_pct')) or 0)) }} pts vs target
+            {% elif summary.get('target_status') %}
+              · {{ summary.get('target_status') }}
+            {% endif %}
+          </div>
         </div>
       </div>
       <div class="col-12 col-md-6 col-xl-3">

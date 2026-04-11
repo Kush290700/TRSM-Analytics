@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import copy
 import hashlib
+import inspect
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+
+from flask import g, has_request_context
 
 from app.core import access_policy
 from app.core.cache_manager import TTLValueCache
@@ -13,11 +17,13 @@ from app.core.exceptions import DatasetNotBuiltError
 from app.services import fact_store
 from app.services.filters import (
     FilterParams,
+    build_filter_summary,
     canonical_filters_hash as _canonical_filters_hash,
     canonical_filters_json as _canonical_filters_json,
     filters_to_store,
     normalize_filters,
     parse_filters,
+    sanitize_filters,
     resolve_effective_filters,
 )
 
@@ -25,7 +31,13 @@ logger = logging.getLogger(__name__)
 
 OPTIONS_TTL_MINUTES = int(os.getenv("FILTER_OPTIONS_TTL_MINUTES", os.getenv("FILTER_OPTIONS_TTL", "1060")))
 OPTIONS_TTL_SECONDS = max(60, OPTIONS_TTL_MINUTES * 60)
+OPTIONS_STALE_TTL_MINUTES = max(OPTIONS_TTL_MINUTES, int(os.getenv("FILTER_OPTIONS_STALE_TTL_MINUTES", "2880")))
+OPTIONS_STALE_TTL_SECONDS = max(OPTIONS_TTL_SECONDS, OPTIONS_STALE_TTL_MINUTES * 60)
+OPTION_QUERY_BUDGET_MS = max(500, int(os.getenv("FILTER_OPTIONS_QUERY_BUDGET_MS", "2500")))
 _OPTIONS_CACHE = TTLValueCache(maxsize=64)
+_OPTIONS_STALE_CACHE = TTLValueCache(maxsize=64)
+_OPTION_GROUP_CACHE = TTLValueCache(maxsize=256)
+_OPTION_GROUP_STALE_CACHE = TTLValueCache(maxsize=256)
 OPTION_KEYS = ("statuses", "regions", "methods", "ship_methods", "customers", "suppliers", "products", "sales_reps")
 OPTION_KEY_SET = set(OPTION_KEYS)
 _OPTION_ALIAS_MAP = {
@@ -41,6 +53,16 @@ _OPTION_ALIAS_MAP = {
     "salesreps": "sales_reps",
 }
 _PRIMARY_OPTION_KEYS = ("statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps")
+_OPTION_GROUPS = {
+    "statuses": ("statuses",),
+    "regions": ("regions",),
+    "methods": ("methods", "ship_methods"),
+    "ship_methods": ("methods", "ship_methods"),
+    "customers": ("customers",),
+    "suppliers": ("suppliers",),
+    "products": ("products",),
+    "sales_reps": ("sales_reps",),
+}
 
 
 def _clean_tokens(raw: Iterable[Any] | None) -> list[str]:
@@ -80,6 +102,27 @@ def canonical_json(filters: Any) -> str:
 def filters_hash(filters: Any) -> str:
     """Stable hash for filter payloads (used in cache keys/logging)."""
     return _canonical_filters_hash(filters)
+
+
+def _request_options_cache_bucket() -> dict[str, Any] | None:
+    try:
+        if not has_request_context():
+            return None
+        bucket = getattr(g, "_filter_options_request_cache", None)
+        if isinstance(bucket, dict):
+            return bucket
+        bucket = {}
+        g._filter_options_request_cache = bucket
+        return bucket
+    except Exception:
+        return None
+
+
+def _clone_payload(value: Any) -> Any:
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return value
 
 
 def normalize_requested_option_keys(raw: Any = None) -> tuple[str, ...]:
@@ -123,7 +166,7 @@ def normalize_requested_option_keys(raw: Any = None) -> tuple[str, ...]:
 
 
 def default_filters(user: Any = None) -> FilterParams:
-    """Return default filters (last 3 months) honoring any RBAC presets."""
+    """Return default filters (current fiscal year) honoring any RBAC presets."""
     params = parse_filters({})
     scope = scope_from_user(user)
     if scope.get("scope_mode") != "all":
@@ -139,7 +182,8 @@ def schema(filters: Any = None) -> Dict[str, Any]:
     fields = [
         {"name": "start_date", "type": "date", "label": "Start Date", "default": defaults.get("start_date"), "aliases": ["start", "date_start"]},
         {"name": "end_date", "type": "date", "label": "End Date", "default": defaults.get("end_date"), "aliases": ["end", "date_end"]},
-        {"name": "date_preset", "type": "select", "label": "Quick Range", "default": defaults.get("date_preset")},
+        {"name": "date_preset", "type": "select", "label": "Fiscal Range", "default": defaults.get("date_preset")},
+        {"name": "date_type", "type": "hidden", "label": "Date Type", "default": defaults.get("date_type")},
         {"name": "statuses", "type": "multi", "label": "Statuses"},
         {"name": "regions", "type": "multi", "label": "Regions", "aliases": ["region_ids"]},
         {"name": "customers", "type": "multi", "label": "Customers", "aliases": ["customer_ids"]},
@@ -256,19 +300,116 @@ def _to_options(raw: Iterable[Any] | None, bucket: str) -> list[dict[str, str]]:
     return out
 
 
-def _normalize_options_map(raw_options: Any) -> Dict[str, list[dict[str, str]]]:
+def _normalize_options_map(raw_options: Any, *, requested_keys: Any = None) -> Dict[str, list[dict[str, str]]]:
     raw = raw_options if isinstance(raw_options, dict) else {}
+    requested = normalize_requested_option_keys(requested_keys)
     options: Dict[str, list[dict[str, str]]] = {}
-    for key in OPTION_KEYS:
+    for key in requested:
         raw_list = raw.get(key)
         if raw_list is None and key == "ship_methods":
             raw_list = raw.get("methods")
         options[key] = _to_options(raw_list or [], key)
+    if "methods" in requested and "ship_methods" not in options:
+        options["ship_methods"] = _to_options(raw.get("ship_methods") or raw.get("methods") or [], "ship_methods")
+    if "ship_methods" in requested and "methods" not in options:
+        options["methods"] = _to_options(raw.get("methods") or raw.get("ship_methods") or [], "methods")
     return options
 
 
 def _option_counts(options: Dict[str, list[dict[str, str]]]) -> Dict[str, int]:
-    return {key: len(options.get(key) or []) for key in OPTION_KEYS}
+    return {key: len(options.get(key) or []) for key in options.keys()}
+
+
+def selected_option_keys(filters: Any) -> tuple[str, ...]:
+    params = normalize_filters(filters)
+    requested: list[str] = []
+    if getattr(params, "statuses", ()):
+        requested.append("statuses")
+    if getattr(params, "regions", ()):
+        requested.append("regions")
+    if getattr(params, "methods", ()):
+        requested.append("methods")
+    if getattr(params, "customers", ()):
+        requested.append("customers")
+    if getattr(params, "suppliers", ()):
+        requested.append("suppliers")
+    if getattr(params, "products", ()):
+        requested.append("products")
+    if getattr(params, "sales_reps", ()):
+        requested.append("sales_reps")
+    return normalize_requested_option_keys(requested)
+
+
+def _option_query_groups(requested_keys: tuple[str, ...]) -> tuple[str, ...]:
+    groups: list[str] = []
+    seen: set[str] = set()
+    for key in requested_keys:
+        group = "methods" if key in {"methods", "ship_methods"} else key
+        if group in seen:
+            continue
+        seen.add(group)
+        groups.append(group)
+    return tuple(groups)
+
+
+def _scope_cache_payload(scope: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    scope_payload = scope or {}
+    return {
+        "scope_mode": scope_payload.get("scope_mode"),
+        "allowed_count": scope_payload.get("allowed_count"),
+        "scope_hash": scope_payload.get("scope_hash"),
+        "permissions_version": scope_payload.get("permissions_version"),
+    }
+
+
+def _option_group_cache_key(
+    filters: FilterParams,
+    scope: Optional[Dict[str, Any]],
+    group: str,
+    *,
+    requested_keys: Sequence[str],
+) -> str:
+    key_payload = {
+        "endpoint": "filters.options.group",
+        "group": group,
+        "requested_dimensions": list(requested_keys),
+        "filters": filters_to_store(filters),
+        "filters_hash": filters_hash(filters),
+        "scope": _scope_cache_payload(scope),
+        "version": fact_store.cache_buster(),
+    }
+    return hashlib.sha256(json.dumps(key_payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _query_option_group(
+    conn: Any,
+    cols: set[str],
+    where_sql: str,
+    params: Sequence[Any],
+    *,
+    group_keys: Sequence[str],
+) -> Dict[str, Any]:
+    selects = _option_selects(cols, tuple(group_keys))
+    if not selects:
+        return {
+            "options": _normalize_options_map({}, requested_keys=group_keys),
+            "duration_ms": 0,
+            "status": "unavailable",
+        }
+    group_started = time.perf_counter()
+    sql = f"SELECT {', '.join(selects)} FROM fact WHERE {where_sql}"
+    cursor = conn.execute(sql, list(params))
+    row = cursor.fetchone()
+    names = [meta[0] for meta in (cursor.description or [])]
+    raw_group: Dict[str, Any] = {}
+    if row is not None:
+        for idx, name in enumerate(names):
+            raw_group[name] = row[idx] if idx < len(row) else None
+    return {
+        "options": _normalize_options_map(raw_group, requested_keys=group_keys),
+        "duration_ms": int((time.perf_counter() - group_started) * 1000),
+        "status": "ok",
+    }
 
 
 def sanitize_filters_against_options(filters: Any, payload: Mapping[str, Any] | None) -> tuple[FilterParams, Dict[str, Any]]:
@@ -354,10 +495,12 @@ def empty_options_payload(
     params = normalize_filters(filters)
     requested = normalize_requested_option_keys(requested_keys)
     meta = fact_store.get_meta()
+    options = _normalize_options_map({}, requested_keys=requested)
     payload = {
-        "options": {key: [] for key in OPTION_KEYS},
+        "options": options,
         "dataset_version": fact_store.cache_buster(),
         "filters": filters_to_store(params),
+        "summary": build_filter_summary(params),
         "scope": scope or {},
         "date_min": meta.get("date_min") or meta.get("min_date"),
         "date_max": meta.get("date_max") or meta.get("max_date"),
@@ -366,7 +509,19 @@ def empty_options_payload(
         "meta": {
             "degraded": True,
             "requested_dimensions": list(requested),
-            "option_counts": {key: 0 for key in OPTION_KEYS},
+            "option_counts": _option_counts(options),
+            "dimension_meta": {
+                key: {
+                    "status": "error",
+                    "duration_ms": 0,
+                    "error": str(error) if error is not None else "Filter options are unavailable.",
+                    "option_count": 0,
+                }
+                for key in options.keys()
+            },
+            "partial_failures": list(options.keys()),
+            "stale": False,
+            "stale_dimensions": [],
         },
     }
     if error is not None:
@@ -374,52 +529,248 @@ def empty_options_payload(
     return payload
 
 
+def _apply_group_payload(
+    options: Dict[str, list[dict[str, str]]],
+    dimension_meta: Dict[str, Dict[str, Any]],
+    stale_dimensions: list[str],
+    group_keys: Sequence[str],
+    group_payload: Mapping[str, Any],
+    *,
+    cache_hit: bool,
+    cache_key: str | None = None,
+    error: str | None = None,
+) -> None:
+    normalized_group = _normalize_options_map(group_payload.get("options"), requested_keys=group_keys)
+    duration_ms = int(group_payload.get("duration_ms") or 0)
+    group_is_stale = bool(group_payload.get("stale"))
+    group_status = "stale" if group_is_stale else (group_payload.get("status") or "ok")
+    if cache_key and not group_is_stale:
+        _OPTION_GROUP_STALE_CACHE.set(
+            cache_key,
+            _clone_payload({**dict(group_payload), "options": normalized_group}),
+            OPTIONS_STALE_TTL_SECONDS,
+        )
+    for key in group_keys:
+        items = normalized_group.get(key) or []
+        options[key] = items
+        dimension_meta[key] = {
+            "status": group_status,
+            "duration_ms": duration_ms,
+            "error": error,
+            "option_count": len(items),
+            "cached": bool(cache_hit),
+            "stale": group_is_stale,
+        }
+        if group_is_stale and key not in stale_dimensions:
+            stale_dimensions.append(key)
+
+
+def _apply_group_failure(
+    options: Dict[str, list[dict[str, str]]],
+    dimension_meta: Dict[str, Dict[str, Any]],
+    partial_failures: list[str],
+    group_keys: Sequence[str],
+    *,
+    duration_ms: int,
+    error: str,
+) -> None:
+    for key in group_keys:
+        options[key] = []
+        dimension_meta[key] = {
+            "status": "error",
+            "duration_ms": duration_ms,
+            "error": error,
+            "option_count": 0,
+            "cached": False,
+            "stale": False,
+        }
+        partial_failures.append(key)
+
+
 def _options_payload(filters: FilterParams, scope: Dict[str, Any], *, requested_keys: tuple[str, ...]) -> Dict[str, Any]:
     cols = fact_store.list_columns()
     if not cols:
         raise DatasetNotBuiltError("Fact view not initialized.")
     requested = normalize_requested_option_keys(requested_keys)
-    selects = _option_selects(cols, requested)
-    if not selects:
+    empty_options = _normalize_options_map({}, requested_keys=requested)
+    query_groups = _option_query_groups(requested)
+    if not query_groups:
         return {
-            "options": {key: [] for key in OPTION_KEYS},
+            "options": empty_options,
             "dataset_version": fact_store.cache_buster(),
             "filters": filters_to_store(filters),
-            "meta": {"requested_dimensions": list(requested), "option_counts": {key: 0 for key in OPTION_KEYS}},
+            "summary": build_filter_summary(filters),
+            "meta": {
+                "requested_dimensions": list(requested),
+                "option_counts": _option_counts(empty_options),
+                "dimension_meta": {},
+                "partial_failures": [],
+                "degraded": False,
+            },
         }
 
     where_sql, params, start_iso, end_iso = fact_store.build_where_clause(
         filters, cols, scope, apply_default_window=True
     )
-    sql = f"SELECT {', '.join(selects)} FROM fact WHERE {where_sql}"
     conn = fact_store.get_conn()
     started = time.perf_counter()
-    cursor = conn.execute(sql, params)
-    row = cursor.fetchone()
-    names = [meta[0] for meta in (cursor.description or [])]
-    duration_ms = int((time.perf_counter() - started) * 1000)
-
+    deadline = started + (OPTION_QUERY_BUDGET_MS / 1000.0)
     options: Dict[str, list[dict[str, str]]] = {}
-    if row is not None:
-        for idx, name in enumerate(names):
-            raw = row[idx] if idx < len(row) else None
-            options[name] = _to_options(raw, name)
+    dimension_meta: Dict[str, Dict[str, Any]] = {}
+    partial_failures: list[str] = []
+    stale_dimensions: list[str] = []
+    pending_groups: list[tuple[str, tuple[str, ...], str, Mapping[str, Any] | None]] = []
 
-    for key in ("statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps"):
-        options.setdefault(key, [])
-    if "ship_methods" not in options:
-        options["ship_methods"] = _to_options(options.get("methods", []), "ship_methods")
+    for group in query_groups:
+        group_keys = tuple(key for key in _OPTION_GROUPS.get(group, (group,)) if key in requested)
+        if not group_keys:
+            continue
+        group_started = time.perf_counter()
+        cache_key = _option_group_cache_key(filters, scope, group, requested_keys=group_keys)
+        cached_group_payload = _OPTION_GROUP_CACHE.get(cache_key)
+        stale_group_payload = _OPTION_GROUP_STALE_CACHE.get(cache_key)
+        if cached_group_payload is None and group_started > deadline:
+            if stale_group_payload is not None:
+                _apply_group_payload(
+                    options,
+                    dimension_meta,
+                    stale_dimensions,
+                    group_keys,
+                    {**dict(stale_group_payload), "stale": True},
+                    cache_hit=True,
+                    error=f"Served stale options after exceeding the {OPTION_QUERY_BUDGET_MS}ms options budget.",
+                )
+                continue
+            _apply_group_failure(
+                options,
+                dimension_meta,
+                partial_failures,
+                group_keys,
+                duration_ms=0,
+                error=f"Skipped after exceeding the {OPTION_QUERY_BUDGET_MS}ms options budget.",
+            )
+            continue
+
+        selects = _option_selects(cols, group_keys)
+        if not selects:
+            for key in group_keys:
+                options[key] = []
+                dimension_meta[key] = {
+                    "status": "unavailable",
+                    "duration_ms": 0,
+                    "error": "Filter dimension is unavailable in the current dataset.",
+                    "option_count": 0,
+                    "cached": False,
+                }
+            continue
+
+        if cached_group_payload is not None:
+            _apply_group_payload(
+                options,
+                dimension_meta,
+                stale_dimensions,
+                group_keys,
+                cached_group_payload,
+                cache_hit=True,
+                cache_key=cache_key,
+            )
+            continue
+
+        pending_groups.append((group, group_keys, cache_key, stale_group_payload))
+
+    if pending_groups:
+        if time.perf_counter() > deadline:
+            for _group, group_keys, _cache_key, stale_group_payload in pending_groups:
+                if stale_group_payload is not None:
+                    _apply_group_payload(
+                        options,
+                        dimension_meta,
+                        stale_dimensions,
+                        group_keys,
+                        {**dict(stale_group_payload), "stale": True},
+                        cache_hit=True,
+                        error=f"Served stale options after exceeding the {OPTION_QUERY_BUDGET_MS}ms options budget.",
+                    )
+                    continue
+                _apply_group_failure(
+                    options,
+                    dimension_meta,
+                    partial_failures,
+                    group_keys,
+                    duration_ms=0,
+                    error=f"Skipped after exceeding the {OPTION_QUERY_BUDGET_MS}ms options budget.",
+                )
+        else:
+            batch_started = time.perf_counter()
+            batched_group_keys = normalize_requested_option_keys(
+                [key for _group, group_keys, _cache_key, _stale in pending_groups for key in group_keys]
+            )
+            try:
+                batch_payload = _query_option_group(conn, cols, where_sql, params, group_keys=batched_group_keys)
+                batch_duration_ms = int(batch_payload.get("duration_ms") or ((time.perf_counter() - batch_started) * 1000))
+                batch_options = _normalize_options_map(batch_payload.get("options"), requested_keys=batched_group_keys)
+                for _group, group_keys, cache_key, _stale_group_payload in pending_groups:
+                    group_payload = {
+                        "options": {key: batch_options.get(key) or [] for key in group_keys},
+                        "duration_ms": batch_duration_ms,
+                        "status": batch_payload.get("status") or "ok",
+                        "stale": bool(batch_payload.get("stale")),
+                    }
+                    _OPTION_GROUP_CACHE.set(cache_key, _clone_payload(group_payload), OPTIONS_TTL_SECONDS)
+                    _apply_group_payload(
+                        options,
+                        dimension_meta,
+                        stale_dimensions,
+                        group_keys,
+                        group_payload,
+                        cache_hit=False,
+                        cache_key=cache_key,
+                    )
+            except Exception as exc:
+                duration_ms = int((time.perf_counter() - batch_started) * 1000)
+                for group, group_keys, _cache_key, stale_group_payload in pending_groups:
+                    logger.exception(
+                        "filters.options.dimension_failed",
+                        extra={
+                            "dimension_group": group,
+                            "dimensions": list(group_keys),
+                            "duration_ms": duration_ms,
+                            "scope_mode": scope.get("scope_mode"),
+                            "filter_hash": filters_hash(filters),
+                        },
+                    )
+                    if stale_group_payload is not None:
+                        _apply_group_payload(
+                            options,
+                            dimension_meta,
+                            stale_dimensions,
+                            group_keys,
+                            {**dict(stale_group_payload), "stale": True},
+                            cache_hit=True,
+                            error=str(exc),
+                        )
+                        continue
+                    _apply_group_failure(
+                        options,
+                        dimension_meta,
+                        partial_failures,
+                        group_keys,
+                        duration_ms=duration_ms,
+                        error=str(exc),
+                    )
 
     meta = fact_store.get_meta()
     date_min = meta.get("date_min") or meta.get("min_date")
     date_max = meta.get("date_max") or meta.get("max_date")
-    normalized_options = _normalize_options_map(options)
+    normalized_options = _normalize_options_map(options, requested_keys=requested)
+    duration_ms = int((time.perf_counter() - started) * 1000)
 
     return {
         "options": normalized_options,
         "dataset_version": fact_store.cache_buster(),
         "duration_ms": duration_ms,
         "filters": filters_to_store(filters),
+        "summary": build_filter_summary(filters),
         "scope": scope,
         "start": start_iso,
         "end": end_iso,
@@ -428,6 +779,11 @@ def _options_payload(filters: FilterParams, scope: Dict[str, Any], *, requested_
         "meta": {
             "requested_dimensions": list(requested),
             "option_counts": _option_counts(normalized_options),
+            "dimension_meta": dimension_meta,
+            "partial_failures": partial_failures,
+            "stale": bool(stale_dimensions),
+            "stale_dimensions": stale_dimensions,
+            "degraded": bool(partial_failures or stale_dimensions),
         },
     }
 
@@ -472,7 +828,25 @@ def get_filter_options(
         payload["meta"]["requested_dimensions"] = list(requested)
         return payload
 
-    result, hit = _OPTIONS_CACHE.get_or_compute(key, OPTIONS_TTL_SECONDS, _build)
+    request_cache = _request_options_cache_bucket()
+    stale_result = _OPTIONS_STALE_CACHE.get(key) if use_cache else None
+    stale_error: Exception | None = None
+    stale_fallback = False
+    if request_cache is not None and key in request_cache:
+        result = request_cache[key]
+        hit = True
+    else:
+        try:
+            result, hit = _OPTIONS_CACHE.get_or_compute(key, OPTIONS_TTL_SECONDS, _build)
+        except Exception as exc:
+            if stale_result is None:
+                raise
+            result = _clone_payload(stale_result)
+            hit = True
+            stale_fallback = True
+            stale_error = exc
+        if request_cache is not None:
+            request_cache[key] = result
     if isinstance(result, dict):
         result["dataset_version"] = result.get("dataset_version", version)
         result["cached"] = bool(hit)
@@ -484,9 +858,133 @@ def get_filter_options(
         result.setdefault("date_min", None)
         result.setdefault("date_max", None)
         if isinstance(result.get("options"), dict):
-            result["options"] = _normalize_options_map(result.get("options"))
+            result["options"] = _normalize_options_map(result.get("options"), requested_keys=requested)
             result["meta"].setdefault("option_counts", _option_counts(result["options"]))
+        result.setdefault("summary", build_filter_summary(params))
+        result["meta"].setdefault("partial_failures", [])
+        result["meta"].setdefault("stale_dimensions", [])
+        result["meta"]["stale"] = bool(stale_fallback or result["meta"].get("stale_dimensions"))
+        if stale_fallback:
+            result["meta"]["degraded"] = True
+            result["meta"]["stale_error"] = str(stale_error) if stale_error is not None else None
+        else:
+            result["meta"].setdefault("degraded", False)
+        if not result["meta"].get("degraded"):
+            _OPTIONS_STALE_CACHE.set(key, _clone_payload(result), OPTIONS_STALE_TTL_SECONDS)
     return result
+
+
+def load_filter_options(
+    filters: Any,
+    scope: Optional[Dict[str, Any]] = None,
+    *,
+    requested_keys: Any = None,
+    use_cache: bool = True,
+) -> Dict[str, Any]:
+    """
+    Call the active options loader while tolerating older/narrower call signatures.
+
+    Tests and emergency overrides sometimes replace `get_filter_options` with a
+    minimal callable that only accepts `(filters, scope)`. Keep those paths working
+    without degrading the entire filters flow.
+    """
+    loader = get_filter_options
+    scope_payload = scope or {}
+
+    accepts_scope = True
+    accepts_varargs = False
+    accepts_kwargs = False
+    accepted_names: set[str] = set()
+    try:
+        signature = inspect.signature(loader)
+    except (TypeError, ValueError):
+        signature = None
+
+    if signature is not None:
+        positional_capacity = 0
+        for param in signature.parameters.values():
+            accepted_names.add(param.name)
+            if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                accepts_varargs = True
+            elif param.kind == inspect.Parameter.VAR_KEYWORD:
+                accepts_kwargs = True
+            elif param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                positional_capacity += 1
+        accepts_scope = accepts_varargs or positional_capacity >= 2
+    else:
+        accepts_varargs = True
+        accepts_kwargs = True
+
+    kwargs: Dict[str, Any] = {}
+    if accepts_kwargs or "requested_keys" in accepted_names:
+        kwargs["requested_keys"] = requested_keys
+    if accepts_kwargs or "use_cache" in accepted_names:
+        kwargs["use_cache"] = use_cache
+
+    if accepts_scope:
+        return loader(filters, scope_payload, **kwargs)
+    return loader(filters, **kwargs)
+
+
+def validate_filters(
+    filters: Any,
+    scope: Optional[Dict[str, Any]] = None,
+    *,
+    requested_keys: Any = None,
+    use_cache: bool = True,
+) -> tuple[FilterParams, Dict[str, Any]]:
+    scope_payload = scope or {}
+    params, scope_meta = sanitize_filters(filters, scope_payload, include_meta=True, use_cache=use_cache)
+    requested = normalize_requested_option_keys(requested_keys or selected_option_keys(params))
+    option_meta: Dict[str, Any] = {"sanitized": False, "dropped_filters": {}, "filters_notice": None}
+    validation_degraded = False
+    if requested:
+        try:
+            options_payload = load_filter_options(
+                params,
+                scope_payload,
+                requested_keys=requested,
+                use_cache=use_cache,
+            )
+            params, option_meta = sanitize_filters_against_options(params, options_payload)
+        except Exception as exc:
+            validation_degraded = True
+            option_meta = {
+                "sanitized": False,
+                "dropped_filters": {},
+                "filters_notice": f"Filter validation was partially degraded: {exc}",
+            }
+            logger.exception(
+                "filters.validation_failed",
+                extra={
+                    "dimensions": list(requested),
+                    "scope_mode": scope_payload.get("scope_mode"),
+                    "filter_hash": filters_hash(params),
+                },
+            )
+
+    dropped: Dict[str, list[str]] = {}
+    for source in (scope_meta.get("dropped") or {}, option_meta.get("dropped_filters") or {}):
+        if not isinstance(source, Mapping):
+            continue
+        for key, values in source.items():
+            bucket = dropped.setdefault(str(key), [])
+            if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
+                values = [values]
+            for value in values:
+                token = str(value).strip()
+                if token and token not in bucket:
+                    bucket.append(token)
+
+    notice = option_meta.get("filters_notice") or scope_meta.get("notice")
+    meta = {
+        "sanitized": bool(scope_meta.get("sanitized") or option_meta.get("sanitized")),
+        "dropped_filters": dropped,
+        "filters_notice": notice,
+        "validation_degraded": validation_degraded,
+        "requested_dimensions": list(requested),
+    }
+    return params, meta
 
 
 def options_etag(payload: Dict[str, Any]) -> str:

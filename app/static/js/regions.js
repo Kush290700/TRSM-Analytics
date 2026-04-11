@@ -16,6 +16,8 @@
   let search = "";
   let filterQs = (window.location.search || "").replace(/^\?/, "");
   let controller = null;
+  let fetchSeq = 0;
+  let currentApplyId = "";
   let bootstrapped = false;
   let lastFetchKey = "";
   let tableRows = [];
@@ -419,8 +421,17 @@
   };
 
   const dispatchApplied = () => {
+    const detail = { page: "regions", qs: filterQs };
+    if (currentApplyId) {
+      detail.applyId = currentApplyId;
+      currentApplyId = "";
+    }
     try {
-      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: { page: "regions" } }));
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(detail);
+      } else {
+        window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail }));
+      }
     } catch (err) {
       /* ignore */
     }
@@ -436,6 +447,7 @@
   };
 
   const fetchBundle = async (force = false) => {
+    const requestId = ++fetchSeq;
     const requestQs = buildRequestQs();
     const fetchKey = requestQs;
     if (!force && fetchKey === lastFetchKey) {
@@ -480,6 +492,7 @@
         tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">Failed to load regions.</td></tr>';
       }
     } finally {
+      if (requestId !== fetchSeq) return;
       dispatchApplied();
     }
   };
@@ -594,6 +607,7 @@
   };
 
   window.addEventListener("globalFilters:apply", (evt) => {
+    currentApplyId = String(evt?.detail?.applyId || "");
     const nextQs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(nextQs);
   });

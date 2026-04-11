@@ -556,12 +556,15 @@ def create_app() -> Flask:
     @app.context_processor
     def _inject_filter_endpoints():
         try:
+            from app.services import fact_store as _fact_store  # type: ignore
+
             return {
                 "filter_api": {
                     "schema_url": url_for("filters_api.schema"),
                     "options_url": url_for("filters_api.options"),
                     "apply_url": url_for("filters_actions.apply_filters"),
                     "reset_url": url_for("filters_actions.reset_filters"),
+                    "dataset_version": _fact_store.cache_buster(),
                 },
                 "feature_flags": app.config.get("APP_FEATURE_FLAGS", {}),
                 "filters_canonical_v2": bool(app.config.get("FILTERS_CANONICAL_V2", False)),
@@ -573,6 +576,7 @@ def create_app() -> Flask:
                     "options_url": "/api/filters/options",
                     "apply_url": "/filters/apply",
                     "reset_url": "/filters/reset",
+                    "dataset_version": "",
                 },
                 "feature_flags": app.config.get("APP_FEATURE_FLAGS", {}),
                 "filters_canonical_v2": bool(app.config.get("FILTERS_CANONICAL_V2", False)),
@@ -589,7 +593,8 @@ def create_app() -> Flask:
     def _inject_permissions():
         try:
             from flask_login import current_user
-            from app.core.rbac import effective_permissions, has_permission
+            from app.auth.permissions import canonical_permission_key
+            from app.core.rbac import effective_permissions
 
             if getattr(current_user, "is_authenticated", False):
                 perms = effective_permissions(current_user)
@@ -602,7 +607,8 @@ def create_app() -> Flask:
             try:
                 if "*" in perms:
                     return True
-                return has_permission(permission)
+                token = canonical_permission_key(permission)
+                return bool(token and token in perms)
             except Exception:
                 return False
 
@@ -1246,7 +1252,7 @@ def create_app() -> Flask:
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer-when-downgrade"
         resp.headers["Content-Security-Policy"] = (
-            "default-src 'self' https: 'unsafe-inline' 'unsafe-eval'; "
+            "default-src 'self' https: 'unsafe-inline' 'unsafe-eval' blob:; "
             "img-src 'self' https: data: blob:;"
         )
         try:

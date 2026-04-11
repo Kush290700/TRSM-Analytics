@@ -16,6 +16,7 @@ from app.core.exports import dataframe_to_csv_response
 from app.core.rbac import can_view_costs, user_has_permission
 from app.services import analytics_utils as au
 from app.services import fact_store, filters as filters_svc, filters_service, overview_v2
+from app.services import salesreps_bundle
 
 
 DRILLDOWN_TOKEN_SALT = "amw.universal-drilldown.v1"
@@ -97,6 +98,8 @@ DETAIL_COLUMNS = [
     "ProductId",
     "SKU",
     "ProductName",
+    "ProteinType",
+    "ProteinName",
     "Category",
     "ProductCategory",
     "RegionName",
@@ -112,6 +115,19 @@ DETAIL_COLUMNS = [
     "pack_item_count_sum",
     "pack_weight_lb_sum",
 ]
+
+ALLOWED_TARGET_QUERY_METRICS = {
+    "revenue",
+    "profit",
+    "margin_pct",
+    "margin_dollar",
+    "orders",
+    "customers",
+    "weight_lb",
+    "metric",
+}
+ALLOWED_TARGET_QUERY_GRAINS = {"monthly", "quarterly", "yearly", "ttm"}
+ALLOWED_TARGET_QUERY_VIEWS = {"absolute", "yoy_delta", "index"}
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -233,7 +249,7 @@ def _sanitize_filter_store(raw_filters: Any, *, apply_defaults: bool = True) -> 
         if not apply_defaults and isinstance(raw_filters, Mapping):
             has_explicit_dates = any(
                 key in raw_filters
-                for key in ("start", "start_date", "end", "end_date", "date_preset", "preset", "range_preset")
+                for key in ("start", "start_date", "end", "end_date", "date_preset", "preset", "range_preset", "date_type")
             )
             if not has_explicit_dates:
                 parsed = replace(parsed, start=None, end=None, preset=None)
@@ -242,13 +258,84 @@ def _sanitize_filter_store(raw_filters: Any, *, apply_defaults: bool = True) -> 
         return filters_svc.filters_to_store(filters_svc.parse_filters({}))
 
 
+def _sanitize_target_query(raw_query: Any) -> dict[str, Any]:
+    query = raw_query if isinstance(raw_query, Mapping) else {}
+    sanitized: dict[str, Any] = {}
+
+    attribution_mode = _clean_text(query.get("attribution_mode"), max_len=40)
+    if attribution_mode in {"current_owner", "historical_rep"}:
+        sanitized["attribution_mode"] = attribution_mode
+
+    roster_mode = _clean_text(query.get("roster_mode"), max_len=40)
+    if roster_mode in {"current_only", "include_former"}:
+        sanitized["roster_mode"] = roster_mode
+
+    transfer_only = query.get("transfer_only")
+    if transfer_only is not None:
+        sanitized["transfer_only"] = str(transfer_only).strip().lower() in {"1", "true", "yes", "on"}
+
+    metric = _clean_text(query.get("metric"), max_len=40)
+    if metric in ALLOWED_TARGET_QUERY_METRICS:
+        sanitized["metric"] = metric
+
+    leaderboard_metric = _clean_text(query.get("leaderboard_metric"), max_len=40)
+    if leaderboard_metric in ALLOWED_TARGET_QUERY_METRICS:
+        sanitized["leaderboard_metric"] = leaderboard_metric
+
+    trend_metric = _clean_text(query.get("trend_metric"), max_len=40)
+    if trend_metric in ALLOWED_TARGET_QUERY_METRICS:
+        sanitized["trend_metric"] = trend_metric
+
+    trend_grain = _clean_text(query.get("trend_grain"), max_len=20)
+    if trend_grain in ALLOWED_TARGET_QUERY_GRAINS:
+        sanitized["trend_grain"] = trend_grain
+
+    trend_view = _clean_text(query.get("trend_view"), max_len=20)
+    if trend_view in ALLOWED_TARGET_QUERY_VIEWS:
+        sanitized["trend_view"] = trend_view
+
+    top_n_raw = query.get("top_n")
+    if top_n_raw is None:
+        top_n_raw = query.get("topN")
+    top_n_num = _clean_number(top_n_raw)
+    if top_n_num is not None:
+        sanitized["top_n"] = max(5, min(25, int(top_n_num)))
+
+    return sanitized
+
+
+def _target_query_pairs(store: Mapping[str, Any]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    if not isinstance(store, Mapping):
+        return pairs
+    if store.get("attribution_mode"):
+        pairs.append(("attribution_mode", str(store["attribution_mode"])))
+    if store.get("roster_mode"):
+        pairs.append(("roster_mode", str(store["roster_mode"])))
+    if "transfer_only" in store:
+        pairs.append(("transfer_only", "1" if bool(store.get("transfer_only")) else "0"))
+    if store.get("metric"):
+        pairs.append(("metric", str(store["metric"])))
+    if store.get("leaderboard_metric"):
+        pairs.append(("leaderboard_metric", str(store["leaderboard_metric"])))
+    if store.get("trend_metric"):
+        pairs.append(("trend_metric", str(store["trend_metric"])))
+    if store.get("trend_grain"):
+        pairs.append(("trend_grain", str(store["trend_grain"])))
+    if store.get("trend_view"):
+        pairs.append(("trend_view", str(store["trend_view"])))
+    if store.get("top_n") is not None:
+        pairs.append(("top_n", str(int(store["top_n"]))))
+    return pairs
+
+
 def _merge_filters(base_store: Mapping[str, Any], patch_store: Mapping[str, Any]) -> dict[str, Any]:
     base_params = filters_svc.parse_filters(base_store or {})
     patch_params = filters_svc.parse_filters(patch_store or {})
     if isinstance(patch_store, Mapping):
         has_explicit_dates = any(
             patch_store.get(key) not in (None, "", [], ())
-            for key in ("start", "start_date", "end", "end_date", "date_preset", "preset", "range_preset")
+            for key in ("start", "start_date", "end", "end_date", "date_preset", "preset", "range_preset", "date_type")
         )
         if not has_explicit_dates:
             patch_params = replace(patch_params, start=None, end=None, preset=None)
@@ -264,6 +351,7 @@ def _merge_filters(base_store: Mapping[str, Any], patch_store: Mapping[str, Any]
         products=patch_params.products or base_params.products,
         sales_reps=patch_params.sales_reps or base_params.sales_reps,
         preset=patch_params.preset or base_params.preset,
+        date_type=patch_params.date_type or base_params.date_type,
         protein_min=patch_params.protein_min if patch_params.protein_min is not None else base_params.protein_min,
         protein_max=patch_params.protein_max if patch_params.protein_max is not None else base_params.protein_max,
         protein_name_like=patch_params.protein_name_like or base_params.protein_name_like,
@@ -282,6 +370,7 @@ def _filters_query_pairs(store: Mapping[str, Any]) -> list[tuple[str, str]]:
         "start_date": "start",
         "end_date": "end",
         "date_preset": "date_preset",
+        "date_type": "date_type",
         "statuses": "statuses",
         "regions": "regions",
         "shipping_methods": "methods",
@@ -313,7 +402,11 @@ def _filters_query_pairs(store: Mapping[str, Any]) -> list[tuple[str, str]]:
     return pairs
 
 
-def _source_back_href(context: Mapping[str, Any], merged_filters: Mapping[str, Any]) -> str | None:
+def _source_back_href(
+    context: Mapping[str, Any],
+    merged_filters: Mapping[str, Any],
+    target_query: Mapping[str, Any] | None = None,
+) -> str | None:
     source_page = str(context.get("source_page") or "")
     source_entity_id = _clean_text(context.get("source_entity_id"), max_len=120)
     if source_page == "overview":
@@ -342,7 +435,9 @@ def _source_back_href(context: Mapping[str, Any], merged_filters: Mapping[str, A
         return None
     if not base:
         return None
-    query = urlencode(_filters_query_pairs(merged_filters), doseq=True)
+    query_pairs = _filters_query_pairs(merged_filters)
+    query_pairs.extend(_target_query_pairs(target_query or {}))
+    query = urlencode(query_pairs, doseq=True)
     return f"{base}?{query}" if query else base
 
 
@@ -388,6 +483,7 @@ def sanitize_click_payload(raw_payload: Mapping[str, Any] | None) -> dict[str, A
         "requested_target": _clean_slug(payload.get("requested_target"), ALLOWED_TARGETS) or "workspace",
         "display_mode": _clean_text(payload.get("display_mode"), max_len=40),
         "active_filter_state": _sanitize_filter_store(payload.get("active_filter_state") or {}),
+        "target_query": _sanitize_target_query(payload.get("target_query")),
         "extra": extra,
     }
     if not sanitized["source_page"]:
@@ -406,7 +502,7 @@ def issue_context_token(raw_payload: Mapping[str, Any], *, user_obj: Any) -> tup
     context["issued_for_user_id"] = _safe_user_id(user_obj)
     context["scope_hash"] = str(scope.get("scope_hash") or "")
     context["permissions_version"] = str(scope.get("permissions_version") or permissions_version())
-    context["back_href"] = _source_back_href(context, merged_filters)
+    context["back_href"] = _source_back_href(context, merged_filters, context.get("target_query") or {})
     token = _serializer().dumps(context)
     return token, context
 
@@ -480,6 +576,8 @@ def resolve_target_url(context: Mapping[str, Any], token: str, *, user_obj: Any)
     endpoint_name, path_kwargs = endpoint
     base = url_for(endpoint_name, **path_kwargs)
     query_pairs = _filters_query_pairs(context.get("active_filter_state") or {})
+    if endpoint_name == "salesreps.rep_detail":
+        query_pairs.extend(_target_query_pairs(context.get("target_query") or {}))
     query_pairs.append(("drill_context", token))
     query = urlencode(query_pairs, doseq=True)
     return f"{base}?{query}" if query else base
@@ -675,7 +773,7 @@ def _build_product_rollup(df: pd.DataFrame, *, show_costs: bool) -> pd.DataFrame
     if df.empty:
         return pd.DataFrame()
     product_col = au.resolve_column(df, ("ProductName", "SKU", "ProductId"))
-    category_col = au.resolve_column(df, ("Category", "ProductCategory"))
+    category_col = au.resolve_column(df, ("Protein", "ProteinType", "ProteinName", "Category", "ProductCategory"))
     revenue_col = au.revenue_column(df) or au.resolve_column(df, ("Revenue",))
     cost_col = au.cost_column(df)
     weight_col = au.resolve_column(df, ("WeightLb", "pack_weight_lb_sum"))
@@ -736,7 +834,7 @@ def _apply_extra_filters(df: pd.DataFrame, context: Mapping[str, Any]) -> pd.Dat
     extra = (context.get("extra") or {}) if isinstance(context.get("extra"), Mapping) else {}
     category_value = _clean_text(extra.get("category"), max_len=160)
     if category_value:
-        category_col = au.resolve_column(df, ("Category", "ProductCategory"))
+        category_col = au.resolve_column(df, ("Protein", "ProteinType", "ProteinName", "Category", "ProductCategory"))
         if category_col and category_col in df.columns:
             mask = df[category_col].astype("string").fillna("").str.lower() == category_value.lower()
             df = df.loc[mask].copy()
@@ -848,6 +946,245 @@ def _narrative_workspace(context: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _salesreps_workspace(context: Mapping[str, Any], *, user_obj: Any) -> dict[str, Any]:
+    scope = _scope_payload(user_obj)
+    show_costs = can_view_costs(user_obj)
+    filters = filters_svc.parse_filters(context.get("active_filter_state") or {})
+    target_query = context.get("target_query") or {}
+    extra = (context.get("extra") or {}) if isinstance(context.get("extra"), Mapping) else {}
+
+    attribution_context = salesreps_bundle._salesrep_attribution_context(filters, scope, dict(target_query))
+    if attribution_context.get("error"):
+        message = _clean_text(((attribution_context.get("error") or {}).get("message")), max_len=240) or (
+            "Sales rep attributed workspace could not be resolved."
+        )
+        return {
+            "summary_cards": [],
+            "primary_table": None,
+            "secondary_table": None,
+            "rows_available": 0,
+            "narrative": _clean_text(extra.get("detail"), max_len=1000),
+            "empty_message": message,
+        }
+
+    filter_clauses: list[str] = []
+    filter_params: list[Any] = []
+
+    filter_mode = (_clean_text(extra.get("filter_mode"), max_len=40) or "current_window").lower()
+    include_yoy_window = bool(extra.get("include_yoy_window"))
+    if filter_mode == "current_window":
+        filter_clauses.append("is_current_window = 1")
+    elif filter_mode == "comparison_window" or include_yoy_window:
+        filter_clauses.append("(is_current_window = 1 OR is_yoy_window = 1)")
+
+    time_grain = str(context.get("clicked_time_grain") or "").strip().lower()
+    time_value = _clean_text(context.get("clicked_time_value"), max_len=80)
+    if time_grain in {"month", "period_month"} and time_value:
+        if include_yoy_window:
+            filter_clauses.append(
+                "strftime('%Y-%m', CASE WHEN is_yoy_window = 1 THEN order_date + INTERVAL 1 YEAR ELSE order_date END) = ?"
+            )
+        else:
+            filter_clauses.append("strftime('%Y-%m', order_date) = ?")
+        filter_params.append(time_value)
+    elif time_grain == "quarter" and time_value:
+        year_text, quarter_text = (time_value.split("-Q", 1) + [""])[:2]
+        if year_text.isdigit() and quarter_text.isdigit():
+            quarter_num = int(quarter_text)
+            if 1 <= quarter_num <= 4:
+                month_start = (quarter_num - 1) * 3 + 1
+                month_end = month_start + 2
+                if include_yoy_window:
+                    filter_clauses.append(
+                        "(strftime('%Y', CASE WHEN is_yoy_window = 1 THEN order_date + INTERVAL 1 YEAR ELSE order_date END) = ? "
+                        "AND CAST(strftime('%m', CASE WHEN is_yoy_window = 1 THEN order_date + INTERVAL 1 YEAR ELSE order_date END) AS INTEGER) BETWEEN ? AND ?)"
+                    )
+                else:
+                    filter_clauses.append(
+                        "(strftime('%Y', order_date) = ? AND CAST(strftime('%m', order_date) AS INTEGER) BETWEEN ? AND ?)"
+                    )
+                filter_params.extend([year_text, month_start, month_end])
+    elif time_grain == "year" and time_value and time_value.isdigit():
+        if include_yoy_window:
+            filter_clauses.append(
+                "strftime('%Y', CASE WHEN is_yoy_window = 1 THEN order_date + INTERVAL 1 YEAR ELSE order_date END) = ?"
+            )
+        else:
+            filter_clauses.append("strftime('%Y', order_date) = ?")
+        filter_params.append(time_value)
+
+    rep_token = _clean_text(extra.get("rep_id"), max_len=120)
+    if not rep_token and str(context.get("clicked_entity_type") or "") == "salesrep":
+        rep_token = _clean_text(context.get("clicked_entity_id"), max_len=120)
+    if rep_token:
+        filter_clauses.append("(LOWER(COALESCE(rep_key, '')) = LOWER(?) OR LOWER(COALESCE(rep_name, '')) = LOWER(?))")
+        filter_params.extend([rep_token, rep_token])
+
+    current_owner_token = _clean_text(extra.get("current_owner_id") or extra.get("current_owner_name"), max_len=120)
+    if current_owner_token:
+        filter_clauses.append(
+            "(LOWER(COALESCE(current_owner_id, '')) = LOWER(?) OR LOWER(COALESCE(current_owner_name, '')) = LOWER(?))"
+        )
+        filter_params.extend([current_owner_token, current_owner_token])
+
+    prior_rep_token = _clean_text(extra.get("prior_rep_id") or extra.get("prior_rep_name"), max_len=120)
+    if prior_rep_token:
+        filter_clauses.append("(LOWER(COALESCE(prior_rep_id, '')) = LOWER(?) OR LOWER(COALESCE(prior_rep_name, '')) = LOWER(?))")
+        filter_params.extend([prior_rep_token, prior_rep_token])
+
+    territory_name = _clean_text(extra.get("territory_name") or (context.get("clicked_bucket") if extra.get("bucket_type") == "territory" else None), max_len=160)
+    if territory_name:
+        filter_clauses.append(
+            "LOWER(COALESCE(territory_name, territory_id, 'Unassigned')) = LOWER(?)"
+        )
+        filter_params.append(territory_name)
+
+    protein_family = _clean_text(extra.get("protein_family") or (context.get("clicked_bucket") if extra.get("bucket_type") == "protein" else None), max_len=160)
+    if protein_family:
+        filter_clauses.append(
+            "LOWER(COALESCE(protein_family, category_name, 'Unassigned')) = LOWER(?)"
+        )
+        filter_params.append(protein_family)
+
+    if bool(extra.get("inherited_only")):
+        filter_clauses.append("inherited_flag = 1")
+    if bool(extra.get("direct_only")):
+        filter_clauses.append("COALESCE(inherited_flag, 0) = 0")
+    if bool(extra.get("transfer_activity_only")):
+        filter_clauses.append("(ownership_changed = 1 OR owner_missing = 1)")
+
+    dq_bucket = (_clean_text(extra.get("dq_bucket"), max_len=80) or "").lower()
+    if dq_bucket in {"unassigned", "needs_review"}:
+        filter_clauses.append("owner_missing = 1 OR LOWER(COALESCE(dq_status, '')) = 'needs_review'")
+    elif dq_bucket in {"fact_fallback", "fact_owner_only"}:
+        filter_clauses.append("LOWER(COALESCE(owner_source, '')) = 'fact_current_owner'")
+    elif dq_bucket == "inactive_current_owner":
+        filter_clauses.append("current_owner_active = FALSE")
+
+    where_sql = " AND ".join(f"({clause})" for clause in filter_clauses) if filter_clauses else "1=1"
+    cte_sql = attribution_context["cte_sql"]
+    params = list(attribution_context.get("params") or []) + filter_params
+
+    summary_sql = f"""
+        WITH
+        {cte_sql},
+        scoped AS (
+            SELECT *
+            FROM attributed_base
+            WHERE {where_sql}
+        )
+        SELECT
+            COUNT(*) AS detail_rows,
+            COUNT(DISTINCT order_id) AS orders,
+            COUNT(DISTINCT customer_id) AS customers,
+            COUNT(DISTINCT current_owner_id) AS owners,
+            COUNT(DISTINCT territory_name) AS territories,
+            COALESCE(SUM(revenue), 0) AS revenue,
+            SUM(profit) AS profit,
+            COALESCE(SUM(CASE WHEN inherited_flag = 1 THEN revenue ELSE 0 END), 0) AS inherited_revenue,
+            COALESCE(SUM(CASE WHEN inherited_flag = 0 THEN revenue ELSE 0 END), 0) AS direct_revenue,
+            COUNT(DISTINCT CASE WHEN inherited_flag = 1 THEN customer_id END) AS inherited_customers,
+            COUNT(DISTINCT CASE WHEN inherited_flag = 0 THEN customer_id END) AS direct_customers
+        FROM scoped
+    """
+    detail_sql = f"""
+        WITH
+        {cte_sql},
+        scoped AS (
+            SELECT *
+            FROM attributed_base
+            WHERE {where_sql}
+        )
+        SELECT
+            order_date AS OrderDate,
+            order_id AS OrderId,
+            customer_name AS Customer,
+            current_owner_name AS CurrentOwner,
+            prior_rep_name AS InheritedFrom,
+            territory_name AS Territory,
+            product_name AS Product,
+            protein_family AS Protein,
+            revenue AS Revenue,
+            {"profit AS Profit," if show_costs else ""}
+            weight_lb AS WeightLb,
+            CASE WHEN inherited_flag = 1 THEN 'Inherited' ELSE 'Direct' END AS Attribution,
+            owner_source AS OwnerSource
+        FROM scoped
+        ORDER BY order_date DESC NULLS LAST, order_id DESC NULLS LAST
+        LIMIT ?
+    """
+    secondary_sql = f"""
+        WITH
+        {cte_sql},
+        scoped AS (
+            SELECT *
+            FROM attributed_base
+            WHERE {where_sql}
+        )
+        SELECT
+            COALESCE(customer_name, customer_id, 'Unassigned') AS Customer,
+            COALESCE(SUM(revenue), 0) AS Revenue,
+            {"SUM(profit) AS Profit," if show_costs else ""}
+            COUNT(DISTINCT order_id) AS Orders
+        FROM scoped
+        GROUP BY 1
+        ORDER BY Revenue DESC NULLS LAST, Customer
+        LIMIT 20
+    """
+
+    summary_df = fact_store.execute_sql_df(summary_sql, params, tag="salesreps.workspace.summary")
+    detail_df = fact_store.execute_sql_df(detail_sql, params + [MAX_ROWS], tag="salesreps.workspace.detail")
+    secondary_df = fact_store.execute_sql_df(secondary_sql, params, tag="salesreps.workspace.customers")
+
+    summary = summary_df.iloc[0].to_dict() if summary_df is not None and not summary_df.empty else {}
+    detail_rows = int(summary.get("detail_rows") or 0)
+    revenue = float(summary.get("revenue") or 0.0)
+    inherited_revenue = float(summary.get("inherited_revenue") or 0.0)
+    inherited_share = (inherited_revenue / revenue * 100.0) if revenue else None
+
+    summary_cards = [
+        {"label": "Revenue", "value": _format_value_for_column("revenue", summary.get("revenue")), "detail": "Attributed slice revenue"},
+        {"label": "Orders", "value": _format_value_for_column("orders", summary.get("orders")), "detail": "Visible order detail rows"},
+        {"label": "Customers", "value": _format_value_for_column("customers", summary.get("customers")), "detail": "Distinct impacted customers"},
+        {
+            "label": "Direct vs Inherited",
+            "value": f"{_format_value_for_column('direct_revenue', summary.get('direct_revenue'))} / {_format_value_for_column('inherited_revenue', summary.get('inherited_revenue'))}",
+            "detail": "Current-owner direct book vs inherited book",
+        },
+    ]
+    if inherited_share is not None:
+        summary_cards.append(
+            {
+                "label": "Inherited Exposure",
+                "value": _format_value_for_column("share_pct", inherited_share),
+                "detail": "Revenue share from inherited accounts",
+            }
+        )
+    if show_costs:
+        summary_cards.append(
+            {
+                "label": "Profit",
+                "value": _format_value_for_column("profit", summary.get("profit")),
+                "detail": "Visible profit where cost is available",
+            }
+        )
+
+    narrative = _clean_text(extra.get("detail"), max_len=1000)
+    if not narrative and territory_name:
+        narrative = f"Attributed detail for territory {territory_name} under the current sales rep ownership model."
+    elif not narrative and protein_family:
+        narrative = f"Attributed detail for protein family {protein_family} under the current sales rep ownership model."
+
+    return {
+        "summary_cards": summary_cards[:6],
+        "primary_table": _frame_to_table(detail_df, title="Attributed order detail", limit=MAX_ROWS),
+        "secondary_table": _frame_to_table(secondary_df, title="Top customers in slice", limit=20),
+        "rows_available": detail_rows,
+        "narrative": narrative,
+        "empty_message": "No attributed sales rep detail matched the drilled context under the current ownership model and RBAC scope.",
+    }
+
+
 def build_workspace_model(context: Mapping[str, Any], *, user_obj: Any) -> dict[str, Any]:
     _assert_context_permissions(context, user_obj=user_obj)
     extra = (context.get("extra") or {}) if isinstance(context.get("extra"), Mapping) else {}
@@ -856,6 +1193,8 @@ def build_workspace_model(context: Mapping[str, Any], *, user_obj: Any) -> dict[
         detail = _overview_workspace(context, user_obj=user_obj)
     elif workspace_kind == "narrative":
         detail = _narrative_workspace(context)
+    elif workspace_kind == "salesreps_attributed":
+        detail = _salesreps_workspace(context, user_obj=user_obj)
     else:
         detail = _fact_workspace(context, user_obj=user_obj)
     source_page = _source_page_label(context.get("source_page"))

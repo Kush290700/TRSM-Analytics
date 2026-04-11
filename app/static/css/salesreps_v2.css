@@ -1737,6 +1737,162 @@
   padding-inline: 0.45rem;
 }
 
+.salesreps-v2 .sr-live-map {
+  width: 100%;
+  height: 420px;
+  border-radius: 0 0 1rem 1rem;
+  overflow: hidden;
+}
+
+.salesreps-v2 .sr-map-placeholder {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 0 0 1rem 1rem;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.98));
+  color: #64748b;
+  text-align: center;
+  padding: 1.5rem;
+}
+
+.salesreps-v2 .sr-map-placeholder.active {
+  display: flex;
+}
+
+.salesreps-v2 .sr-map-placeholder-icon {
+  font-size: 2.35rem;
+  color: var(--sr-brand);
+}
+
+.salesreps-v2 .sr-map-legend {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.74rem;
+  color: var(--sr-muted);
+}
+
+.salesreps-v2 .sr-map-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.salesreps-v2 .sr-map-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.salesreps-v2 .sr-map-legend-gradient {
+  width: 42px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(18, 32, 51, 0.08);
+  flex: 0 0 auto;
+}
+
+.salesreps-v2 #srLiveMap canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas-container {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+.salesreps-v2 .maplibregl-ctrl-group,
+.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--sr-ink);
+  border: 1px solid rgba(18, 32, 51, 0.08);
+  box-shadow: 0 16px 36px rgba(18, 32, 51, 0.14);
+}
+
+.salesreps-v2 .sr-map-popup-inner {
+  min-width: 220px;
+  padding: 0.9rem 1rem 0.85rem;
+}
+
+.salesreps-v2 .sr-map-popup-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--sr-ink);
+}
+
+.salesreps-v2 .sr-map-popup-meta,
+.salesreps-v2 .sr-map-popup-row,
+.salesreps-v2 .sr-map-popup-note {
+  color: var(--sr-muted);
+}
+
+.salesreps-v2 .sr-map-popup-meta {
+  font-size: 0.74rem;
+  margin-top: 0.2rem;
+}
+
+.salesreps-v2 .sr-map-popup-divider {
+  height: 1px;
+  margin: 0.55rem 0;
+  background: rgba(18, 32, 51, 0.08);
+}
+
+.salesreps-v2 .sr-map-popup-row {
+  font-size: 0.78rem;
+  margin-bottom: 0.22rem;
+}
+
+.salesreps-v2 .sr-map-popup-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.salesreps-v2 .sr-map-popup-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.14rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.salesreps-v2 .sr-map-popup-badge.is-risk {
+  background: rgba(197, 57, 57, 0.12);
+  color: var(--sr-red);
+}
+
+.salesreps-v2 .sr-map-popup-badge.is-opportunity {
+  background: rgba(15, 140, 90, 0.12);
+  color: var(--sr-green);
+}
+
+.salesreps-v2 .sr-map-popup-badge.is-lost {
+  background: rgba(91, 102, 118, 0.14);
+  color: #44505f;
+}
+
+.salesreps-v2 .sr-map-popup-open {
+  display: inline-flex;
+  margin-top: 0.55rem;
+  color: var(--sr-brand);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.salesreps-v2 .sr-map-popup-open:hover,
+.salesreps-v2 .sr-map-popup-open:focus {
+  color: var(--sr-brand);
+}
+
 @media (max-width: 991.98px) {
   #GlobalFilters.sr-global-filters {
     position: relative;
@@ -1757,5 +1913,9 @@
 
   .salesreps-v2 .sr-top-customers-wrap {
     max-height: 560px;
+  }
+
+  .salesreps-v2 .sr-live-map {
+    height: 360px;
   }
 }

@@ -31,11 +31,32 @@
     global.registerRefreshHandler = (handler) => {
       if (typeof handler !== 'function') return () => {};
       handlers.add(handler);
-      return () => handlers.delete(handler);
+      startEventStream();
+      return () => {
+        handlers.delete(handler);
+        if (!handlers.size && state.eventSource) {
+          try {
+            state.eventSource.close();
+          } catch (err) {
+            /* ignore */
+          }
+          state.eventSource = null;
+          state.sseAttempted = false;
+        }
+      };
     };
 
     global.unregisterRefreshHandler = (handler) => {
       handlers.delete(handler);
+      if (!handlers.size && state.eventSource) {
+        try {
+          state.eventSource.close();
+        } catch (err) {
+          /* ignore */
+        }
+        state.eventSource = null;
+        state.sseAttempted = false;
+      }
     };
 
     global.triggerRefresh = (reason = 'manual') => triggerRefresh(reason);
@@ -195,6 +216,9 @@
       console.info('Live updates disabled by configuration.');
       return;
     }
+    if (!handlers.size) {
+      return;
+    }
     if (state.eventSource || state.sseAttempted) {
       return;
     }
@@ -248,10 +272,7 @@
 
   function init() {
     state.toastEl = document.getElementById('liveRefreshToast');
-    if (!state.toastEl) {
-      startEventStream();
-      return;
-    }
+    if (!state.toastEl) return;
 
     if (window.bootstrap?.Toast) {
       state.toast = bootstrap.Toast.getOrCreateInstance(state.toastEl, { autohide: false });

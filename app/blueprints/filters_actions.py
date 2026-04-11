@@ -25,6 +25,7 @@ _FILTER_KEYS = {
     "date_preset",
     "preset",
     "range_preset",
+    "date_type",
     "status",
     "statuses",
     "order_status",

@@ -120,7 +120,17 @@ def test_products_page_flag_switch(products_client):
     assert b"executionLayerContext" in resp_v4.data
     assert b"assortmentLayerContext" in resp_v4.data
     assert b"tableLayerContext" in resp_v4.data
+    assert b"rootCauseHeadline" in resp_v4.data
+    assert b"alertCandidateList" in resp_v4.data
+    assert b"elasticGuardrailList" in resp_v4.data
+    assert b"pricingAlertCandidateList" in resp_v4.data
+    assert b"decisionWorkbenchPanel" in resp_v4.data
+    assert b"stagedActionsList" in resp_v4.data
+    assert b"tableViewPresets" in resp_v4.data
     assert b"productIntelPanel" in resp_v4.data
+    assert b"insightTopProductContext" in resp_v4.data
+    assert b"velocityPulseMeta" in resp_v4.data
+    assert b"productIntelClose" in resp_v4.data
 
 
 @pytest.mark.parametrize(
@@ -144,6 +154,13 @@ def test_products_api_endpoints_ok(products_client, endpoint):
 
 def test_products_recommendations_api(products_client):
     resp = products_client.get("/products/api/recommendations", query_string={"product_id": "SKU-001"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data.get("ok") is True
+
+
+def test_products_table_elastic_risk_filter(products_client):
+    resp = products_client.get("/products/api/table", query_string={"quick_filters": "elastic_risk"})
     assert resp.status_code == 200
     data = resp.get_json()
     assert data.get("ok") is True

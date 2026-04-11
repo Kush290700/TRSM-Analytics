@@ -13,6 +13,8 @@
   let controller = null;
   let bootstrapped = false;
   let lastFetchKey = "";
+  let fetchSeq = 0;
+  let currentApplyId = null;
 
   let trendLabels = [];
   let trendRevenue = [];
@@ -383,10 +385,28 @@
     renderChurnRows(churnRows);
   };
 
-  const dispatchApplied = () => {
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = null;
+    return applyId;
+  };
+
+  const dispatchApplied = (detail = {}) => {
+    const payload = {
+      page: "region_drilldown",
+      qs: filterQs,
+      region_id: regionId,
+      ...detail,
+    };
+    const applyId = consumeApplyId();
+    if (applyId && !payload.applyId) payload.applyId = applyId;
     try {
-      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: { page: "region_drilldown" } }));
-    } catch (err) {
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(payload);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+    } catch (_err) {
       /* ignore */
     }
   };
@@ -398,6 +418,7 @@
       return;
     }
     lastFetchKey = requestQs;
+    const requestId = ++fetchSeq;
 
     if (controller) controller.abort();
     controller = new AbortController();
@@ -423,6 +444,7 @@
       if (err?.name === "AbortError") return;
       console.error("region drilldown bundle failed", err);
     } finally {
+      if (requestId !== fetchSeq) return;
       dispatchApplied();
     }
   };
@@ -475,10 +497,12 @@
     applyFilters(nextQs || filterQs);
   };
 
-  window.addEventListener("globalFilters:apply", (evt) => {
+  const onApply = (evt) => {
+    currentApplyId = evt?.detail?.applyId || null;
     const nextQs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(nextQs);
-  });
+  };
+  window.addEventListener("globalFilters:apply", onApply);
   window.addEventListener("globalFilters:ready", (evt) => {
     const nextQs = (evt?.detail && evt.detail.qs) || "";
     bootstrap(nextQs);

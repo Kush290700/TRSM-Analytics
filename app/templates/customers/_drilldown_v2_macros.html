@@ -55,6 +55,9 @@
     </div>
     <div class="ciw-score-band">{{ item.get('band') }}</div>
     <p class="ciw-score-detail">{{ item.get('detail') }}</p>
+    {% if item.get('implication') %}
+      <p class="ciw-score-implication">{{ item.get('implication') }}</p>
+    {% endif %}
   </article>
 {%- endmacro %}
 
@@ -86,11 +89,20 @@
       {% if action.get('margin_upside_pp') is not none %}
         <div><dt>Margin Upside</dt><dd>{{ fmt_value(action.get('margin_upside_pp'), 'percent') }}</dd></div>
       {% endif %}
+      {% if action.get('scope_label') %}
+        <div><dt>Scope</dt><dd>{{ action.get('scope_label') }}</dd></div>
+      {% endif %}
+      {% if action.get('pathway_label') %}
+        <div><dt>Drill Path</dt><dd>{{ action.get('pathway_label') }}</dd></div>
+      {% endif %}
     </dl>
-    {% if action.get('related_products') or action.get('related_categories') %}
+    {% if action.get('related_products') or action.get('related_categories') or action.get('related_families') %}
       <div class="ciw-action-tags">
         {% for label in action.get('related_products') or [] %}
           <span class="ciw-pill">{{ label }}</span>
+        {% endfor %}
+        {% for label in action.get('related_families') or [] %}
+          <span class="ciw-pill ciw-pill--info">{{ label }}</span>
         {% endfor %}
         {% for label in action.get('related_categories') or [] %}
           <span class="ciw-pill ciw-pill--soft">{{ label }}</span>

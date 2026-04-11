@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Iterable, List, Sequence, Dict, Any, Mapping
 
 from datetime import datetime, timedelta, timezone, date
-from sqlalchemy import Column, Integer, String, create_engine, select, Boolean, DateTime, text, Index, ForeignKey, Date, func
+from sqlalchemy import Column, Integer, String, create_engine, select, Boolean, DateTime, text, Index, ForeignKey, Date, func, insert
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from sqlalchemy.types import Text
 from flask_login import UserMixin
@@ -749,8 +749,26 @@ def init_auth_db() -> None:
                     """,
                     "ensure user_scope_groups",
                 )
+                _safe_exec(
+                    conn,
+                    """
+                    CREATE TABLE IF NOT EXISTS login_attempts (
+                        id INTEGER PRIMARY KEY,
+                        username VARCHAR(150) NOT NULL,
+                        ip VARCHAR(64) NOT NULL,
+                        ts DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        success BOOLEAN NOT NULL DEFAULT 0
+                    )
+                    """,
+                    "ensure login_attempts",
+                )
                 _safe_exec(conn, "CREATE UNIQUE INDEX IF NOT EXISTS ix_roles_name ON roles(name)", "index roles.name")
                 _safe_exec(conn, "CREATE UNIQUE INDEX IF NOT EXISTS ix_permissions_key ON permissions(key)", "index permissions.key")
+                _safe_exec(
+                    conn,
+                    "CREATE INDEX IF NOT EXISTS ix_login_attempts_username ON login_attempts(username)",
+                    "index login_attempts.username",
+                )
                 _safe_exec(
                     conn,
                     "CREATE UNIQUE INDEX IF NOT EXISTS ux_role_permissions_pair ON role_permissions(role_id, permission_id)",
@@ -1257,17 +1275,26 @@ def _ensure_role_row(session, role_name: str) -> Optional[Role]:
     return role
 
 
+def _sqlite_insert_or_ignore(session: Any, model: Any, values: Mapping[str, Any]) -> bool:
+    result = session.execute(insert(model).values(**dict(values)).prefix_with("OR IGNORE"))
+    try:
+        return int(result.rowcount or 0) > 0
+    except Exception:
+        return False
+
+
 def sync_permissions() -> dict[str, int]:
     """Converge system permissions, role mappings, and user-role backfills.
 
-    This only inserts missing data and updates descriptions. It never deletes
-    existing role-permission links so custom grants cannot be lost.
+    Inserts missing data, updates descriptions, and applies targeted cleanup
+    for system-role permissions that must remain read-only by default.
     """
 
     now = datetime.now(timezone.utc)
     created_roles = 0
     created_permissions = 0
     created_role_permissions = 0
+    removed_role_permissions = 0
     created_user_roles = 0
     created_scope_rules = 0
 
@@ -1348,9 +1375,50 @@ def sync_permissions() -> dict[str, int]:
                 pair = (int(role_obj.id), int(perm_obj.id))
                 if pair in existing_pairs:
                     continue
-                s.add(RolePermission(role_id=int(role_obj.id), permission_id=int(perm_obj.id), created_at=now))
-                existing_pairs.add(pair)
-                created_role_permissions += 1
+                if _sqlite_insert_or_ignore(
+                    s,
+                    RolePermission,
+                    {"role_id": int(role_obj.id), "permission_id": int(perm_obj.id), "created_at": now},
+                ):
+                    existing_pairs.add(pair)
+                    created_role_permissions += 1
+
+        restricted_role_permissions = {
+            "owner": {"admin.roles.manage", "admin.permissions.manage"},
+            "gm": {"admin.roles.manage", "admin.permissions.manage"},
+            "production": {
+                "page.customers.view",
+                "page.customers.drilldown.view",
+                "export.customers",
+                "feature.customers.dashboard.view",
+            },
+        }
+        for role_name, restricted_keys in restricted_role_permissions.items():
+            role_obj = roles_by_name.get(role_name)
+            if role_obj is None or getattr(role_obj, "id", None) is None:
+                continue
+            permission_ids = [
+                int(perm_obj.id)
+                for perm_key in restricted_keys
+                for perm_obj in [perms_by_key.get(perm_key)]
+                if perm_obj is not None and getattr(perm_obj, "id", None) is not None
+            ]
+            if not permission_ids:
+                continue
+            removed = (
+                s.query(RolePermission)
+                .filter(
+                    RolePermission.role_id == int(role_obj.id),
+                    RolePermission.permission_id.in_(permission_ids),
+                )
+                .delete(synchronize_session=False)
+            )
+            if removed:
+                removed_role_permissions += int(removed)
+                existing_pairs = {
+                    pair for pair in existing_pairs
+                    if not (pair[0] == int(role_obj.id) and pair[1] in permission_ids)
+                }
 
         role_ids = {
             name: int(role.id)
@@ -1369,9 +1437,13 @@ def sync_permissions() -> dict[str, int]:
                 continue
             pair = (int(user.id), int(role_id))
             if pair not in existing_user_roles:
-                s.add(UserRole(user_id=int(user.id), role_id=int(role_id), created_at=now))
-                existing_user_roles.add(pair)
-                created_user_roles += 1
+                if _sqlite_insert_or_ignore(
+                    s,
+                    UserRole,
+                    {"user_id": int(user.id), "role_id": int(role_id), "created_at": now},
+                ):
+                    existing_user_roles.add(pair)
+                    created_user_roles += 1
 
         for user in users:
             canonical = _canonical_role_name(getattr(user, "role", None))
@@ -1398,16 +1470,18 @@ def sync_permissions() -> dict[str, int]:
             )
             if has_visibility:
                 continue
-            s.add(
-                UserScopeRule(
-                    user_id=int(user.id),
-                    scope_type="rep",
-                    scope_value=rep_id,
-                    scope_mode="allow",
-                    created_at=now,
-                )
-            )
-            created_scope_rules += 1
+            if _sqlite_insert_or_ignore(
+                s,
+                UserScopeRule,
+                {
+                    "user_id": int(user.id),
+                    "scope_type": "rep",
+                    "scope_value": rep_id,
+                    "scope_mode": "allow",
+                    "created_at": now,
+                },
+            ):
+                created_scope_rules += 1
 
         s.commit()
 
@@ -1415,6 +1489,7 @@ def sync_permissions() -> dict[str, int]:
         "roles_created": created_roles,
         "permissions_created": created_permissions,
         "role_permissions_created": created_role_permissions,
+        "role_permissions_removed": removed_role_permissions,
         "user_roles_created": created_user_roles,
         "scope_rules_created": created_scope_rules,
     }

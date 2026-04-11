@@ -290,6 +290,30 @@ def test_analysis_sections_use_readable_owner_names(monkeypatch):
                 "text_2": rep_uuid,
             },
             {
+                "dataset": "map_customer",
+                "key": "C-3",
+                "label": "Mapped Customer",
+                "secondary_label": rep_uuid,
+                "metric_1": 875.0,
+                "metric_2": 210.0,
+                "metric_3": 90.0,
+                "metric_4": 11.2,
+                "metric_5": 6.5,
+                "metric_6": 3.0,
+                "metric_7": 440.0,
+                "metric_8": 180.0,
+                "metric_9": 120.0,
+                "text_1": "Victoria",
+                "text_2": rep_uuid,
+                "delivery_lat": 48.4284,
+                "delivery_lng": -123.3656,
+                "delivery_city": "Victoria",
+                "delivery_province": "BC",
+                "shipping_method": "Truck",
+                "last_order_date": "2026-03-05",
+                "days_since_order": 12,
+            },
+            {
                 "dataset": "transfer_pair",
                 "key": rep_uuid,
                 "label": rep_uuid,
@@ -315,6 +339,11 @@ def test_analysis_sections_use_readable_owner_names(monkeypatch):
     assert sections["top_customers"][0]["orders"] == pytest.approx(4.0, abs=0.01)
     assert sections["top_customers"][0]["beef_revenue"] == pytest.approx(600.0, abs=0.01)
     assert sections["top_customers"][0]["poultry_revenue"] == pytest.approx(0.0, abs=0.01)
+    assert sections["map_customers"][0]["customer_name"] == "Mapped Customer"
+    assert sections["map_customers"][0]["account_owner_name"] == "Scott Switzer"
+    assert sections["map_customers"][0]["delivery_lat"] == pytest.approx(48.4284, abs=0.0001)
+    assert sections["map_customers"][0]["delivery_lng"] == pytest.approx(-123.3656, abs=0.0001)
+    assert sections["map_customers"][0]["shipping_method"] == "Truck"
     assert sections["customer_movers"]["up"][0]["account_owner_id"] == rep_uuid
     assert sections["customer_movers"]["up"][0]["account_owner_name"] == "Scott Switzer"
     assert sections["replacement_pairs"][0]["current_owner_key"] == rep_uuid

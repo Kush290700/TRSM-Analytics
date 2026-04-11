@@ -178,12 +178,41 @@ def test_salesreps_sorting_is_deterministic(app_client, seed_salesreps_v2, monke
     assert asc_rows[0]["rep_id"] != desc_rows[0]["rep_id"]
 
 
+def test_salesreps_bundle_exposes_health_and_profit_per_order(app_client, seed_salesreps_v2, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _admin_scope())
+
+    resp = app_client.get(
+        "/api/salesreps/bundle",
+        query_string={
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "sort": "ppo",
+            "dir": "desc",
+            "page_size": 10,
+        },
+    )
+    assert resp.status_code == 200
+    rows = (resp.get_json() or {}).get("table", {}).get("rows", [])
+    assert rows
+
+    first = rows[0]
+    assert "health_score" in first
+    assert "health_components" in first
+    assert isinstance(first["health_components"], dict)
+    assert 0 <= float(first["health_score"] or 0) <= 100
+    assert int(first.get("invoice_count") or 0) > 0
+    assert float(first.get("profit_per_order") or 0.0) > 0
+
+    ppo_values = [float(row.get("profit_per_order") or 0.0) for row in rows]
+    assert ppo_values == sorted(ppo_values, reverse=True)
+
+
 def test_salesreps_page_renders_with_flag_on_off(app_client, monkeypatch):
     monkeypatch.setitem(app_client.application.config, "SALESREPS_V2", False)
     legacy = app_client.get("/salesreps/")
     assert legacy.status_code == 200
     legacy_body = legacy.get_data(as_text=True)
-    assert "Unified KPIs, drilldowns, and trends" in legacy_body
+    assert "Unified KPIs, linked detail views, and trends" in legacy_body
     assert "Current Owner Roll-Up" not in legacy_body
 
     monkeypatch.setitem(app_client.application.config, "SALESREPS_V2", True)

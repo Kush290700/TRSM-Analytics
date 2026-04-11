@@ -12,6 +12,7 @@ from flask import current_app
 from app.core import access_policy
 from app.services import fact_store, products_bundle
 from app.services import filters_service
+from app.services import margin_rules
 from app.services.bundle_cache import cached_bundle
 from app.services import presentation
 
@@ -240,11 +241,14 @@ def _product_row_query(product_id: str, filters: Any, scope: Dict[str, Any]) -> 
         return pd.DataFrame(), None, None
 
     exprs = products_bundle._product_exprs(cols)
+    family_exprs = products_bundle._family_exprs(cols)
     product_key_expr = exprs["product_key_expr"]
     prod_id_expr = exprs["prod_id_expr"]
     sku_expr = exprs["sku_expr"]
     product_name_expr = exprs["product_name_expr"]
     display_name_expr = exprs["display_name_expr"]
+    protein_expr = family_exprs["protein_expr"]
+    category_expr = family_exprs["category_expr"]
     customer_name_expr = (
         f"COALESCE({customer_name_col}, {customer_id_col})" if customer_name_col else f"{customer_id_col}"
     )
@@ -269,6 +273,8 @@ def _product_row_query(product_id: str, filters: Any, scope: Dict[str, Any]) -> 
                 {sku_expr} AS sku,
                 {product_name_expr} AS product_name,
                 {display_name_expr} AS display_name,
+                {protein_expr} AS protein_family,
+                {category_expr} AS product_category,
                 {customer_id_col}::VARCHAR AS customer_id,
                 {customer_name_expr}::VARCHAR AS customer_name,
                 {order_id_col}::VARCHAR AS order_id,
@@ -297,6 +303,8 @@ def _product_row_query(product_id: str, filters: Any, scope: Dict[str, Any]) -> 
             sku,
             product_name,
             display_name,
+            protein_family,
+            product_category,
             customer_id,
             customer_name,
             order_id,
@@ -326,6 +334,17 @@ def _product_row_query(product_id: str, filters: Any, scope: Dict[str, Any]) -> 
     margin_vals = np.full(revenue_vals.shape, np.nan, dtype=float)
     np.divide(profit_vals, revenue_vals, out=margin_vals, where=revenue_vals != 0.0)
     df["margin_pct"] = margin_vals * 100.0
+    df = margin_rules.annotate_margin_frame(
+        df,
+        protein_col="protein_family",
+        category_col="product_category",
+        revenue_col="revenue",
+        cost_col="cost",
+        profit_col="profit",
+        margin_col="margin_pct",
+        unit_cost_col="unit_cost",
+        unit_price_col="asp_lb",
+    )
     return df, start_iso, end_iso
 
 
@@ -358,6 +377,119 @@ def _scope_window_totals(filters: Any, scope: Dict[str, Any]) -> Dict[str, float
     return {
         "total_revenue": _clean_num(row.get("total_revenue")),
         "active_customers": _clean_num(row.get("active_customers")),
+    }
+
+
+def _family_peer_context(product_id: str, filters: Any, scope: Dict[str, Any], rows_df: pd.DataFrame) -> Dict[str, Any]:
+    if rows_df.empty:
+        return {}
+
+    family = _coalesce_text(rows_df, "protein_family", "product_category", fallback="").iloc[0]
+    category = _coalesce_text(rows_df, "product_category", "protein_family", fallback="").iloc[0]
+    family_value = str(family or "").strip()
+    category_value = str(category or "").strip()
+    if not family_value and not category_value:
+        return {}
+
+    cols = fact_store.list_columns()
+    date_col = products_bundle._safe_col(cols, products_bundle.fs.CANON.date, "Date")
+    revenue_col = products_bundle._safe_col(cols, products_bundle.fs.CANON.revenue, "Revenue")
+    cost_expr = products_bundle._coalesce_expr(cols, (products_bundle.fs.CANON.cost, "Cost", "CostPrice"), "NULL")
+    qty_expr = products_bundle._coalesce_expr(
+        cols,
+        (
+            products_bundle.fs.CANON.qty_units,
+            "ShippedItems",
+            "QuantityOrdered",
+            "Qty",
+            "Quantity",
+            "Units",
+            "ItemCount",
+        ),
+        "0",
+    )
+    weight_expr = products_bundle._coalesce_expr(
+        cols,
+        (products_bundle.fs.CANON.weight_lb, "Weight", "WeightLb", "ShippedLb", "pack_weight_lb_sum"),
+        "0",
+    )
+    if not date_col or not revenue_col:
+        return {
+            "protein_family": family_value or None,
+            "product_category": category_value or None,
+        }
+
+    exprs = products_bundle._product_exprs(cols)
+    family_exprs = products_bundle._family_exprs(cols)
+    normalized = _normalized_filters(filters)
+    where_sql, where_params, _start_iso, _end_iso = fact_store.build_where_clause(
+        normalized,
+        cols,
+        scope,
+        apply_default_window=True,
+    )
+
+    sql = f"""
+        WITH scoped AS (
+            SELECT
+                {exprs["product_key_expr"]} AS product_id,
+                {exprs["display_name_expr"]} AS display_name,
+                {family_exprs["protein_expr"]} AS protein_family,
+                {family_exprs["category_expr"]} AS product_category,
+                CAST({revenue_col} AS DOUBLE) AS revenue,
+                CAST({cost_expr} AS DOUBLE) AS cost,
+                CAST({qty_expr} AS DOUBLE) AS units,
+                CAST({weight_expr} AS DOUBLE) AS weight_lb
+            FROM fact
+            WHERE {where_sql}
+        ),
+        peers AS (
+            SELECT
+                product_id,
+                ANY_VALUE(display_name) AS display_name,
+                SUM(revenue) AS revenue,
+                SUM(cost) AS cost,
+                SUM(units) AS units,
+                SUM(weight_lb) AS weight_lb
+            FROM scoped
+            WHERE product_id <> ?
+              AND (
+                protein_family = ?
+                OR product_category = ?
+              )
+            GROUP BY 1
+        )
+        SELECT
+            COUNT(*) AS peer_count,
+            MEDIAN(
+                CASE
+                    WHEN weight_lb > 0 THEN revenue / NULLIF(weight_lb, 0)
+                    WHEN units > 0 THEN revenue / NULLIF(units, 0)
+                    ELSE NULL
+                END
+            ) AS peer_asp_lb,
+            MEDIAN({margin_rules.sql_effective_margin_expr("revenue", "cost", "weight_lb", "units", fallback="NULL")}) AS peer_margin_pct,
+            (SELECT display_name FROM peers ORDER BY revenue DESC NULLS LAST LIMIT 1) AS top_peer_display,
+            (SELECT revenue FROM peers ORDER BY revenue DESC NULLS LAST LIMIT 1) AS top_peer_revenue
+        FROM peers
+    """
+    params = list(where_params) + [product_id, family_value or category_value, category_value or family_value]
+    peer_df = fact_store.execute_sql_df(sql, params, tag="products.drilldown.v2.family_peers")
+    if peer_df.empty:
+        return {
+            "protein_family": family_value or None,
+            "product_category": category_value or None,
+        }
+
+    peer_row = peer_df.iloc[0]
+    return {
+        "protein_family": family_value or None,
+        "product_category": category_value or None,
+        "peer_count": int(peer_row.get("peer_count") or 0),
+        "peer_asp_lb": _safe_float(peer_row.get("peer_asp_lb")),
+        "peer_margin_pct": _safe_float(peer_row.get("peer_margin_pct")),
+        "top_peer_display": peer_row.get("top_peer_display"),
+        "top_peer_revenue": _clean_num(peer_row.get("top_peer_revenue")),
     }
 
 
@@ -809,9 +941,33 @@ def build_customer_breakdowns(rows_df: pd.DataFrame) -> Dict[str, Any]:
     total_weight = float(grouped["weight_lb"].sum() or 0.0)
     positive_profit = grouped["profit"].clip(lower=0.0)
     total_positive_profit = float(positive_profit.sum() or 0.0)
-    grouped["revenue_share_pct"] = np.where(total_revenue > 0.0, grouped["revenue"] / total_revenue * 100.0, 0.0)
-    grouped["weight_share_pct"] = np.where(total_weight > 0.0, grouped["weight_lb"] / total_weight * 100.0, 0.0)
-    grouped["profit_share_pct"] = np.where(total_positive_profit > 0.0, positive_profit / total_positive_profit * 100.0, 0.0)
+    revenue_share = np.zeros(len(grouped.index), dtype=float)
+    weight_share = np.zeros(len(grouped.index), dtype=float)
+    profit_share = np.zeros(len(grouped.index), dtype=float)
+    if total_revenue > 0.0:
+        np.divide(
+            grouped["revenue"].to_numpy(dtype=float),
+            total_revenue,
+            out=revenue_share,
+        )
+        revenue_share *= 100.0
+    if total_weight > 0.0:
+        np.divide(
+            grouped["weight_lb"].to_numpy(dtype=float),
+            total_weight,
+            out=weight_share,
+        )
+        weight_share *= 100.0
+    if total_positive_profit > 0.0:
+        np.divide(
+            positive_profit.to_numpy(dtype=float),
+            total_positive_profit,
+            out=profit_share,
+        )
+        profit_share *= 100.0
+    grouped["revenue_share_pct"] = revenue_share
+    grouped["weight_share_pct"] = weight_share
+    grouped["profit_share_pct"] = profit_share
 
     first_order_dt = grouped["first_order_date"]
     current_start = end_dt - pd.Timedelta(days=27)
@@ -946,6 +1102,8 @@ def build_quality_flags(rows_df: pd.DataFrame) -> Dict[str, Any]:
             "missing_cost_rows": 0,
             "missing_cost_revenue": 0.0,
             "missing_pack_rows": 0,
+            "needs_protein_mapping_rows": 0,
+            "needs_protein_mapping_revenue": 0.0,
         }
 
     cost_series = pd.to_numeric(rows_df.get("cost"), errors="coerce")
@@ -961,12 +1119,25 @@ def build_quality_flags(rows_df: pd.DataFrame) -> Dict[str, Any]:
             missing_pack_rows = int(pd.Series(rows_df["missing_packs"]).fillna(False).astype(bool).sum())
         except Exception:
             missing_pack_rows = 0
+    protein_series = _coalesce_text(rows_df, "protein_family", "product_category", fallback="")
+    category_series = _coalesce_text(rows_df, "product_category", "protein_family", fallback="")
+    mapping_needed_mask = pd.Series(
+        [
+            bool(margin_rules.resolve_margin_rule(protein=protein, category=category).get("needs_protein_mapping") or not margin_rules.resolve_margin_rule(protein=protein, category=category).get("mapped"))
+            for protein, category in zip(protein_series.tolist(), category_series.tolist())
+        ],
+        index=rows_df.index,
+        dtype="bool",
+    )
+    mapping_needed_revenue = float(revenue_series[mapping_needed_mask].sum()) if len(mapping_needed_mask.index) else 0.0
 
     return {
         "cost_coverage_pct": coverage_pct,
         "missing_cost_rows": int(missing_mask.sum()),
         "missing_cost_revenue": missing_revenue,
         "missing_pack_rows": missing_pack_rows,
+        "needs_protein_mapping_rows": int(mapping_needed_mask.sum()),
+        "needs_protein_mapping_revenue": mapping_needed_revenue,
     }
 
 
@@ -1534,11 +1705,32 @@ def build_basket_affinity(product_id: str, filters: Any, current_user_obj: Any) 
     df["co_orders"] = pd.to_numeric(df["co_orders"], errors="coerce").fillna(0.0)
     df["paired_revenue"] = pd.to_numeric(df["paired_revenue"], errors="coerce").fillna(0.0)
     df["orders_with_other"] = pd.to_numeric(df["orders_with_other"], errors="coerce").fillna(0.0)
-    overall_support = np.where(total_orders > 0, df["orders_with_other"] / float(total_orders), np.nan)
-    df["support"] = np.where(total_orders > 0, df["co_orders"] / float(total_orders), np.nan)
+    overall_support = np.full(len(df.index), np.nan, dtype=float)
+    support = np.full(len(df.index), np.nan, dtype=float)
+    confidence = np.full(len(df.index), np.nan, dtype=float)
+    lift = np.full(len(df.index), np.nan, dtype=float)
+    if total_orders > 0:
+        np.divide(
+            df["orders_with_other"].to_numpy(dtype=float),
+            float(total_orders),
+            out=overall_support,
+        )
+        np.divide(
+            df["co_orders"].to_numpy(dtype=float),
+            float(total_orders),
+            out=support,
+        )
+    if base_orders > 0:
+        np.divide(
+            df["co_orders"].to_numpy(dtype=float),
+            float(base_orders),
+            out=confidence,
+        )
+    np.divide(confidence, overall_support, out=lift, where=overall_support > 0.0)
+    df["support"] = support
     df["overall_support"] = overall_support
-    df["confidence"] = np.where(base_orders > 0, df["co_orders"] / float(base_orders), np.nan)
-    df["lift"] = np.where(overall_support > 0, df["confidence"] / overall_support, np.nan)
+    df["confidence"] = confidence
+    df["lift"] = lift
     df["display_name"] = df.apply(
         lambda row: presentation.format_product_label(row.get("sku"), row.get("product_name") or row.get("display_name"), fallback=str(row.get("product_id") or "Associated Product")),
         axis=1,
@@ -1861,22 +2053,28 @@ def _price_volume_payload(rows_df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def _margin_risk_rows(customers_rows: List[Dict[str, Any]], target_margin_pct: float = 27.0) -> List[Dict[str, Any]]:
+def _margin_risk_rows(customers_rows: List[Dict[str, Any]], target_margin_pct: float | None = None) -> List[Dict[str, Any]]:
     enriched: List[Dict[str, Any]] = []
     for row in customers_rows:
         if not isinstance(row, dict):
             continue
+        row_target_margin_pct = _safe_float(row.get("target_margin_pct"))
+        if row_target_margin_pct is None:
+            row_target_margin_pct = _safe_float(target_margin_pct)
         revenue = _clean_num(row.get("revenue"))
         margin_pct = _safe_float(row.get("margin_pct"))
-        gap_pp = (target_margin_pct - margin_pct) if margin_pct is not None else None
+        gap_pp = (row_target_margin_pct - margin_pct) if margin_pct is not None and row_target_margin_pct is not None else None
         if gap_pp is not None and gap_pp <= 0:
             continue
         uplift = (revenue * max(0.0, gap_pp or 0.0) / 100.0) if margin_pct is not None else None
         out = dict(row)
-        out["target_margin_pct"] = target_margin_pct
+        out["target_margin_pct"] = row_target_margin_pct
         out["target_gap_pp"] = gap_pp
         out["uplift_to_target"] = uplift
-        out["risk_tone"] = "risk" if _clean_num(gap_pp) >= 10.0 else "warn"
+        status = margin_rules.classify_margin_status(margin_pct, row.get("minimum_margin_pct"), row_target_margin_pct)
+        out["risk_tone"] = "risk" if status.get("status_key") in {"red", "orange"} else "warn"
+        out["target_status"] = status.get("target_status")
+        out["status_key"] = status.get("status_key")
         enriched.append(out)
     enriched.sort(key=lambda item: (_clean_num(item.get("uplift_to_target")), _clean_num(item.get("revenue"))), reverse=True)
     return enriched
@@ -2292,6 +2490,7 @@ def _build_kpis(
         return {}
 
     revenue = float(pd.to_numeric(rows_df["revenue"], errors="coerce").fillna(0.0).sum())
+    base_cost_series = pd.to_numeric(rows_df.get("base_cost"), errors="coerce")
     cost = float(pd.to_numeric(rows_df["cost"], errors="coerce").sum())
     # Profit should follow the row-level cost coverage rules instead of assuming missing costs are zero.
     profit = float(pd.to_numeric(rows_df["profit"], errors="coerce").sum())
@@ -2302,6 +2501,9 @@ def _build_kpis(
     margin_pct = (profit / revenue * 100.0) if revenue else None
     asp = (revenue / units) if units else None
     asp_lb = (revenue / weight_lb) if weight_lb else None
+    base_cost = float(base_cost_series.sum()) if base_cost_series.notna().any() else None
+    cost_per_lb = (cost / weight_lb) if weight_lb and cost is not None else None
+    base_cost_per_lb = (base_cost / weight_lb) if weight_lb and base_cost is not None else None
     profit_per_lb = (profit / weight_lb) if weight_lb else None
     rev_per_customer = (revenue / customers) if customers else None
 
@@ -2412,7 +2614,9 @@ def _build_kpis(
 
     return {
         "revenue": revenue,
+        "base_cost": base_cost,
         "cost": cost,
+        "effective_cost": cost,
         "profit": profit,
         "gross_margin_value": profit,
         "margin_pct": margin_pct,
@@ -2422,6 +2626,9 @@ def _build_kpis(
         "weight_lb": weight_lb,
         "asp": asp,
         "asp_lb": asp_lb,
+        "base_cost_per_lb": base_cost_per_lb,
+        "cost_per_lb": cost_per_lb,
+        "effective_cost_per_lb": cost_per_lb,
         "revenue_per_lb": asp_lb,
         "profit_per_lb": profit_per_lb,
         "revenue_per_customer": rev_per_customer,
@@ -2510,6 +2717,7 @@ def _context_builder(product_id: str, filters: Any, current_user_obj: Any) -> Di
     ship_methods = _group_breakdown(rows_df, "ship_method", "Ship Method")
     basket = build_basket_affinity(product_id, filters, current_user_obj)
     scope_totals = _scope_window_totals(filters, scope)
+    family_context = _family_peer_context(product_id, filters, scope, rows_df)
     kpis = _build_kpis(
         rows_df,
         monthly_rows,
@@ -2519,12 +2727,68 @@ def _context_builder(product_id: str, filters: Any, current_user_obj: Any) -> Di
         distributions=distributions,
         end_iso=end_iso,
     )
+    peer_asp_lb = _safe_float(family_context.get("peer_asp_lb"))
+    peer_margin_pct = _safe_float(family_context.get("peer_margin_pct"))
+    if peer_asp_lb is not None and kpis.get("asp_lb") is not None:
+        family_context["asp_vs_peer_pct"] = ((float(kpis.get("asp_lb")) - peer_asp_lb) / peer_asp_lb * 100.0) if peer_asp_lb else None
+    else:
+        family_context["asp_vs_peer_pct"] = None
+    if peer_margin_pct is not None and kpis.get("margin_pct") is not None:
+        family_context["margin_vs_peer_pp"] = float(kpis.get("margin_pct")) - peer_margin_pct
+    else:
+        family_context["margin_vs_peer_pp"] = None
+    margin_profile = margin_rules.evaluate_margin_record(
+        protein=family_context.get("protein_family"),
+        category=family_context.get("product_category"),
+        revenue=kpis.get("revenue"),
+        cost=kpis.get("cost"),
+        profit=kpis.get("profit"),
+        margin_pct=kpis.get("margin_pct"),
+        unit_cost=kpis.get("cost_per_lb"),
+        unit_price=kpis.get("asp_lb"),
+        basis_qty=kpis.get("weight_lb") or kpis.get("units"),
+        weight_lb=kpis.get("weight_lb"),
+        qty=kpis.get("units"),
+        base_cost=kpis.get("base_cost"),
+        base_unit_cost=kpis.get("base_cost_per_lb"),
+    )
+    family_context.update(
+        {
+            "rule_family": margin_profile.get("display_family"),
+            "minimum_margin_pct": margin_profile.get("minimum_margin_pct"),
+            "target_margin_pct": margin_profile.get("target_margin_pct"),
+            "min_product_margin_pct": margin_profile.get("min_product_margin_pct"),
+            "target_product_margin_pct": margin_profile.get("target_product_margin_pct"),
+            "base_cost_per_lb": kpis.get("base_cost_per_lb"),
+            "effective_cost_per_lb": kpis.get("cost_per_lb"),
+            "cost_per_lb": kpis.get("cost_per_lb"),
+            "current_price_lb": margin_profile.get("current_price"),
+            "minimum_price_lb": margin_profile.get("minimum_price"),
+            "target_price_lb": margin_profile.get("target_price"),
+            "asp_lb_gap_to_min": margin_profile.get("min_price_gap"),
+            "asp_lb_gap_to_target": margin_profile.get("target_price_gap"),
+            "target_achievement_pct": margin_profile.get("target_achievement_pct"),
+            "target_gap_pct_points": margin_profile.get("target_gap_pct_points"),
+            "minimum_gap_pct_points": margin_profile.get("minimum_gap_pct_points"),
+            "target_status": margin_profile.get("target_status"),
+            "status_key": margin_profile.get("status_key"),
+            "status_tone": margin_profile.get("status_tone"),
+        }
+    )
     performance_story = _performance_story(rows_df, end_iso)
     price_volume = _price_volume_payload(rows_df)
-    margin_risk_rows = _margin_risk_rows(customers.get("rows") or [], target_margin_pct=27.0)
+    customer_rows = [dict(row) for row in (customers.get("rows") or []) if isinstance(row, dict)]
+    for customer_row in customer_rows:
+        customer_row["target_margin_pct"] = margin_profile.get("target_margin_pct")
+        customer_row["minimum_margin_pct"] = margin_profile.get("minimum_margin_pct")
+    customers["rows"] = customer_rows
+    margin_risk_rows = _margin_risk_rows(customer_rows, target_margin_pct=_safe_float(margin_profile.get("target_margin_pct")))
     margin_risk_summary = _margin_risk_summary(margin_risk_rows, _clean_num(kpis.get("revenue")))
     margin_risk = {
-        "target_margin_pct": 27.0,
+        "target_margin_pct": margin_profile.get("target_margin_pct"),
+        "minimum_margin_pct": margin_profile.get("minimum_margin_pct"),
+        "target_status": margin_profile.get("target_status"),
+        "status_key": margin_profile.get("status_key"),
         "rows": margin_risk_rows,
         "summary": margin_risk_summary,
     }
@@ -2594,6 +2858,17 @@ def _context_builder(product_id: str, filters: Any, current_user_obj: Any) -> Di
             "dependency_score": _clamp(((customers.get("concentration") or {}).get("revenue") or {}).get("top5_share_pct")),
             "margin_risk_exposure_pct": margin_risk_summary.get("revenue_exposure_pct"),
             "margin_uplift_to_target": margin_risk_summary.get("uplift_to_target"),
+            "target_margin_pct": margin_profile.get("target_margin_pct"),
+            "minimum_margin_pct": margin_profile.get("minimum_margin_pct"),
+            "cost_per_lb": kpis.get("cost_per_lb"),
+            "minimum_price_lb": margin_profile.get("minimum_price"),
+            "target_price_lb": margin_profile.get("target_price"),
+            "asp_lb_gap_to_min": margin_profile.get("min_price_gap"),
+            "asp_lb_gap_to_target": margin_profile.get("target_price_gap"),
+            "target_achievement_pct": margin_profile.get("target_achievement_pct"),
+            "target_gap_pct_points": margin_profile.get("target_gap_pct_points"),
+            "minimum_gap_pct_points": margin_profile.get("minimum_gap_pct_points"),
+            "target_status": margin_profile.get("target_status"),
             "data_confidence_score": risk_opportunity.get("data_confidence_score"),
             "data_confidence_label": risk_opportunity.get("data_confidence_label"),
         }
@@ -2607,6 +2882,8 @@ def _context_builder(product_id: str, filters: Any, current_user_obj: Any) -> Di
         "primary_opportunity_detail": (risk_opportunity.get("primary_opportunity") or {}).get("detail"),
         "data_confidence_label": risk_opportunity.get("data_confidence_label"),
         "data_confidence_score": risk_opportunity.get("data_confidence_score"),
+        "target_status": margin_profile.get("target_status"),
+        "status_key": margin_profile.get("status_key"),
     }
     seasonality_export_rows: List[Dict[str, Any]] = []
     seasonality_years = (time_series.get("seasonality") or {}).get("years") or []
@@ -2665,12 +2942,14 @@ def _context_builder(product_id: str, filters: Any, current_user_obj: Any) -> Di
         "regions": regions,
         "suppliers": suppliers,
         "ship_methods": ship_methods,
+        "family_context": family_context,
         "basket": basket,
         "classification": classification,
         "lifecycle": lifecycle,
         "lifecycle_insights": lifecycle_insights,
         "performance_story": performance_story,
         "price_volume": price_volume,
+        "margin_profile": margin_profile,
         "margin_risk": margin_risk,
         "weight_analytics": weight_analytics,
         "decision_panel": decision_panel,

@@ -15,7 +15,7 @@
         <div>
           <div class="text-uppercase small fw-semibold text-primary mb-2">Regional Command Center</div>
           <h2 class="mb-1">Regions Performance</h2>
-          <p class="text-muted mb-0">Revenue, profit, concentration, retention, and momentum across the active filtered regions.</p>
+          <p class="regions-v2-hero-subtitle mb-0">Revenue, profit, concentration, retention, and momentum across the active filtered regions.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
           <a id="regionsV2ExportXlsx" class="btn btn-success btn-sm" href="{{ url_for('regions.export_overview', format='xlsx') }}">
@@ -578,6 +578,9 @@
       radial-gradient(circle at top right, rgba(13, 110, 253, 0.12), transparent 32%),
       linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   }
+  .regions-v2 .regions-v2-hero .regions-v2-hero-subtitle {
+    color: #41576f;
+  }
   .regions-v2 .regions-v2-kpi-grid {
     display: grid;
     gap: 0.85rem;
@@ -612,6 +615,62 @@
   }
   .regions-v2 .table thead th.sortable.asc::after { content: " \2191"; }
   .regions-v2 .table thead th.sortable.desc::after { content: " \2193"; }
+  .regions-v2 .metric-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+  }
+  .regions-v2 .metric-stack-end {
+    align-items: flex-end;
+  }
+  .regions-v2 .metric-sub {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.28rem;
+    font-size: 0.72rem;
+    color: #667085;
+  }
+  .regions-v2 .status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.46rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-size: 0.7rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .regions-v2 .status-red {
+    color: #b42318;
+    background: rgba(180, 35, 24, 0.08);
+    border-color: rgba(180, 35, 24, 0.16);
+  }
+  .regions-v2 .status-orange {
+    color: #b54708;
+    background: rgba(181, 71, 8, 0.08);
+    border-color: rgba(181, 71, 8, 0.16);
+  }
+  .regions-v2 .status-yellow {
+    color: #8a5b00;
+    background: rgba(250, 204, 21, 0.16);
+    border-color: rgba(202, 138, 4, 0.2);
+  }
+  .regions-v2 .status-light-green {
+    color: #15803d;
+    background: rgba(134, 239, 172, 0.2);
+    border-color: rgba(34, 197, 94, 0.18);
+  }
+  .regions-v2 .status-green {
+    color: #027a48;
+    background: rgba(2, 122, 72, 0.08);
+    border-color: rgba(2, 122, 72, 0.16);
+  }
+  .regions-v2 .status-neutral {
+    color: #475467;
+    background: rgba(71, 84, 103, 0.08);
+    border-color: rgba(71, 84, 103, 0.12);
+  }
   .regions-v2 .risk-pill {
     border-radius: 999px;
     font-size: 0.72rem;

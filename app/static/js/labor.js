@@ -1,3 +1,4 @@
+
 (function () {
   const root = document.getElementById("LaborPage");
   const dataNode = document.getElementById("LaborPageData");
@@ -54,10 +55,6 @@
     applyFilters({ [key]: value });
   }
 
-  function setComboFilter(department, category) {
-    applyFilters({ department, time_category: category }, ["department", "time_category"]);
-  }
-
   function setDateWindow(start, end) {
     applyFilters({ start, end });
   }
@@ -75,9 +72,7 @@
 
   function setPage(page) {
     if (!page || page < 1) return;
-    updateUrl((params) => {
-      params.set("page", String(page));
-    });
+    updateUrl((params) => params.set("page", String(page)));
   }
 
   function bindInteractions() {
@@ -88,13 +83,6 @@
         const key = filterTarget.getAttribute("data-param");
         const value = filterTarget.getAttribute("data-value");
         if (key && value) setSingleFilter(key, value);
-        return;
-      }
-
-      const comboTarget = event.target.closest(".js-filter-combo");
-      if (comboTarget) {
-        event.preventDefault();
-        setComboFilter(comboTarget.getAttribute("data-department"), comboTarget.getAttribute("data-category"));
         return;
       }
 
@@ -115,32 +103,45 @@
     });
   }
 
-  function axisConfig(format) {
-    if (format === "currency") return { tickprefix: "$", gridcolor: "#e8eff3" };
-    if (format === "percent") return { ticksuffix: "%", gridcolor: "#e8eff3" };
-    return { gridcolor: "#e8eff3" };
+  function formatValue(value, format = "number", multiplier = 1) {
+    const adjusted = number(value) * multiplier;
+    if (format === "currency") {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: adjusted >= 100 ? 0 : 2,
+      }).format(adjusted);
+    }
+    if (format === "percent") return `${adjusted.toFixed(1)}%`;
+    if (format === "score") return `${adjusted.toFixed(0)}`;
+    if (format === "integer") return `${adjusted.toFixed(0)}`;
+    return `${adjusted.toFixed(1)}`;
   }
 
-  function renderBarChart(
-    targetId,
-    rows,
-    { valueKey, labelKey, clickKey = null, clickParam = null, color = "#0f766e", orientation = "h", format = "number", multiplier = 1 } = {}
-  ) {
+  function baseLayout(extra = {}) {
+    return {
+      margin: { l: 58, r: 24, t: 14, b: 48 },
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      font: { color: "#15313b", family: "inherit" },
+      hovermode: "closest",
+      ...extra,
+    };
+  }
+
+  function renderBarChart(targetId, rows, { valueKey, labelKey, clickParam = null, clickKey = null, color = "#0d766f", format = "number", orientation = "h", multiplier = 1 } = {}) {
     const target = document.getElementById(targetId);
     if (!target || !window.Plotly) return;
     if (!hasRows(rows)) {
-      renderEmpty(target, "No data for this chart.");
+      renderEmpty(target, "No data is available for this chart.");
       return;
     }
 
-    const dataRows = rows.slice();
-    const labels = dataRows.map((row) => row[labelKey] || "Unknown");
-    const values = dataRows.map((row) => number(row[valueKey]) * multiplier);
-    const customdata = dataRows.map((row) => row[clickKey || labelKey] || "Unknown");
+    const values = rows.map((row) => number(row[valueKey]) * multiplier);
+    const labels = rows.map((row) => row[labelKey] || "Unknown");
+    const custom = rows.map((row) => row[clickKey || labelKey] || "Unknown");
+    const texts = values.map((value) => formatValue(value / multiplier, format, multiplier));
     const reversed = orientation === "h";
-    const x = reversed ? values.slice().reverse() : labels;
-    const y = reversed ? labels.slice().reverse() : values;
-    const custom = reversed ? customdata.slice().reverse() : customdata;
 
     Plotly.newPlot(
       target,
@@ -148,23 +149,19 @@
         {
           type: "bar",
           orientation,
-          x,
-          y,
-          customdata: custom,
-          marker: { color, line: { color: "rgba(13, 38, 45, 0.12)", width: 1 } },
-          hovertemplate:
-            orientation === "h"
-              ? "%{y}<br>%{x:,.2f}<extra></extra>"
-              : "%{x}<br>%{y:,.2f}<extra></extra>",
+          x: reversed ? values.slice().reverse() : labels,
+          y: reversed ? labels.slice().reverse() : values,
+          customdata: reversed ? custom.slice().reverse() : custom,
+          text: reversed ? texts.slice().reverse() : texts,
+          marker: { color, line: { color: "rgba(12, 37, 43, 0.14)", width: 1 } },
+          hovertemplate: orientation === "h" ? "%{y}<br>%{text}<extra></extra>" : "%{x}<br>%{text}<extra></extra>",
         },
       ],
-      {
-        margin: orientation === "h" ? { l: 170, r: 20, t: 14, b: 36 } : { l: 50, r: 20, t: 14, b: 90 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        xaxis: orientation === "h" ? axisConfig(format) : { tickangle: -28 },
-        yaxis: orientation === "h" ? { automargin: true } : axisConfig(format),
-      },
+      baseLayout(
+        orientation === "h"
+          ? { xaxis: { gridcolor: "#e6edf1" }, yaxis: { automargin: true } }
+          : { xaxis: { tickangle: -28 }, yaxis: { gridcolor: "#e6edf1" } }
+      ),
       { displayModeBar: false, responsive: true }
     );
 
@@ -181,7 +178,7 @@
     const target = document.getElementById(targetId);
     if (!target || !window.Plotly) return;
     if (!hasRows(rows)) {
-      renderEmpty(target, "No risk rows for this chart.");
+      renderEmpty(target, "No share rows are available.");
       return;
     }
     const limited = rows.slice(0, 12);
@@ -194,7 +191,7 @@
           y: limited.map((row) => number(row.premium_share_pct) * 100),
           name: "Premium %",
           customdata: limited.map((row) => row[clickKey || labelKey] || "Unknown"),
-          marker: { color: "#bf6d1d" },
+          marker: { color: "#b67718" },
           hovertemplate: "%{x}<br>Premium %{y:.1f}%<extra></extra>",
         },
         {
@@ -203,19 +200,11 @@
           y: limited.map((row) => number(row.absence_share_pct) * 100),
           name: "Absence %",
           customdata: limited.map((row) => row[clickKey || labelKey] || "Unknown"),
-          marker: { color: "#b53a2b" },
+          marker: { color: "#bc4935" },
           hovertemplate: "%{x}<br>Absence %{y:.1f}%<extra></extra>",
         },
       ],
-      {
-        barmode: "group",
-        margin: { l: 50, r: 20, t: 14, b: 90 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        xaxis: { tickangle: -28 },
-        yaxis: axisConfig("percent"),
-        legend: { orientation: "h" },
-      },
+      baseLayout({ barmode: "group", xaxis: { tickangle: -28 }, yaxis: { gridcolor: "#e6edf1", ticksuffix: "%" }, legend: { orientation: "h" } }),
       { displayModeBar: false, responsive: true }
     );
     if (clickParam) {
@@ -234,8 +223,6 @@
       renderEmpty(target, "No department comparison is available.");
       return;
     }
-
-    const sized = rows.map((row) => Math.max(12, Math.min(34, number(row.active_employee_count) * 4 || 14)));
     Plotly.newPlot(
       target,
       [
@@ -248,22 +235,16 @@
           textposition: "top center",
           customdata: rows.map((row) => row.department_name || "Unknown"),
           marker: {
-            size: sized,
+            size: rows.map((row) => Math.max(12, Math.min(34, number(row.priority_score) / 3 || 14))),
             color: rows.map((row) => number(row.blended_rate)),
             colorscale: "Tealgrn",
-            line: { color: "rgba(12, 39, 45, 0.15)", width: 1 },
+            line: { color: "rgba(12, 39, 45, 0.18)", width: 1 },
             showscale: false,
           },
           hovertemplate: "%{text}<br>Hours %{x:,.1f}<br>Cost %{y:$,.2f}<extra></extra>",
         },
       ],
-      {
-        margin: { l: 60, r: 20, t: 14, b: 46 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        xaxis: { title: "Paid Hours", gridcolor: "#e8eff3" },
-        yaxis: { title: "Labor Cost", tickprefix: "$", gridcolor: "#e8eff3" },
-      },
+      baseLayout({ xaxis: { title: "Paid Hours", gridcolor: "#e6edf1" }, yaxis: { title: "Labor Cost", tickprefix: "$", gridcolor: "#e6edf1" } }),
       { displayModeBar: false, responsive: true }
     );
     target.on("plotly_click", (event) => {
@@ -277,10 +258,9 @@
     const target = document.getElementById(targetId);
     if (!target || !window.Plotly) return;
     if (!hasRows(rows)) {
-      renderEmpty(target, "No trend data for the active filters.");
+      renderEmpty(target, "No trend data is available.");
       return;
     }
-
     const dates = rows.map((row) => row.labor_date);
     Plotly.newPlot(
       target,
@@ -292,7 +272,7 @@
           x: dates,
           y: rows.map((row) => number(row.labor_cost)),
           customdata: dates,
-          line: { color: "#0f766e", width: 3 },
+          line: { color: "#0d766f", width: 3 },
           hovertemplate: "%{x}<br>Cost %{y:$,.2f}<extra></extra>",
         },
         {
@@ -302,7 +282,7 @@
           x: dates,
           y: rows.map((row) => number(row.paid_hours)),
           yaxis: "y2",
-          line: { color: "#c98a2a", width: 2 },
+          line: { color: "#b67718", width: 2 },
           hovertemplate: "%{x}<br>Hours %{y:,.1f}<extra></extra>",
         },
         {
@@ -311,7 +291,7 @@
           name: "Premium Cost",
           x: dates,
           y: rows.map((row) => number(row.premium_cost)),
-          line: { color: "#bf6d1d", width: 1.5, dash: "dot" },
+          line: { color: "#d48a1d", width: 1.6, dash: "dot" },
           hovertemplate: "%{x}<br>Premium %{y:$,.2f}<extra></extra>",
         },
         {
@@ -320,19 +300,11 @@
           name: "Absence Cost",
           x: dates,
           y: rows.map((row) => number(row.absence_cost)),
-          line: { color: "#b53a2b", width: 1.5, dash: "dash" },
+          line: { color: "#bc4935", width: 1.6, dash: "dash" },
           hovertemplate: "%{x}<br>Absence %{y:$,.2f}<extra></extra>",
         },
       ],
-      {
-        margin: { l: 58, r: 58, t: 14, b: 42 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        xaxis: { gridcolor: "#e8eff3" },
-        yaxis: { title: "Cost", tickprefix: "$", gridcolor: "#e8eff3" },
-        yaxis2: { title: "Hours", overlaying: "y", side: "right", showgrid: false },
-        legend: { orientation: "h" },
-      },
+      baseLayout({ yaxis: { title: "Cost", tickprefix: "$", gridcolor: "#e6edf1" }, yaxis2: { title: "Hours", overlaying: "y", side: "right", showgrid: false }, legend: { orientation: "h" } }),
       { displayModeBar: false, responsive: true }
     );
     target.on("plotly_click", (event) => {
@@ -342,55 +314,51 @@
     });
   }
 
-  function renderGroupedLineChart(targetId, rows, { groupKey, dateKey, valueKey, clickParam = null, format = "currency" } = {}) {
+  function renderRateTrendChart(targetId, rows) {
     const target = document.getElementById(targetId);
     if (!target || !window.Plotly) return;
     if (!hasRows(rows)) {
-      renderEmpty(target, "No grouped trend is available.");
+      renderEmpty(target, "No blended-rate trend is available.");
       return;
     }
-
-    const groups = {};
-    rows.forEach((row) => {
-      const key = row[groupKey] || "Unknown";
-      groups[key] = groups[key] || [];
-      groups[key].push(row);
-    });
-
-    const traces = Object.entries(groups).map(([name, points]) => ({
-      type: "scatter",
-      mode: "lines+markers",
-      name,
-      x: points.map((row) => row[dateKey]),
-      y: points.map((row) => number(row[valueKey])),
-      customdata: points.map(() => name),
-      hovertemplate:
-        format === "currency"
-          ? `${name}<br>%{x}<br>%{y:$,.2f}<extra></extra>`
-          : `${name}<br>%{x}<br>%{y:,.1f}<extra></extra>`,
-    }));
-
+    const dates = rows.map((row) => row.labor_date);
     Plotly.newPlot(
       target,
-      traces,
-      {
-        margin: { l: 58, r: 20, t: 14, b: 42 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        xaxis: { gridcolor: "#e8eff3" },
-        yaxis: format === "currency" ? { tickprefix: "$", gridcolor: "#e8eff3" } : { gridcolor: "#e8eff3" },
-        legend: { orientation: "h" },
-      },
+      [
+        {
+          type: "scatter",
+          mode: "lines+markers",
+          name: "Blended Rate",
+          x: dates,
+          y: rows.map((row) => number(row.blended_rate)),
+          customdata: dates,
+          line: { color: "#295fa5", width: 3 },
+          hovertemplate: "%{x}<br>Rate %{y:$,.2f}<extra></extra>",
+        },
+        {
+          type: "scatter",
+          mode: "lines",
+          name: "Premium Share %",
+          x: dates,
+          y: rows.map((row) => number(row.premium_share_pct) * 100),
+          yaxis: "y2",
+          line: { color: "#b67718", width: 2 },
+          hovertemplate: "%{x}<br>Premium %{y:.1f}%<extra></extra>",
+        },
+        {
+          type: "scatter",
+          mode: "lines",
+          name: "Absence Share %",
+          x: dates,
+          y: rows.map((row) => number(row.absence_share_pct) * 100),
+          yaxis: "y2",
+          line: { color: "#bc4935", width: 2, dash: "dot" },
+          hovertemplate: "%{x}<br>Absence %{y:.1f}%<extra></extra>",
+        },
+      ],
+      baseLayout({ yaxis: { title: "Rate", tickprefix: "$", gridcolor: "#e6edf1" }, yaxis2: { title: "Share %", overlaying: "y", side: "right", ticksuffix: "%", showgrid: false }, legend: { orientation: "h" } }),
       { displayModeBar: false, responsive: true }
     );
-
-    if (clickParam) {
-      target.on("plotly_click", (event) => {
-        const point = event.points && event.points[0];
-        if (!point || !point.data || !point.data.name) return;
-        setSingleFilter(clickParam, point.data.name);
-      });
-    }
   }
 
   function renderWeekdayChart(targetId, rows) {
@@ -400,55 +368,61 @@
       renderEmpty(target, "No weekday pattern is available.");
       return;
     }
-
     Plotly.newPlot(
       target,
       [
         {
           type: "bar",
+          name: "Avg Daily Cost",
           x: rows.map((row) => row.weekday_name),
           y: rows.map((row) => number(row.avg_daily_labor_cost)),
-          marker: { color: "#2c8b84" },
-          hovertemplate: "%{x}<br>Avg daily cost %{y:$,.2f}<extra></extra>",
+          marker: { color: "#0d766f" },
+          hovertemplate: "%{x}<br>Avg cost %{y:$,.2f}<extra></extra>",
+        },
+        {
+          type: "scatter",
+          mode: "lines+markers",
+          name: "Avg Daily Hours",
+          x: rows.map((row) => row.weekday_name),
+          y: rows.map((row) => number(row.avg_daily_paid_hours)),
+          yaxis: "y2",
+          line: { color: "#b67718", width: 2 },
+          hovertemplate: "%{x}<br>Avg hours %{y:,.1f}<extra></extra>",
         },
       ],
-      {
-        margin: { l: 50, r: 20, t: 14, b: 40 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        yaxis: { tickprefix: "$", gridcolor: "#e8eff3" },
-      },
+      baseLayout({ yaxis: { tickprefix: "$", gridcolor: "#e6edf1" }, yaxis2: { overlaying: "y", side: "right", showgrid: false }, legend: { orientation: "h" } }),
       { displayModeBar: false, responsive: true }
     );
   }
 
-  function renderPieChart(targetId, rows, { labelKey, valueKey, clickParam = null } = {}) {
+  function renderPieChart(targetId, rows, { labelKey, valueKey, clickParam = null, format = "currency" } = {}) {
     const target = document.getElementById(targetId);
     if (!target || !window.Plotly) return;
     if (!hasRows(rows)) {
       renderEmpty(target, "No category mix is available.");
       return;
     }
-
+    const values = rows.map((row) => number(row[valueKey]));
+    if (values.every((value) => value <= 0)) {
+      renderEmpty(target, "No measurable mix is available for this chart.");
+      return;
+    }
     Plotly.newPlot(
       target,
       [
         {
           type: "pie",
           labels: rows.map((row) => row[labelKey] || "Unknown"),
-          values: rows.map((row) => number(row[valueKey])),
+          values,
           customdata: rows.map((row) => row[labelKey] || "Unknown"),
-          hole: 0.48,
-          hovertemplate: "%{label}<br>%{value:$,.2f}<br>%{percent}<extra></extra>",
+          hole: 0.52,
+          textinfo: "label+percent",
+          hovertemplate: format === "currency" ? "%{label}<br>%{value:$,.2f}<br>%{percent}<extra></extra>" : "%{label}<br>%{value:,.1f}<br>%{percent}<extra></extra>",
         },
       ],
-      {
-        margin: { l: 20, r: 20, t: 14, b: 14 },
-        paper_bgcolor: "transparent",
-      },
+      baseLayout({ margin: { l: 20, r: 20, t: 10, b: 10 } }),
       { displayModeBar: false, responsive: true }
     );
-
     if (clickParam) {
       target.on("plotly_click", (event) => {
         const point = event.points && event.points[0];
@@ -458,126 +432,62 @@
     }
   }
 
-  function renderMonthlyPatternChart(targetId, rows) {
+  function renderGroupedLineChart(targetId, rows, { groupKey, dateKey, valueKey, clickParam = null, format = "currency" } = {}) {
     const target = document.getElementById(targetId);
     if (!target || !window.Plotly) return;
     if (!hasRows(rows)) {
-      renderEmpty(target, "No monthly pattern is available.");
+      renderEmpty(target, "No grouped trend is available.");
       return;
     }
-
-    Plotly.newPlot(
-      target,
-      [
-        {
-          type: "scatter",
-          mode: "lines+markers",
-          name: "Labor Cost",
-          x: rows.map((row) => row.labor_month),
-          y: rows.map((row) => number(row.labor_cost)),
-          line: { color: "#0f766e", width: 3 },
-          hovertemplate: "%{x}<br>Cost %{y:$,.2f}<extra></extra>",
-        },
-        {
-          type: "scatter",
-          mode: "lines+markers",
-          name: "Paid Hours",
-          x: rows.map((row) => row.labor_month),
-          y: rows.map((row) => number(row.paid_hours)),
-          yaxis: "y2",
-          line: { color: "#c98a2a", width: 2 },
-          hovertemplate: "%{x}<br>Hours %{y:,.1f}<extra></extra>",
-        },
-      ],
-      {
-        margin: { l: 52, r: 52, t: 14, b: 40 },
-        paper_bgcolor: "transparent",
-        plot_bgcolor: "transparent",
-        xaxis: { gridcolor: "#e8eff3" },
-        yaxis: { tickprefix: "$", gridcolor: "#e8eff3" },
-        yaxis2: { overlaying: "y", side: "right", showgrid: false },
-        legend: { orientation: "h" },
-      },
-      { displayModeBar: false, responsive: true }
-    );
+    const groups = {};
+    rows.forEach((row) => {
+      const key = row[groupKey] || "Unknown";
+      groups[key] = groups[key] || [];
+      groups[key].push(row);
+    });
+    const traces = Object.entries(groups).map(([name, points]) => ({
+      type: "scatter",
+      mode: "lines+markers",
+      name,
+      x: points.map((row) => row[dateKey]),
+      y: points.map((row) => number(row[valueKey])),
+      hovertemplate: format === "currency" ? `${name}<br>%{x}<br>%{y:$,.2f}<extra></extra>` : `${name}<br>%{x}<br>%{y:,.1f}<extra></extra>`,
+    }));
+    Plotly.newPlot(target, traces, baseLayout({ yaxis: format === "currency" ? { tickprefix: "$", gridcolor: "#e6edf1" } : { gridcolor: "#e6edf1" }, legend: { orientation: "h" } }), { displayModeBar: false, responsive: true });
+    if (clickParam) {
+      target.on("plotly_click", (event) => {
+        const point = event.points && event.points[0];
+        if (!point || !point.data || !point.data.name) return;
+        setSingleFilter(clickParam, point.data.name);
+      });
+    }
   }
 
   function renderCharts() {
     const charts = (payload && payload.charts) || {};
     const focus = (payload && payload.focus) || {};
+    const categoryMixMeta = charts.category_mix_meta || { value_key: "labor_cost", label: "Labor cost mix" };
 
-    renderBarChart("laborDeptCostChart", charts.department_cost || [], {
-      valueKey: "labor_cost",
-      labelKey: "department_name",
-      clickKey: "department_name",
-      clickParam: "department",
-      color: "#0f766e",
-      format: "currency",
-    });
+    renderBarChart("laborDeptCostChart", charts.department_cost || [], { valueKey: "labor_cost", labelKey: "department_name", clickParam: "department", color: "#0d766f", format: "currency" });
+    renderBarChart("laborDeptChangeChart", charts.department_change || [], { valueKey: "cost_delta_pct", labelKey: "department_name", clickParam: "department", color: "#295fa5", format: "percent", multiplier: 100 });
     renderScatterChart("laborDeptScatterChart", charts.department_scatter || []);
-    renderBarChart("laborDeptRateChart", charts.department_rate || [], {
-      valueKey: "blended_rate",
-      labelKey: "department_name",
-      clickKey: "department_name",
-      clickParam: "department",
-      color: "#2f6fce",
-      format: "currency",
-    });
-    renderGroupedShareChart("laborDeptRiskChart", charts.department_cost || [], "department_name", "department");
-    renderBarChart("laborDeptVolatilityChart", charts.department_volatility || [], {
-      valueKey: "cost_volatility",
-      labelKey: "department_name",
-      clickKey: "department_name",
-      clickParam: "department",
-      color: "#8b5cf6",
-      format: "percent",
-      multiplier: 100,
-    });
+    renderGroupedShareChart("laborDeptRiskChart", charts.department_risk || [], "department_name", "department");
+    renderBarChart("laborDeptVolatilityChart", charts.department_volatility || [], { valueKey: "cost_volatility", labelKey: "department_name", clickParam: "department", color: "#bc4935", format: "percent", multiplier: 100 });
 
     renderTrendChart("laborDepartmentFocusTrendChart", ((focus.department || {}).trend_rows) || []);
-    renderPieChart("laborCategoryMixChart", charts.category_mix || [], {
-      labelKey: "time_category",
-      valueKey: "labor_cost",
-      clickParam: "time_category",
-    });
-    renderGroupedLineChart("laborCategoryTrendChart", charts.category_trend || [], {
-      groupKey: "time_category",
-      dateKey: "labor_date",
-      valueKey: "labor_cost",
-      clickParam: "time_category",
-      format: "currency",
-    });
+    renderPieChart("laborCategoryMixChart", charts.category_mix || [], { labelKey: "time_category", valueKey: categoryMixMeta.value_key || "labor_cost", clickParam: "time_category", format: categoryMixMeta.value_key === "paid_hours" ? "number" : "currency" });
+    renderGroupedLineChart("laborCategoryTrendChart", charts.category_trend || [], { groupKey: "time_category", dateKey: "labor_date", valueKey: "labor_cost", clickParam: "time_category", format: "currency" });
     renderTrendChart("laborCategoryFocusTrendChart", ((focus.category || {}).trend_rows) || []);
 
-    renderBarChart("laborWorkerCostChart", charts.worker_cost || [], {
-      valueKey: "labor_cost",
-      labelKey: "employee_name",
-      clickKey: "employee_code",
-      clickParam: "employee",
-      color: "#0f766e",
-      format: "currency",
-    });
-    renderBarChart("laborWorkerHoursChart", charts.worker_hours || [], {
-      valueKey: "paid_hours",
-      labelKey: "employee_name",
-      clickKey: "employee_code",
-      clickParam: "employee",
-      color: "#c98a2a",
-      format: "number",
-    });
-    renderGroupedShareChart("laborWorkerRiskChart", charts.worker_cost || [], "employee_name", "employee", "employee_code");
+    renderBarChart("laborWorkerCostChart", charts.worker_cost || [], { valueKey: "labor_cost", labelKey: "employee_name", clickParam: "employee", clickKey: "employee_code", color: "#0d766f", format: "currency" });
+    renderBarChart("laborWorkerHoursChart", charts.worker_hours || [], { valueKey: "paid_hours", labelKey: "employee_name", clickParam: "employee", clickKey: "employee_code", color: "#b67718", format: "number" });
+    renderGroupedShareChart("laborWorkerRiskChart", charts.worker_risk || [], "employee_name", "employee", "employee_code");
     renderTrendChart("laborWorkerFocusTrendChart", ((focus.worker || {}).trend_rows) || []);
 
     renderTrendChart("laborTrendChart", charts.daily_trend || []);
+    renderRateTrendChart("laborRateTrendChart", charts.rate_trend || []);
     renderWeekdayChart("laborWeekdayChart", charts.weekday_pattern || []);
-    renderMonthlyPatternChart("laborMonthlyPatternChart", charts.monthly_pattern || []);
-    renderGroupedLineChart("laborDeptTrendChart", charts.monthly_department_trend || [], {
-      groupKey: "department_name",
-      dateKey: "labor_month",
-      valueKey: "labor_cost",
-      clickParam: "department",
-      format: "currency",
-    });
+    renderGroupedLineChart("laborDeptTrendChart", charts.monthly_department_trend || [], { groupKey: "department_name", dateKey: "labor_month", valueKey: "labor_cost", clickParam: "department", format: "currency" });
   }
 
   bindInteractions();

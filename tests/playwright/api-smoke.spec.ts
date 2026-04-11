@@ -24,6 +24,13 @@ test.describe('Overview API smoke', () => {
     }).toString();
 
     const overviewResp = await ctx.get(`/api/overview/summary?${windowParams}`);
+    if (!overviewResp.ok()) {
+      const failureBody = await overviewResp.text();
+      test.skip(
+        [424, 503].includes(overviewResp.status()) || /dataset not built|run etl/i.test(failureBody),
+        `Overview API unavailable in this environment (${overviewResp.status()}).`,
+      );
+    }
     expect(overviewResp.ok()).toBeTruthy();
     const overview = await overviewResp.json();
 

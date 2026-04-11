@@ -15,6 +15,7 @@ from flask import current_app
 from app.core.cache_manager import TTLValueCache
 from app.services import fact_schema as fs
 from app.services import fact_store
+from app.services import margin_rules
 
 
 def _safe_col(cols: set[str], *candidates: str) -> str | None:
@@ -22,6 +23,30 @@ def _safe_col(cols: set[str], *candidates: str) -> str | None:
         if cand in cols:
             return cand
     return None
+
+
+def _coalesce_text_expr(cols: set[str], *candidates: str, default: str = "NULL") -> str:
+    expressions: List[str] = []
+    for cand in candidates:
+        if cand not in cols:
+            continue
+        expressions.append(f"NULLIF(CAST({cand} AS VARCHAR), '')")
+    if not expressions:
+        return default
+    return f"COALESCE({', '.join(expressions + [default])})"
+
+
+def _coalesce_numeric_expr(cols: set[str], candidates: Sequence[str], *, default: str = "NULL") -> str:
+    expressions: List[str] = []
+    seen: set[str] = set()
+    for cand in candidates:
+        if cand not in cols or cand in seen:
+            continue
+        seen.add(cand)
+        expressions.append(f"CAST({cand} AS DOUBLE)")
+    if not expressions:
+        return default
+    return f"COALESCE({', '.join(expressions + [default])})"
 
 
 # Cross-sell cache (12h TTL enforced at call site)
@@ -91,6 +116,19 @@ def _clean_float(val: Any) -> float:
         return 0.0
 
 
+def _clean_optional_float(val: Any) -> float | None:
+    raw = _none_if_na(val)
+    if raw is None:
+        return None
+    try:
+        fval = float(raw)
+        if math.isnan(fval):
+            return None
+        return fval
+    except Exception:
+        return None
+
+
 def _clean_numeric_series(series: pd.Series, *, default: float | None = 0.0) -> pd.Series:
     values: List[float] = []
     fallback = np.nan if default is None else float(default)
@@ -121,6 +159,16 @@ def _clean_datetime_series(series: pd.Series) -> pd.Series:
         except Exception:
             values.append(pd.NaT)
     return pd.Series(values, index=series.index, dtype="datetime64[ns]")
+
+
+def _iso_date_text(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.notna(ts):
+        return ts.date().isoformat()
+    text = str(value).strip()
+    return text or None
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -534,7 +582,15 @@ def _metric_item(
     }
 
 
-def _score_item(key: str, label: str, score: Any, detail: str, *, risk: bool = False) -> Dict[str, Any]:
+def _score_item(
+    key: str,
+    label: str,
+    score: Any,
+    detail: str,
+    *,
+    implication: str | None = None,
+    risk: bool = False,
+) -> Dict[str, Any]:
     clean = _clamp_score(score)
     tone_score = (100.0 - clean) if (risk and clean is not None) else clean
     return {
@@ -542,6 +598,7 @@ def _score_item(key: str, label: str, score: Any, detail: str, *, risk: bool = F
         "label": label,
         "score": round(clean, 1) if clean is not None else None,
         "detail": detail,
+        "implication": implication,
         "band": _score_band(tone_score),
         "tone": _score_tone(tone_score),
         "risk": bool(risk),
@@ -559,9 +616,12 @@ def _action_item(
     owner: str | None,
     related_products: Sequence[str] | None = None,
     related_categories: Sequence[str] | None = None,
+    related_families: Sequence[str] | None = None,
     revenue_upside: float | None = None,
     profit_upside: float | None = None,
     margin_upside_pp: float | None = None,
+    scope_label: str | None = None,
+    pathway_label: str | None = None,
     tone: str = "neutral",
     priority_score: float | None = None,
 ) -> Dict[str, Any]:
@@ -576,9 +636,12 @@ def _action_item(
         "owner": owner,
         "related_products": [str(v) for v in (related_products or []) if str(v or "").strip()],
         "related_categories": [str(v) for v in (related_categories or []) if str(v or "").strip()],
+        "related_families": [str(v) for v in (related_families or []) if str(v or "").strip()],
         "revenue_upside": _none_if_na(revenue_upside),
         "profit_upside": _none_if_na(profit_upside),
         "margin_upside_pp": _none_if_na(margin_upside_pp),
+        "scope_label": scope_label,
+        "pathway_label": pathway_label,
         "tone": tone,
         "priority_score": round(float(priority_score), 1) if priority_score is not None else None,
     }
@@ -1542,7 +1605,7 @@ def _clv_payload(
         },
         "concentration": {"top1_share_pct": None, "top10_share_pct": None, "hhi": None},
         "clv_at_risk": {"total": 0.0, "pct_total": None},
-        "margin_leverage": {"target_margin_pct": 27.0, "estimated_uplift": 0.0, "eligible_customers": 0},
+        "margin_leverage": {"target_margin_pct": None, "estimated_uplift": 0.0, "eligible_customers": 0},
         "segment_summary": [],
         "segment_leaderboard": [],
         "segment_playbooks": [],
@@ -1749,12 +1812,21 @@ def _clv_payload(
     total_clv_at_risk = _sum_numeric(active["clv_at_risk"])
     clv_at_risk_pct = _safe_pct(total_clv_at_risk, total_clv)
 
-    target_margin = 27.0
+    target_margin = None
     high_value_cutoff = p80 if p80 > 0 else float(pd.to_numeric(active["clv_12m"], errors="coerce").median())
-    leverage_df = active[(active["margin_pct"] < target_margin) & (active["clv_12m"] >= high_value_cutoff)]
-    estimated_uplift = _sum_numeric(
-        ((target_margin - leverage_df["margin_pct"]).clip(lower=0.0) / 100.0) * leverage_df["revenue"]
-    ) if not leverage_df.empty else 0.0
+    if "target_margin_pct" in active.columns:
+        target_margin_series = pd.to_numeric(active["target_margin_pct"], errors="coerce")
+        target_margin = float(target_margin_series.dropna().median()) if not target_margin_series.dropna().empty else None
+        leverage_df = active[
+            (pd.to_numeric(active["margin_pct"], errors="coerce") < target_margin_series)
+            & (active["clv_12m"] >= high_value_cutoff)
+        ]
+        estimated_uplift = _sum_numeric(
+            ((target_margin_series.loc[leverage_df.index] - leverage_df["margin_pct"]).clip(lower=0.0) / 100.0) * leverage_df["revenue"]
+        ) if not leverage_df.empty else 0.0
+    else:
+        leverage_df = active.iloc[0:0].copy()
+        estimated_uplift = 0.0
 
     top_segment_revenue = max(segment_summary, key=lambda rec: _clean_float(rec.get("revenue")), default=None)
     top_segment_growth = max(segment_summary, key=lambda rec: _clean_float(rec.get("delta_revenue")), default=None)
@@ -2202,6 +2274,11 @@ def _table_payload(cust: pd.DataFrame, args: Any) -> Tuple[Dict[str, Any], Dict[
                 "delta_profit": _clean_float(rec.get("delta_profit")),
                 "delta_profit_pct": None if _clean_float(rec.get("profit_prior_window")) <= 0.0 else _clean_float(rec.get("delta_profit_pct")),
                 "margin_pct": None if revenue == 0 else _clean_float(margin_pct),
+                "minimum_margin_pct": _clean_optional_float(rec.get("minimum_margin_pct")),
+                "target_margin_pct": _clean_optional_float(rec.get("target_margin_pct")),
+                "target_gap_pct_points": _clean_optional_float(rec.get("target_gap_pct_points")),
+                "status_key": rec.get("status_key"),
+                "target_status": rec.get("target_status"),
                 "margin_prior_pct": None if revenue_prior == 0 else _clean_float(rec.get("margin_prior_pct")),
                 "delta_margin_pct": _none_if_na(rec.get("delta_margin_pct")),
                 "orders": _safe_int(rec.get("orders"), 0),
@@ -2290,14 +2367,16 @@ def build_customers_bundle(
     cols = fact_store.list_columns()
     date_col = _safe_col(cols, fs.CANON.date, "Date")
     revenue_col = _safe_col(cols, fs.CANON.revenue, "Revenue")
-    cost_col = _safe_col(cols, fs.CANON.cost, "Cost", "CostPrice")
-    qty_col = _safe_col(cols, fs.CANON.qty_units, "QuantityOrdered", "Quantity")
-    weight_col = _safe_col(cols, fs.CANON.weight_lb, "ShippedLb", "Weight")
     cust_id = _safe_col(cols, fs.CANON.customer_id, "CustomerID")
     cust_name = _safe_col(cols, fs.CANON.customer_name, "Customer")
     order_col = _safe_col(cols, fs.CANON.order_id, "OrderID")
+    cost_candidates = (fs.CANON.cost, "Cost", "CostPrice")
+    qty_candidates = (fs.CANON.qty_units, "ShippedItems", "QuantityOrdered", "Qty", "Quantity", "Units", "ItemCount", "pack_item_count_sum")
+    weight_candidates = (fs.CANON.weight_lb, "Weight", "WeightLb", "ShippedLb", "pack_weight_lb_sum")
+    cost_available = any(cand in cols for cand in cost_candidates)
+    weight_available = any(cand in cols for cand in weight_candidates)
 
-    if not all([date_col, revenue_col, qty_col, cust_id, cust_name, order_col]):
+    if not all([date_col, revenue_col, cust_id, cust_name, order_col]):
         return {"error": {"message": "Required columns missing for customers bundle"}, "meta": {"cached": False}}
 
     where_sql, where_params, start_iso, end_iso = fact_store.build_where_clause(
@@ -2330,9 +2409,19 @@ def build_customers_bundle(
         prior_filters, cols, scope, apply_default_window=False
     )
 
-    cost_raw_expr = cost_col if cost_col else "NULL"
-    weight_expr = weight_col if weight_col else "0"
+    cost_raw_expr = _coalesce_numeric_expr(cols, cost_candidates, default="NULL::DOUBLE")
+    qty_expr = _coalesce_numeric_expr(
+        cols,
+        qty_candidates,
+        default="0::DOUBLE",
+    )
+    weight_expr = _coalesce_numeric_expr(
+        cols,
+        weight_candidates,
+        default="0::DOUBLE",
+    )
     ref_date_param = window_end_ts.date().isoformat()
+    effective_cost_alias_expr = margin_rules.sql_effective_cost_expr("cost_raw", "weight_lb", "qty", fallback="NULL::DOUBLE")
 
     cust_sql = f"""
         WITH base AS (
@@ -2342,11 +2431,24 @@ def build_customers_bundle(
                 CAST({date_col} AS DATE) AS order_date,
                 {revenue_col} AS revenue,
                 {cost_raw_expr} AS cost_raw,
-                {qty_col} AS qty,
+                {qty_expr} AS qty,
                 {weight_expr} AS weight_lb,
                 {order_col} AS order_id
             FROM fact
             WHERE {where_sql}
+        ),
+        scoped AS (
+            SELECT
+                customer_id,
+                customer_name,
+                order_date,
+                revenue,
+                cost_raw,
+                qty,
+                weight_lb,
+                order_id,
+                ({effective_cost_alias_expr}) AS cost
+            FROM base
         ),
         meta AS (
             SELECT CAST(? AS DATE) AS ref_date
@@ -2355,8 +2457,8 @@ def build_customers_bundle(
             customer_id,
             ANY_VALUE(customer_name) AS customer_name,
             SUM(revenue) AS revenue,
-            SUM(COALESCE(cost_raw, 0)) AS cost,
-            SUM(revenue) - SUM(COALESCE(cost_raw, 0)) AS profit,
+            SUM(CASE WHEN cost_raw IS NOT NULL THEN cost ELSE 0 END) AS cost,
+            SUM(revenue) - SUM(CASE WHEN cost_raw IS NOT NULL THEN cost ELSE 0 END) AS profit,
             SUM(CASE WHEN cost_raw IS NULL THEN revenue ELSE 0 END) AS revenue_missing_cost,
             SUM(qty) AS qty,
             SUM(weight_lb) AS weight_lb,
@@ -2370,7 +2472,7 @@ def build_customers_bundle(
             COUNT(DISTINCT CASE WHEN order_date >= ref.ref_date - INTERVAL 30 DAY THEN order_id END) AS orders_last_30,
             SUM(CASE WHEN order_date >= ref.ref_date - INTERVAL 90 DAY THEN qty END) AS qty_last_90,
             ref.ref_date AS ref_date
-        FROM base
+        FROM scoped
         CROSS JOIN meta ref
         GROUP BY 1, ref.ref_date
     """
@@ -2382,19 +2484,36 @@ def build_customers_bundle(
                 CAST({date_col} AS DATE) AS order_date,
                 {revenue_col} AS revenue,
                 {cost_raw_expr} AS cost_raw,
+                {qty_expr} AS qty,
+                {weight_expr} AS weight_lb,
                 {order_col} AS order_id
             FROM fact
             WHERE {prior_where_sql}
+        ),
+        scoped AS (
+            SELECT
+                customer_id,
+                customer_name,
+                order_date,
+                revenue,
+                cost_raw,
+                qty,
+                weight_lb,
+                order_id,
+                ({effective_cost_alias_expr}) AS cost
+            FROM base
         )
         SELECT
             customer_id,
             ANY_VALUE(customer_name) AS customer_name_prior,
             SUM(revenue) AS revenue_prior_window,
-            SUM(COALESCE(cost_raw, 0)) AS cost_prior_window,
+            SUM(CASE WHEN cost_raw IS NOT NULL THEN cost ELSE 0 END) AS cost_prior_window,
+            SUM(qty) AS qty_prior_window,
+            SUM(weight_lb) AS weight_prior_window,
             COUNT(DISTINCT order_id) AS orders_prior_window,
             MAX(order_date) AS last_order_prior,
             MIN(order_date) AS first_order_prior
-        FROM base
+        FROM scoped
         GROUP BY 1
     """
 
@@ -2536,6 +2655,8 @@ def build_customers_bundle(
         "qty_last_90",
         "revenue_prior_window",
         "cost_prior_window",
+        "qty_prior_window",
+        "weight_prior_window",
         "orders_prior_window",
     ):
         if col in merged.columns:
@@ -2559,6 +2680,11 @@ def build_customers_bundle(
         ((reference_ts.year - merged["first_order"].dt.year) * 12 + (reference_ts.month - merged["first_order"].dt.month) + 1),
     )
     merged["months_active"] = merged["months_active"].replace([np.inf, -np.inf], np.nan)
+
+    merged["cost"] = pd.to_numeric(merged.get("cost"), errors="coerce")
+    merged["profit"] = (
+        pd.to_numeric(merged.get("revenue"), errors="coerce") - pd.to_numeric(merged.get("cost"), errors="coerce")
+    ).where(pd.to_numeric(merged.get("cost"), errors="coerce").notna())
 
     merged["margin_pct"] = np.where(
         merged["revenue"] > 0,
@@ -2591,7 +2717,10 @@ def build_customers_bundle(
         (merged["delta_revenue"] / merged["revenue_prior_window"]) * 100.0,
         np.nan,
     )
-    merged["profit_prior_window"] = merged["revenue_prior_window"] - merged["cost_prior_window"]
+    merged["cost_prior_window"] = pd.to_numeric(merged.get("cost_prior_window"), errors="coerce")
+    merged["profit_prior_window"] = (merged["revenue_prior_window"] - merged["cost_prior_window"]).where(
+        pd.to_numeric(merged.get("cost_prior_window"), errors="coerce").notna()
+    )
     merged["margin_prior_pct"] = np.where(
         merged["revenue_prior_window"] > 0,
         (merged["profit_prior_window"] / merged["revenue_prior_window"]) * 100.0,
@@ -2812,7 +2941,7 @@ def build_customers_bundle(
         if not nonzero_orders.empty:
             median_aov = float(nonzero_orders["avg_order_value"].median())
             median_units_order = float(nonzero_orders["units_per_order"].dropna().median()) if nonzero_orders["units_per_order"].notna().any() else None
-            if weight_col:
+            if weight_available:
                 median_weight_order = float(nonzero_orders["weight_per_order"].dropna().median()) if nonzero_orders["weight_per_order"].notna().any() else None
 
     at_risk_revenue = _sum_numeric(merged.loc[at_risk_mask, "revenue_last_90"])
@@ -2822,13 +2951,13 @@ def build_customers_bundle(
 
     cost_coverage_pct = None
     missing_cost_rows = 0
-    if cost_col:
+    if cost_available:
         coverage_sql = f"""
             SELECT
                 COALESCE(SUM({revenue_col}), 0) AS revenue_total,
-                COALESCE(SUM(CASE WHEN {cost_col} IS NULL THEN {revenue_col} ELSE 0 END), 0) AS revenue_missing_cost,
+                COALESCE(SUM(CASE WHEN {cost_raw_expr} IS NULL THEN {revenue_col} ELSE 0 END), 0) AS revenue_missing_cost,
                 COALESCE(COUNT(*), 0) AS row_count,
-                COALESCE(SUM(CASE WHEN {cost_col} IS NULL THEN 1 ELSE 0 END), 0) AS missing_cost_rows
+                COALESCE(SUM(CASE WHEN {cost_raw_expr} IS NULL THEN 1 ELSE 0 END), 0) AS missing_cost_rows
             FROM fact
             WHERE {where_sql}
         """
@@ -3136,7 +3265,7 @@ def build_customers_bundle(
             rfm_settings = _parse_rfm_settings(
                 args,
                 window_end_ts=window_end_ts,
-                cost_available=bool(cost_col),
+                cost_available=cost_available,
                 cost_coverage_pct=cost_coverage_pct,
             )
             lookback_start_ts = max(rfm_settings["lookback_start"], window_start_ts.normalize())
@@ -3147,8 +3276,9 @@ def build_customers_bundle(
             prior_end_lb = (lookback_start_ts - pd.Timedelta(days=1)).normalize()
             prior_start_lb = (prior_end_lb - pd.Timedelta(days=lookback_days - 1)).normalize()
     
-            cost_expr = cost_col if cost_col else "NULL"
-            weight_expr = weight_col if weight_col else "0"
+            rfm_cost_expr = cost_raw_expr
+            rfm_weight_expr = weight_expr
+            rfm_qty_expr = qty_expr
             rfm_sql = f"""
                 WITH base AS (
                     SELECT
@@ -3157,9 +3287,9 @@ def build_customers_bundle(
                         CAST({date_col} AS DATE) AS order_date,
                         {order_col} AS order_id,
                         {revenue_col} AS revenue,
-                        {cost_expr} AS cost_raw,
-                        {qty_col} AS qty,
-                        {weight_expr} AS weight_lb
+                        {rfm_cost_expr} AS cost_raw,
+                        {rfm_qty_expr} AS qty,
+                        {rfm_weight_expr} AS weight_lb
                     FROM fact
                     WHERE {rfm_where_sql}
                 ),
@@ -3931,11 +4061,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     # -- Column resolution --
     drilldown_v2 = _is_truthy(args.get("drilldown_v2"))
     drilldown_export_all = _is_truthy(args.get("export_all")) or _is_truthy(args.get("drilldown_export_all"))
-    margin_target_pct = 27.0
-    try:
-        margin_target_pct = float(current_app.config.get("DRILLDOWN_MARGIN_TARGET_PCT", 27.0))
-    except Exception:
-        margin_target_pct = 27.0
+    margin_target_pct = None
 
     cols = fact_store.list_columns()
     order_date_col = _safe_col(cols, "DateExpected", fs.CANON.date, "Date")
@@ -3949,13 +4075,9 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     order_col = _safe_col(cols, fs.CANON.order_id, "OrderID")
     product_col = _safe_col(cols, fs.CANON.product_name, "ProductName", "SKU", "SkuName")
     product_id_col = _safe_col(cols, fs.CANON.product_id, "SKU")
-    category_col = _safe_col(cols, "ProteinType", "Category", "ProductCategory", "Protein")
-    region_col = _safe_col(cols, fs.CANON.region, "RegionName", "Region")
-    ship_method_col = _safe_col(cols, fs.CANON.ship_method, "ShippingMethodName", "ShipMethodName", "ShippingMethod")
-    sales_rep_col = _safe_col(cols, fs.CANON.sales_rep, "PrimarySalesRepName", "SalesRep")
-    city_col = _safe_col(cols, "City", "CustomerCity")
-    state_col = _safe_col(cols, "Province", "State", "StateProvinceID")
-    customer_name_col = _safe_col(cols, fs.CANON.customer_name, "CustomerName", "Name")
+    owner_rep_col = _safe_col(cols, "PrimarySalesRepName", "Owner", "AccountOwner", "AccountManager")
+    protein_col = _safe_col(cols, "Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
+    category_col = _safe_col(cols, "Category", "ProductCategory", "Protein", "ProteinType", "ProteinName")
     customer_id = str(args.get("customer_id") or args.get("id") or "")
     if not (customer_id and date_col and revenue_col and cost_col and qty_col and order_col and product_col):
         return {"error": {"message": "Required columns missing for customer drilldown"}, "meta": {"cached": False}}
@@ -3984,14 +4106,49 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     window_end_iso = window_end_ts.date().isoformat()
     prior_start_iso = prior_start_ts.date().isoformat()
     prior_end_iso = prior_end_ts.date().isoformat()
+    activity_reference_ts = min(window_end_ts.normalize(), _utc_today_ts_naive())
+    activity_reference_iso = activity_reference_ts.date().isoformat()
+    recent_30_start_iso = (activity_reference_ts - pd.Timedelta(days=29)).date().isoformat()
+    recent_90_start_iso = (activity_reference_ts - pd.Timedelta(days=89)).date().isoformat()
+    cross_sell_lookback_iso = (activity_reference_ts - pd.DateOffset(months=24)).date().isoformat()
 
-    region_expr = region_col or "NULL"
-    ship_method_expr = ship_method_col or "NULL"
-    sales_rep_expr = sales_rep_col or "NULL"
-    city_expr = city_col or "NULL"
-    state_expr = state_col or "NULL"
-    category_expr = category_col or "NULL"
-    customer_name_expr = customer_name_col or "NULL"
+    text_null = "CAST(NULL AS VARCHAR)"
+    region_expr = _coalesce_text_expr(cols, fs.CANON.region, "RegionName", "Region", default=text_null)
+    ship_method_expr = _coalesce_text_expr(
+        cols,
+        fs.CANON.ship_method,
+        "ShippingMethodName",
+        "ShipMethodName",
+        "ShippingMethod",
+        default=text_null,
+    )
+    sales_rep_expr = _coalesce_text_expr(
+        cols,
+        fs.CANON.sales_rep,
+        "SalesRepName",
+        "SalesRep",
+        "PrimarySalesRepName",
+        default=text_null,
+    )
+    owner_rep_expr = _coalesce_text_expr(
+        cols,
+        "PrimarySalesRepName",
+        "Owner",
+        "AccountOwner",
+        "AccountManager",
+        default=text_null,
+    )
+    city_expr = _coalesce_text_expr(cols, "City", "CustomerCity", default=text_null)
+    state_expr = _coalesce_text_expr(cols, "Province", "State", "StateProvinceID", default=text_null)
+    protein_expr = _coalesce_text_expr(cols, "Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
+    category_expr = _coalesce_text_expr(cols, "Category", "ProductCategory", "Protein", "ProteinType", "ProteinName")
+    customer_name_expr = _coalesce_text_expr(
+        cols,
+        fs.CANON.customer_name,
+        "CustomerName",
+        "Name",
+        default=text_null,
+    )
     weight_expr = weight_col or "NULL"
     items_expr = items_col or qty_col or "NULL"
     qty_expr = qty_col or "NULL"
@@ -4013,7 +4170,8 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 {category_expr} AS category_name,
                 {region_expr} AS region,
                 {ship_method_expr} AS ship_method,
-                {sales_rep_expr} AS sales_rep,
+                {sales_rep_expr} AS seller_sales_rep,
+                {owner_rep_expr} AS owner_sales_rep,
                 {city_expr} AS city,
                 {state_expr} AS state,
                 {customer_name_expr} AS customer_name
@@ -4044,11 +4202,36 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 SUM(items) AS total_items,
                 (SELECT region FROM base_all GROUP BY region ORDER BY COUNT(*) DESC NULLS LAST LIMIT 1) AS primary_region,
                 (SELECT ship_method FROM base_all GROUP BY ship_method ORDER BY COUNT(*) DESC NULLS LAST LIMIT 1) AS primary_ship,
-                (SELECT sales_rep FROM base_all GROUP BY sales_rep ORDER BY COUNT(*) DESC NULLS LAST LIMIT 1) AS owner_sales_rep,
+                (
+                    SELECT owner_sales_rep
+                    FROM base_all
+                    WHERE owner_sales_rep IS NOT NULL
+                    GROUP BY owner_sales_rep
+                    ORDER BY COUNT(*) DESC NULLS LAST
+                    LIMIT 1
+                ) AS assigned_owner_sales_rep,
+                (
+                    SELECT seller_sales_rep
+                    FROM base_all
+                    WHERE seller_sales_rep IS NOT NULL
+                    GROUP BY seller_sales_rep
+                    ORDER BY COUNT(*) DESC NULLS LAST
+                    LIMIT 1
+                ) AS dominant_seller_sales_rep,
                 (SELECT city FROM base_all GROUP BY city ORDER BY COUNT(*) DESC NULLS LAST LIMIT 1) AS primary_city,
                 (SELECT state FROM base_all GROUP BY state ORDER BY COUNT(*) DESC NULLS LAST LIMIT 1) AS primary_state,
                 (SELECT ANY_VALUE(customer_name) FROM base_all WHERE customer_name IS NOT NULL LIMIT 1) AS customer_name
             FROM base_all
+        ),
+        latest_touch AS (
+            SELECT
+                seller_sales_rep AS last_sales_rep,
+                order_date AS last_sales_rep_order_date
+            FROM base_all
+            WHERE order_date IS NOT NULL
+              AND seller_sales_rep IS NOT NULL
+            ORDER BY order_date DESC NULLS LAST, order_id DESC NULLS LAST
+            LIMIT 1
         ),
         cadence AS (
             SELECT
@@ -4064,12 +4247,12 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         ),
         recent AS (
             SELECT
-                SUM(CASE WHEN order_date >= CURRENT_DATE - INTERVAL 30 DAY THEN revenue END) AS revenue_last_30,
-                SUM(CASE WHEN order_date >= CURRENT_DATE - INTERVAL 90 DAY THEN revenue END) AS revenue_last_90,
-                SUM(CASE WHEN order_date >= CURRENT_DATE - INTERVAL 30 DAY THEN profit END) AS profit_last_30,
-                SUM(CASE WHEN order_date >= CURRENT_DATE - INTERVAL 90 DAY THEN profit END) AS profit_last_90,
-                COUNT(CASE WHEN order_date >= CURRENT_DATE - INTERVAL 30 DAY THEN 1 END) AS orders_last_30,
-                COUNT(CASE WHEN order_date >= CURRENT_DATE - INTERVAL 90 DAY THEN 1 END) AS orders_last_90
+                SUM(CASE WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN revenue END) AS revenue_last_30,
+                SUM(CASE WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN revenue END) AS revenue_last_90,
+                SUM(CASE WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN profit END) AS profit_last_30,
+                SUM(CASE WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN profit END) AS profit_last_90,
+                COUNT(CASE WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN 1 END) AS orders_last_30,
+                COUNT(CASE WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN 1 END) AS orders_last_90
             FROM orders
         ),
         best_weekday AS (
@@ -4100,7 +4283,13 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             kpi.revenue, kpi.cost, kpi.profit, kpi.margin_pct, kpi.orders,
             prof.first_order, prof.last_order, prof.months_active, prof.weeks_active, prof.span_days, prof.unique_products,
             prof.unique_categories, prof.total_weight_lb, prof.total_items,
-            prof.primary_region, prof.primary_ship, prof.owner_sales_rep, prof.primary_city, prof.primary_state,
+            prof.primary_region, prof.primary_ship,
+            COALESCE(prof.assigned_owner_sales_rep, prof.dominant_seller_sales_rep) AS owner_sales_rep,
+            prof.assigned_owner_sales_rep,
+            prof.dominant_seller_sales_rep,
+            latest_touch.last_sales_rep,
+            latest_touch.last_sales_rep_order_date,
+            prof.primary_city, prof.primary_state,
             recent.revenue_last_30, recent.revenue_last_90, recent.profit_last_30, recent.profit_last_90,
             recent.orders_last_30, recent.orders_last_90,
             cadence.avg_days, cadence.median_days, cadence.min_days, cadence.max_days,
@@ -4110,12 +4299,27 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             prof.customer_name
         FROM kpi
         CROSS JOIN profile prof
+        LEFT JOIN latest_touch ON 1=1
         LEFT JOIN recent ON 1=1
         LEFT JOIN cadence ON 1=1
         LEFT JOIN cost_diag ON 1=1
         LEFT JOIN best_weekday ON 1=1
     """
-    stats_df = fact_store.execute_sql_df(stats_sql, params_all, tag="customers.drilldown.stats")
+    stats_params: List[Any] = list(params_all) + [
+        recent_30_start_iso,
+        activity_reference_iso,
+        recent_90_start_iso,
+        activity_reference_iso,
+        recent_30_start_iso,
+        activity_reference_iso,
+        recent_90_start_iso,
+        activity_reference_iso,
+        recent_30_start_iso,
+        activity_reference_iso,
+        recent_90_start_iso,
+        activity_reference_iso,
+    ]
+    stats_df = fact_store.execute_sql_df(stats_sql, stats_params, tag="customers.drilldown.stats")
 
     # ---------- Query 1b: action center (lifetime scope) ----------
     action_sql = f"""
@@ -4134,12 +4338,18 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             GROUP BY 1
         )
         SELECT
-            COUNT(*) FILTER (WHERE order_date >= CURRENT_DATE - INTERVAL '30 days') AS orders_last_30d,
-            COUNT(*) FILTER (WHERE order_date >= CURRENT_DATE - INTERVAL '90 days') AS orders_last_90d,
+            COUNT(*) FILTER (WHERE order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)) AS orders_last_30d,
+            COUNT(*) FILTER (WHERE order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)) AS orders_last_90d,
             MAX(order_date) AS last_order_date
         FROM orders_all
     """
-    action_df = fact_store.execute_sql_df(action_sql, params_all, tag="customers.drilldown.action")
+    action_params: List[Any] = list(params_all) + [
+        recent_30_start_iso,
+        activity_reference_iso,
+        recent_90_start_iso,
+        activity_reference_iso,
+    ]
+    action_df = fact_store.execute_sql_df(action_sql, action_params, tag="customers.drilldown.action")
 
     # ---------- Query 2: orders (filtered + lifetime) ----------
     orders_sql = f"""
@@ -4147,7 +4357,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             SELECT {order_col} AS order_id, CAST({date_col} AS DATE) AS order_date,
                    {revenue_col} AS revenue, COALESCE({cost_col},0) AS cost,
                    COALESCE({profit_col}, {revenue_col} - COALESCE({cost_col},0)) AS profit,
-                   COALESCE({weight_col},0) AS weight_lb, COALESCE({items_col or qty_col},0) AS items
+                   COALESCE({weight_expr},0) AS weight_lb, COALESCE({items_expr},0) AS items
             FROM fact
             WHERE {where_sql_filt}
               AND {order_col} IS NOT NULL
@@ -4157,7 +4367,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             SELECT {order_col} AS order_id, CAST({date_col} AS DATE) AS order_date,
                    {revenue_col} AS revenue, COALESCE({cost_col},0) AS cost,
                    COALESCE({profit_col}, {revenue_col} - COALESCE({cost_col},0)) AS profit,
-                   COALESCE({weight_col},0) AS weight_lb, COALESCE({items_col or qty_col},0) AS items
+                   COALESCE({weight_expr},0) AS weight_lb, COALESCE({items_expr},0) AS items
             FROM fact
             WHERE {where_sql_all}
               AND {order_col} IS NOT NULL
@@ -4322,6 +4532,54 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     category_params: List[Any] = list(params_all) + [window_start_iso, window_end_iso, prior_start_iso, prior_end_iso]
     category_df = fact_store.execute_sql_df(category_sql, category_params, tag="customers.drilldown.categories")
 
+    protein_limit_sql = category_limit_sql
+    protein_sql = f"""
+        WITH base AS (
+            SELECT
+                COALESCE(NULLIF(CAST({protein_expr} AS VARCHAR), ''), 'Unassigned') AS protein_family,
+                {product_col} AS product,
+                {order_col} AS order_id,
+                CAST({date_col} AS DATE) AS order_date,
+                COALESCE({revenue_col}, 0) AS revenue,
+                COALESCE({cost_col}, 0) AS cost,
+                COALESCE({weight_expr}, 0) AS weight_lb
+            FROM fact
+            WHERE {where_sql_all}
+              AND {order_col} IS NOT NULL
+              AND {date_col} IS NOT NULL
+        ),
+        labeled AS (
+            SELECT
+                *,
+                CASE
+                    WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN 'current'
+                    WHEN order_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) THEN 'prior'
+                    ELSE NULL
+                END AS period
+            FROM base
+        )
+        SELECT
+            protein_family,
+            SUM(CASE WHEN period = 'current' THEN revenue ELSE 0 END) AS revenue,
+            SUM(CASE WHEN period = 'current' THEN cost ELSE 0 END) AS cost,
+            SUM(CASE WHEN period = 'current' THEN revenue - cost ELSE 0 END) AS profit,
+            SUM(CASE WHEN period = 'current' THEN weight_lb ELSE 0 END) AS weight_lb,
+            COUNT(DISTINCT CASE WHEN period = 'current' THEN order_id END) AS orders,
+            COUNT(DISTINCT CASE WHEN period = 'current' THEN product END) AS products,
+            SUM(CASE WHEN period = 'prior' THEN revenue ELSE 0 END) AS revenue_prior,
+            SUM(CASE WHEN period = 'prior' THEN weight_lb ELSE 0 END) AS weight_prior
+        FROM labeled
+        WHERE period IS NOT NULL
+        GROUP BY protein_family
+        HAVING
+            SUM(CASE WHEN period = 'current' THEN revenue ELSE 0 END) <> 0
+            OR SUM(CASE WHEN period = 'prior' THEN revenue ELSE 0 END) <> 0
+        ORDER BY revenue DESC NULLS LAST
+        {protein_limit_sql}
+    """
+    protein_params: List[Any] = list(params_all) + [window_start_iso, window_end_iso, prior_start_iso, prior_end_iso]
+    protein_df = fact_store.execute_sql_df(protein_sql, protein_params, tag="customers.drilldown.protein")
+
     # ---------- Query 3b: opportunity highlights (lifetime) ----------
     opp_sql = f"""
         WITH base_all AS (
@@ -4480,6 +4738,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             SELECT
                 COALESCE(CAST({product_id_col or product_col} AS VARCHAR), CAST({product_col} AS VARCHAR)) AS sku,
                 {product_col} AS product,
+                COALESCE(NULLIF(CAST({protein_expr} AS VARCHAR), ''), 'Unassigned') AS protein_family,
                 COALESCE(NULLIF(CAST({category_expr} AS VARCHAR), ''), 'Unassigned') AS category,
                 {order_col} AS order_id,
                 CAST({date_col} AS DATE) AS order_date,
@@ -4504,8 +4763,9 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             FROM base
         )
         SELECT
-            ANY_VALUE(sku) AS sku,
+            sku,
             product,
+            ANY_VALUE(protein_family) AS protein_family,
             ANY_VALUE(category) AS category,
             SUM(CASE WHEN period = 'current' THEN revenue ELSE 0 END) AS revenue,
             SUM(CASE WHEN period = 'current' THEN cost ELSE 0 END) AS cost,
@@ -4534,7 +4794,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             END AS margin_prior_pct
         FROM labeled
         WHERE period IS NOT NULL
-        GROUP BY product
+        GROUP BY sku, product
         HAVING
             SUM(CASE WHEN period = 'current' THEN revenue ELSE 0 END) <> 0
             OR SUM(CASE WHEN period = 'prior' THEN revenue ELSE 0 END) <> 0
@@ -4581,7 +4841,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     days_since_last = None
     try:
         if last_order_dt is not None:
-            days_since_last = (_utc_today_ts_naive() - last_order_dt.normalize()).days
+            days_since_last = max(int((activity_reference_ts - last_order_dt.normalize()).days), 0)
     except Exception:
         days_since_last = None
 
@@ -4608,6 +4868,11 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         "primary_region": s.get("primary_region"),
         "primary_shipping": s.get("primary_ship"),
         "owner_sales_rep": s.get("owner_sales_rep"),
+        "assigned_owner_sales_rep": s.get("assigned_owner_sales_rep"),
+        "dominant_seller_sales_rep": s.get("dominant_seller_sales_rep"),
+        "historical_owner_sales_rep": None,
+        "last_sales_rep": s.get("last_sales_rep") or s.get("owner_sales_rep"),
+        "last_sales_rep_date": _iso_date_text(s.get("last_sales_rep_order_date") or s.get("last_order")),
         "primary_city": s.get("primary_city"),
         "primary_state": s.get("primary_state"),
         "revenue_last_30": _clean_float(s.get("revenue_last_30")),
@@ -4687,19 +4952,19 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
 
     # Action center counts (fallback to orders frame only if action query missing)
     if action_row is None or kpis.get("orders_last_30") is None:
-        today = _utc_today_ts_naive()
         order_dates_series = pd.to_datetime(orders_all_df["order_date"]).astype("datetime64[ns]")
-        threshold_30 = (today - pd.Timedelta(days=30)).to_datetime64()
-        threshold_90 = (today - pd.Timedelta(days=90)).to_datetime64()
-        kpis["orders_last_30"] = int((order_dates_series >= threshold_30).sum())
-        kpis["orders_last_90"] = int((order_dates_series >= threshold_90).sum())
-        if pd.notna(kpis.get("orders_last_90")) and kpis.get("orders_last_90") == 0 and not orders_all_df.empty:
-            kpis["orders_last_90"] = int(len(orders_all_df))
-    if kpis.get("days_since_last_order") is None and not orders_all_df.empty:
+        threshold_30 = (activity_reference_ts - pd.Timedelta(days=29)).to_datetime64()
+        threshold_90 = (activity_reference_ts - pd.Timedelta(days=89)).to_datetime64()
+        upper_bound = activity_reference_ts.to_datetime64()
+        kpis["orders_last_30"] = int(((order_dates_series >= threshold_30) & (order_dates_series <= upper_bound)).sum())
+        kpis["orders_last_90"] = int(((order_dates_series >= threshold_90) & (order_dates_series <= upper_bound)).sum())
+    if not orders_all_df.empty:
         try:
-            last_order_from_orders = pd.to_datetime(orders_all_df["order_date"]).max()
+            last_order_from_orders = pd.to_datetime(orders_all_df["order_date"], errors="coerce")
+            last_order_from_orders = last_order_from_orders[last_order_from_orders <= activity_reference_ts]
+            last_order_from_orders = last_order_from_orders.max() if not last_order_from_orders.empty else pd.NaT
             if pd.notna(last_order_from_orders):
-                kpis["days_since_last_order"] = int((_utc_today_ts_naive() - last_order_from_orders.normalize()).days)
+                kpis["days_since_last_order"] = max(int((activity_reference_ts - last_order_from_orders.normalize()).days), 0)
         except Exception:
             pass
 
@@ -4952,6 +5217,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             {
                 "sku": getattr(row, "sku", None),
                 "product": getattr(row, "product", None),
+                "protein_family": getattr(row, "protein_family", None) or "Unassigned",
                 "category": getattr(row, "category", None) or "Unassigned",
                 "revenue": revenue_now,
                 "revenue_prior": revenue_prior,
@@ -4959,6 +5225,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 "delta_revenue_pct": delta_revenue_pct,
                 "delta_revenue_status": delta_status,
                 "cost": cost_now,
+                "effective_cost_basis": cost_now,
                 "profit": profit_now,
                 "profit_prior": profit_prior,
                 "margin_pct": margin_now,
@@ -4972,8 +5239,33 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 "line_count": line_count,
                 "asp_lb": asp_lb,
                 "cost_lb": cost_lb,
+                "effective_cost_lb": cost_lb,
                 "contribution_lb": contribution_lb,
                 "asp_unit": asp_unit,
+            }
+        )
+
+    protein_rows: List[Dict[str, Any]] = []
+    for row in protein_df.itertuples():
+        revenue_now = _clean_float(getattr(row, "revenue", 0.0))
+        revenue_prior = _clean_float(getattr(row, "revenue_prior", 0.0))
+        profit_now = _clean_float(getattr(row, "profit", 0.0))
+        weight_now = _clean_float(getattr(row, "weight_lb", 0.0))
+        margin_now = _safe_ratio_value(profit_now, revenue_now, pct=True)
+        delta_revenue = revenue_now - revenue_prior
+        protein_rows.append(
+            {
+                "family": getattr(row, "protein_family", None) or "Unassigned",
+                "revenue": revenue_now,
+                "revenue_prior": revenue_prior,
+                "delta_revenue": delta_revenue,
+                "delta_revenue_pct": _safe_ratio_value(delta_revenue, revenue_prior, pct=True),
+                "profit": profit_now,
+                "margin_pct": margin_now,
+                "weight_lb": weight_now,
+                "weight_prior": _clean_float(getattr(row, "weight_prior", 0.0)),
+                "orders": int(getattr(row, "orders", 0) or 0),
+                "products": int(getattr(row, "products", 0) or 0),
             }
         )
 
@@ -5000,6 +5292,42 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 "products": int(getattr(row, "products", 0) or 0),
             }
         )
+
+    product_rows = margin_rules.annotate_margin_rows(
+        product_rows,
+        protein_keys=("protein_family",),
+        category_keys=("category",),
+        revenue_key="revenue",
+        cost_key="cost",
+        profit_key="profit",
+        margin_key="margin_pct",
+        unit_cost_key="cost_lb",
+    )
+    protein_rows = margin_rules.annotate_margin_rows(
+        protein_rows,
+        protein_keys=("family",),
+        category_keys=("family",),
+        revenue_key="revenue",
+        profit_key="profit",
+        margin_key="margin_pct",
+    )
+    category_rows = margin_rules.annotate_margin_rows(
+        category_rows,
+        protein_keys=("category",),
+        category_keys=("category",),
+        revenue_key="revenue",
+        profit_key="profit",
+        margin_key="margin_pct",
+    )
+    weighted_target_margin_pct = margin_rules.weighted_target_margin_pct(product_rows)
+    if weighted_target_margin_pct is not None:
+        margin_target_pct = float(weighted_target_margin_pct)
+    weighted_minimum_margin_pct = margin_rules.weighted_minimum_margin_pct(product_rows)
+    if weighted_minimum_margin_pct is not None:
+        kpis["minimum_margin_pct"] = float(weighted_minimum_margin_pct)
+    if margin_target_pct is not None:
+        kpis["margin_target_pct"] = float(margin_target_pct)
+        kpis["target_margin_pct"] = float(margin_target_pct)
 
     product_sorted = sorted(product_rows, key=lambda r: r.get("revenue", 0.0), reverse=True)
     product_spend_top = [{"label": r["product"], "revenue": r.get("revenue", 0.0)} for r in product_sorted[:10]]
@@ -5130,7 +5458,8 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     price_table: List[Dict[str, Any]] = []
     price_delta_min = None
     price_delta_max = None
-    top_skus = [r["product"] for r in product_sorted[:8] if r.get("revenue", 0) > 0]
+    top_price_rows = [r for r in product_sorted if r.get("revenue", 0) > 0 and str(r.get("sku") or "").strip()][:8]
+    top_skus = [str(r.get("sku")).strip() for r in top_price_rows]
     primary_region = kpis.get("primary_region")
 
     if top_skus:
@@ -5138,45 +5467,50 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         peer_sql = f"""
             WITH peer AS (
                 SELECT
+                    COALESCE(CAST({product_id_col or product_col} AS VARCHAR), CAST({product_col} AS VARCHAR)) AS sku,
                     {product_col} AS product,
                     {revenue_col} AS revenue,
-                    COALESCE({weight_col},0) AS weight,
-                    COALESCE({qty_col},0) AS qty,
+                    COALESCE({weight_expr},0) AS weight,
+                    COALESCE({qty_expr},0) AS qty,
                     {fs.CANON.customer_id} AS customer_id,
                     {region_expr} AS region
                 FROM fact
-                WHERE {product_col} IN ({placeholders})
+                WHERE {scope_where_sql}
+                  AND CAST({date_col} AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
+                  AND COALESCE(CAST({product_id_col or product_col} AS VARCHAR), CAST({product_col} AS VARCHAR)) IN ({placeholders})
                   AND {fs.CANON.customer_id} <> ?
             ),
             priced AS (
                 SELECT
+                    sku,
                     product,
                     CASE WHEN weight > 0 THEN revenue/weight WHEN qty > 0 THEN revenue/qty END AS unit_price,
                     region
                 FROM peer
-                WHERE (region = ? OR ? IS NULL)
+                WHERE (? IS NULL OR region = ?)
             )
-            SELECT product, QUANTILE_CONT(unit_price, 0.5) AS peer_median
+            SELECT sku, ANY_VALUE(product) AS product, QUANTILE_CONT(unit_price, 0.5) AS peer_median
             FROM priced
             WHERE unit_price IS NOT NULL
-            GROUP BY product
+            GROUP BY sku
         """
-        peer_params = list(top_skus) + [customer_id, primary_region, primary_region]
+        peer_params = list(scope_where_params) + [window_start_iso, window_end_iso] + list(top_skus) + [customer_id, primary_region, primary_region]
         peer_df = fact_store.execute_sql_df(peer_sql, peer_params, tag="customers.drilldown.price_peers")
-        peer_map = {row.product: float(row.peer_median) for row in peer_df.itertuples() if pd.notna(row.peer_median)}
+        peer_map = {str(row.sku): float(row.peer_median) for row in peer_df.itertuples() if pd.notna(row.peer_median)}
 
-        qty_lookup = {row.product: getattr(row, "qty", None) for row in product_df.itertuples()}
+        qty_lookup = {str(row.get("sku") or ""): row.get("units") for row in product_rows}
         for r in product_rows:
-            if r["product"] not in top_skus:
+            sku = str(r.get("sku") or "").strip()
+            if not sku or sku not in top_skus:
                 continue
             weight_val = r.get("weight_lb", 0.0) or 0.0
-            qty_val = qty_lookup.get(r["product"])
+            qty_val = qty_lookup.get(sku)
             unit_price = None
             if weight_val > 0:
                 unit_price = (r.get("revenue", 0.0) or 0.0) / weight_val
             elif qty_val and qty_val > 0:
                 unit_price = (r.get("revenue", 0.0) or 0.0) / qty_val
-            peer = peer_map.get(r["product"])
+            peer = peer_map.get(sku)
             delta_pct = None
             if unit_price is not None and peer:
                 delta_pct = ((unit_price - peer) / peer) * 100.0 if peer else None
@@ -5190,6 +5524,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                     "sku": r.get("sku"),
                     "product": r["product"],
                     "category": r.get("category"),
+                    "protein_family": r.get("protein_family"),
                     "cust_unit_price": unit_price,
                     "peer_median": peer,
                     "delta_pct": delta_pct,
@@ -5242,6 +5577,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                         CAST({order_date_col} AS DATE) AS order_date,
                         {product_id_col or product_col} AS sku,
                         {product_col} AS description,
+                        COALESCE(NULLIF(CAST({protein_expr} AS VARCHAR), ''), 'Unassigned') AS protein_family,
                         COALESCE(NULLIF(CAST({category_expr} AS VARCHAR), ''), 'Unassigned') AS category,
                         {revenue_col} AS revenue
                     FROM fact
@@ -5249,7 +5585,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                       AND {order_col} IS NOT NULL
                       AND {order_date_col} IS NOT NULL
                       AND {product_col} IS NOT NULL
-                      AND CAST({order_date_col} AS DATE) >= CURRENT_DATE - INTERVAL '24 months'
+                      AND CAST({order_date_col} AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
                 ),
                 cust_skus AS (
                     SELECT DISTINCT {product_id_col or product_col} AS sku
@@ -5257,6 +5593,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                     WHERE {where_sql_all}
                       AND {order_col} IS NOT NULL
                       AND {product_col} IS NOT NULL
+                      AND CAST({order_date_col} AS DATE) <= CAST(? AS DATE)
                 ),
                 orders_with_top AS (
                     SELECT DISTINCT order_id
@@ -5278,6 +5615,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                     SELECT
                         g.sku,
                         ANY_VALUE(g.description) AS description,
+                        ANY_VALUE(g.protein_family) AS protein_family,
                         ANY_VALUE(g.category) AS category,
                         COUNT(DISTINCT g.order_id) AS co_orders,
                         SUM(g.revenue) AS revenue
@@ -5289,6 +5627,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 SELECT
                     c.sku,
                     c.description,
+                    c.protein_family,
                     c.category,
                     c.co_orders,
                     c.revenue,
@@ -5310,7 +5649,9 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             """
             xs_params: List[Any] = []
             xs_params.extend(scope_where_params)
+            xs_params.extend([cross_sell_lookback_iso, activity_reference_iso])
             xs_params.extend(params_all)
+            xs_params.append(activity_reference_iso)
             xs_params.extend(xsell_top_skus)
             xs_df = fact_store.execute_sql_df(cross_sql, xs_params, tag="customers.drilldown.cross_sell")
             rows: List[Dict[str, Any]] = []
@@ -5319,6 +5660,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                     {
                         "product": getattr(r, "description", None) or getattr(r, "sku", None),
                         "sku": getattr(r, "sku", None),
+                        "protein_family": getattr(r, "protein_family", None) or "Unassigned",
                         "category": getattr(r, "category", None) or "Unassigned",
                         "co_orders": int(getattr(r, "co_orders", 0) or 0),
                         "candidate_orders": int(getattr(r, "candidate_orders", 0) or 0),
@@ -5391,6 +5733,25 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     customers_in_window = _safe_int(scope_row.get("customers_in_window")) if scope_row is not None else 0
     orders_in_scope_window = _safe_int(scope_row.get("orders_window_scope")) if scope_row is not None else 0
 
+    assigned_owner_name = str(kpis.get("assigned_owner_sales_rep") or "").strip() or None
+    dominant_seller_name = str(kpis.get("dominant_seller_sales_rep") or "").strip() or None
+    owner_name = str(kpis.get("owner_sales_rep") or "").strip() or dominant_seller_name
+    historical_owner_name = dominant_seller_name if dominant_seller_name and dominant_seller_name != owner_name else None
+    owner_source_label = "Dominant visible seller"
+    if assigned_owner_name:
+        owner_source_label = "Assigned owner field"
+    elif owner_rep_col and str(owner_rep_col).strip().lower() in {"primarysalesrepname", "owner", "accountowner", "accountmanager"}:
+        owner_source_label = "Assigned owner field"
+    owner_detail = "Owner inferred from the dominant visible seller in RBAC-visible history."
+    if owner_source_label == "Assigned owner field":
+        owner_detail = "Owner comes from the assigned account-owner field visible in current scope."
+    elif dominant_seller_name:
+        owner_detail = f"Inferred from dominant visible seller across visible history: {dominant_seller_name}."
+    if historical_owner_name:
+        owner_detail = f"Current owner differs from the dominant visible seller across history: {historical_owner_name}."
+    kpis["owner_sales_rep"] = owner_name
+    kpis["historical_owner_sales_rep"] = historical_owner_name
+
     current_product_revenue_total = _sum_numeric([row.get("revenue") for row in product_rows])
     current_product_profit_total = _sum_numeric([row.get("profit") for row in product_rows])
     current_product_weight_total = _sum_numeric([row.get("weight_lb") for row in product_rows])
@@ -5416,7 +5777,10 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     low_margin_candidates = [
         row
         for row in product_rows
-        if row.get("revenue", 0.0) > 0 and (row.get("margin_pct") is not None and row.get("margin_pct") < margin_target_pct)
+        if row.get("revenue", 0.0) > 0
+        and row.get("margin_pct") is not None
+        and row.get("target_margin_pct") is not None
+        and float(row.get("margin_pct") or 0.0) < float(row.get("target_margin_pct") or 0.0)
     ]
     low_margin_candidates.sort(key=lambda r: r.get("revenue", 0.0), reverse=True)
     negative_margin_candidates = [
@@ -5456,8 +5820,18 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         and (row.get("delta_revenue_pct") or 0.0) <= -15.0
     ]
     declining_categories.sort(key=lambda r: r.get("delta_revenue_pct") or 0.0)
+    lost_proteins = [
+        row for row in protein_rows if (row.get("revenue_prior", 0.0) or 0.0) > 0 and (row.get("revenue", 0.0) or 0.0) == 0
+    ]
+    lost_proteins.sort(key=lambda r: r.get("revenue_prior", 0.0), reverse=True)
     category_sorted = sorted(category_rows, key=lambda r: r.get("revenue", 0.0), reverse=True)
     category_weight_sorted = sorted(category_rows, key=lambda r: r.get("weight_lb", 0.0), reverse=True)
+    protein_sorted = sorted(protein_rows, key=lambda r: r.get("revenue", 0.0), reverse=True)
+    protein_weight_sorted = sorted(protein_rows, key=lambda r: r.get("weight_lb", 0.0), reverse=True)
+    protein_revenue_total = _sum_numeric([rec.get("revenue") for rec in protein_rows])
+    protein_weight_total = _sum_numeric([rec.get("weight_lb") for rec in protein_rows])
+    top_protein_share_pct = _top_n_share(protein_rows, "revenue", 1)
+    top5_protein_share_pct = _top_n_share(protein_rows, "revenue", 5)
 
     under_target_margin_exposure_pct = _safe_ratio_value(
         _sum_numeric([row.get("revenue") for row in low_margin_candidates]),
@@ -5470,7 +5844,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         pct=True,
     )
     recoverable_margin_uplift = sum(
-        max(margin_target_pct - float(row.get("margin_pct") or 0.0), 0.0) / 100.0 * float(row.get("revenue") or 0.0)
+        max(float(row.get("target_margin_pct") or 0.0) - float(row.get("margin_pct") or 0.0), 0.0) / 100.0 * float(row.get("revenue") or 0.0)
         for row in low_margin_candidates
     )
     kpis["under_target_margin_exposure_pct"] = under_target_margin_exposure_pct
@@ -5571,7 +5945,15 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     if len(monthly_all_revenue_vals) >= 2:
         monthly_cv_pct = _safe_ratio_value(float(np.std(monthly_all_revenue_vals)), float(np.mean(monthly_all_revenue_vals)), pct=True)
 
-    margin_gap_pct = max(float(margin_target_pct) - float(kpis.get("margin_pct") or 0.0), 0.0) if kpis.get("margin_pct") is not None else None
+    margin_gap_pct = max(float(margin_target_pct or 0.0) - float(kpis.get("margin_pct") or 0.0), 0.0) if kpis.get("margin_pct") is not None else None
+    kpis["margin_gap_pct"] = margin_gap_pct
+    if kpis.get("margin_pct") is not None:
+        margin_status = margin_rules.classify_margin_status(
+            kpis.get("margin_pct"),
+            kpis.get("minimum_margin_pct"),
+            kpis.get("target_margin_pct"),
+        )
+        kpis.update(margin_status)
     pricing_quality_score = None
     if deltas:
         pricing_quality_score = _clamp_score(
@@ -5658,7 +6040,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         profitability_posture = "Negative Margin"
     elif float(under_target_margin_exposure_pct or 0.0) >= 40.0:
         profitability_posture = "Margin Leakage"
-    elif float(kpis.get("margin_pct") or 0.0) >= (margin_target_pct + 5.0):
+    elif float(kpis.get("margin_pct") or 0.0) >= (float(margin_target_pct or 0.0) + 5.0):
         profitability_posture = "Healthy Margin"
     else:
         profitability_posture = "Stable Margin"
@@ -5761,6 +6143,25 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             f"and whitespace in {cross_sell[0].get('category') or cross_sell[0].get('product')}"
         )
     workspace_narrative = ", ".join(narrative_parts).strip().rstrip(".") + "."
+    last_sales_rep = kpis.get("last_sales_rep") or owner_name
+    last_sales_rep_date = kpis.get("last_sales_rep_date") or kpis.get("last_order")
+    geography_label = ", ".join(
+        [
+            part
+            for part in [
+                kpis.get("primary_city"),
+                kpis.get("primary_state"),
+                kpis.get("primary_region"),
+            ]
+            if str(part or "").strip()
+        ]
+    ) or "No geography signal"
+    coverage_summary = f"{coverage_posture} coverage"
+    if owner_name:
+        coverage_summary = f"{coverage_posture} coverage with {owner_name}"
+    trust_summary = f"{trust_posture} trust"
+    if float(kpis.get("cost_coverage_pct") or 0.0) > 0:
+        trust_summary = f"{trust_posture} trust and {float(kpis.get('cost_coverage_pct') or 0.0):.0f}% cost coverage"
 
     hero_badges: List[Dict[str, Any]] = []
     def _add_badge(label: str, tone: str) -> None:
@@ -5843,7 +6244,8 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     next_best_actions: List[Dict[str, Any]] = []
     if low_margin_candidates:
         top_leak = low_margin_candidates[0]
-        profit_uplift = max(margin_target_pct - float(top_leak.get("margin_pct") or 0.0), 0.0) / 100.0 * float(top_leak.get("revenue") or 0.0)
+        top_leak_target_margin_pct = float(top_leak.get("target_margin_pct") or margin_target_pct or 0.0)
+        profit_uplift = max(top_leak_target_margin_pct - float(top_leak.get("margin_pct") or 0.0), 0.0) / 100.0 * float(top_leak.get("revenue") or 0.0)
         next_best_actions.append(
             _action_item(
                 lane="protect_now",
@@ -5851,18 +6253,21 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 title="Recover margin on core leakage SKU",
                 why=(
                     f"{top_leak.get('product')} is running at {float(top_leak.get('margin_pct') or 0.0):.1f}% margin, "
-                    f"below the {margin_target_pct:.0f}% target."
+                    f"below the {top_leak_target_margin_pct:.0f}% target."
                 ),
                 urgency="High",
                 confidence=84.0,
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
                 related_products=[top_leak.get("product")],
                 related_categories=[top_leak.get("category")],
+                related_families=[top_leak.get("protein_family")],
                 revenue_upside=float(top_leak.get("revenue") or 0.0),
                 profit_upside=profit_uplift,
-                margin_upside_pp=max(margin_target_pct - float(top_leak.get("margin_pct") or 0.0), 0.0),
+                margin_upside_pp=max(top_leak_target_margin_pct - float(top_leak.get("margin_pct") or 0.0), 0.0),
+                scope_label="Current filter window",
+                pathway_label="Open product drilldown",
                 tone="danger",
-                priority_score=min(98.0, 75.0 + max(margin_target_pct - float(top_leak.get("margin_pct") or 0.0), 0.0)),
+                priority_score=min(98.0, 75.0 + max(top_leak_target_margin_pct - float(top_leak.get("margin_pct") or 0.0), 0.0)),
             )
         )
     if (
@@ -5881,8 +6286,10 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 ),
                 urgency="High" if float(recency_days or 0.0) >= 90.0 else "Medium",
                 confidence=78.0,
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
                 revenue_upside=max(float(kpis.get("revenue_prior_window") or 0.0) - float(kpis.get("revenue_window") or 0.0), 0.0) or None,
+                scope_label="Visible lifetime",
+                pathway_label="Open order workspace",
                 tone="warning",
                 priority_score=min(96.0, 60.0 + float(churn_risk_score or 0.0) * 0.4),
             )
@@ -5899,10 +6306,13 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 ),
                 urgency="Medium",
                 confidence=min(95.0, float(best_cross_sell.get("confidence_pct") or 0.0)),
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
                 related_products=[best_cross_sell.get("product")],
                 related_categories=[best_cross_sell.get("category")],
+                related_families=[best_cross_sell.get("protein_family") or best_cross_sell.get("category")],
                 revenue_upside=avg_peer_attach_revenue,
+                scope_label="Peer comparison",
+                pathway_label="Open product drilldown",
                 tone="info",
                 priority_score=min(92.0, 45.0 + float(best_cross_sell.get("confidence_pct") or 0.0) * 0.4 + float(best_cross_sell.get("lift") or 0.0) * 8.0),
             )
@@ -5920,9 +6330,12 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 ),
                 urgency="Medium",
                 confidence=72.0,
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
                 related_categories=[top_lost_category.get("category")],
+                related_families=[top_lost_category.get("category")],
                 revenue_upside=float(top_lost_category.get("revenue_prior") or 0.0),
+                scope_label="Current filter window",
+                pathway_label="Open family workspace",
                 tone="warning",
                 priority_score=76.0,
             )
@@ -5939,8 +6352,11 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 ),
                 urgency="Medium",
                 confidence=70.0,
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
                 related_products=[rec.get("product") for rec in top_revenue_products[:3]],
+                related_families=[rec.get("protein_family") for rec in top_revenue_products[:3]],
+                scope_label="Current filter window",
+                pathway_label="Open dependency workspace",
                 tone="warning",
                 priority_score=68.0,
             )
@@ -5954,7 +6370,9 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 why="Cost coverage is below 95%, which weakens margin and profitability diagnostics.",
                 urgency="Medium",
                 confidence=92.0,
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
+                scope_label="Visible lifetime",
+                pathway_label="Open scoped workspace",
                 tone="neutral",
                 priority_score=66.0,
             )
@@ -5971,7 +6389,9 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 ),
                 urgency="Low",
                 confidence=68.0,
-                owner=kpis.get("owner_sales_rep"),
+                owner=owner_name,
+                scope_label="Visible lifetime",
+                pathway_label="Open weekday workspace",
                 tone="info",
                 priority_score=58.0,
             )
@@ -5998,12 +6418,20 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         "coverage_posture": coverage_posture,
         "trust_posture": trust_posture,
         "active_window": f"{window_start_iso} to {window_end_iso}",
+        "snapshot_reference_date": activity_reference_iso,
         "last_order_date": kpis.get("last_order"),
         "first_order_date": kpis.get("first_order"),
         "key_account_flag": key_account_flag,
-        "owner": kpis.get("owner_sales_rep"),
+        "owner": owner_name,
+        "owner_detail": owner_detail,
+        "historical_owner": historical_owner_name,
+        "last_sales_rep": last_sales_rep,
+        "last_sales_rep_date": last_sales_rep_date,
         "region": kpis.get("primary_region"),
         "shipping_pattern": kpis.get("primary_shipping"),
+        "geography": geography_label,
+        "coverage_summary": coverage_summary,
+        "trust_summary": trust_summary,
         "city": kpis.get("primary_city"),
         "state": kpis.get("primary_state"),
         "badges": hero_badges,
@@ -6052,10 +6480,10 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             "title": "Relationship Strength",
             "subtitle": "Recency, cadence, tenure, and repeat depth.",
             "metrics": [
-                _metric_item("Days Since Last Order", kpis.get("days_since_last_order"), fmt="number", detail=kpis.get("recency_band"), emphasize=True),
-                _metric_item("Cadence Median", kpis.get("cadence_median_days"), fmt="number", detail=f"P90 {float(kpis.get('cadence_p90_days') or 0.0):.1f} days", suffix="days"),
-                _metric_item("Repeat Revenue Share", repeat_revenue_share_pct, fmt="percent", detail=f"Recent repeat revenue {float(recent_repeat_revenue_share_pct or 0.0):.1f}%"),
-                _metric_item("Lifecycle Stage", lifecycle_stage, fmt="text", detail=f"Active streak {active_streak_months} months"),
+                _metric_item("Days Since Last Order", kpis.get("days_since_last_order"), fmt="number", detail=kpis.get("recency_band"), scope="Visible lifetime", emphasize=True),
+                _metric_item("Cadence Median", kpis.get("cadence_median_days"), fmt="number", detail=f"P90 {float(kpis.get('cadence_p90_days') or 0.0):.1f} days", suffix="days", scope="Visible lifetime"),
+                _metric_item("Repeat Revenue Share", repeat_revenue_share_pct, fmt="percent", detail=f"Recent repeat revenue {float(recent_repeat_revenue_share_pct or 0.0):.1f}%", scope="Visible lifetime"),
+                _metric_item("Lifecycle Stage", lifecycle_stage, fmt="text", detail=f"Active streak {active_streak_months} months", scope="Visible lifetime"),
             ],
         },
         {
@@ -6084,7 +6512,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                     kpis.get("avg_abs_price_delta_pct"),
                     fmt="percent",
                     detail=f"Below-peer exposure {float(kpis.get('pricing_dispersion_below_peer_pct') or 0.0):.1f}%",
-                    scope="Scoped peers",
+                    scope="Peer comparison",
                 ),
             ],
         },
@@ -6129,10 +6557,10 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             "title": "Growth & Recovery",
             "subtitle": "Whitespace, lost demand, and forecast readiness.",
             "metrics": [
-                _metric_item("Growth Opportunity", growth_opportunity_score, fmt="score", detail=f"{len(cross_sell)} cross-sell ideas", emphasize=True),
-                _metric_item("Lost Products", len(lost_products), fmt="number", detail=f"{len(lost_categories)} lapsed families"),
-                _metric_item("Declining Families", len(declining_categories), fmt="number", detail=f"{len(declining_products)} declining products"),
-                _metric_item("Forecastability", forecastability_score, fmt="score", detail=f"Seasonality strength {float(seasonality_strength_score or 0.0):.1f}"),
+                _metric_item("Growth Opportunity", growth_opportunity_score, fmt="score", detail=f"{len(cross_sell)} cross-sell ideas", scope="Current relationship", emphasize=True),
+                _metric_item("Lost Products", len(lost_products), fmt="number", detail=f"{len(lost_categories)} lapsed families", scope="Visible lifetime"),
+                _metric_item("Declining Families", len(declining_categories), fmt="number", detail=f"{len(declining_products)} declining products", scope="Current filter window"),
+                _metric_item("Forecastability", forecastability_score, fmt="score", detail=f"Seasonality strength {float(seasonality_strength_score or 0.0):.1f}", scope="Visible lifetime"),
             ],
         },
     ]
@@ -6151,12 +6579,14 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 "Relationship Health",
                 relationship_health_score,
                 f"Recency {int(recency_days or 0)}d, repeat revenue {float(repeat_revenue_share_pct or 0.0):.1f}%, active streak {active_streak_months} months.",
+                implication="Higher scores imply resilient repeat demand, stronger coverage, and less near-term relationship friction.",
             ),
             _score_item(
                 "churn_risk_score",
                 "Churn Risk",
                 churn_risk_score,
                 f"Orders last 90d: {action_orders_90}, cadence median {float(kpis.get('cadence_median_days') or 0.0):.1f} days.",
+                implication="Higher scores imply leadership review and proactive recovery motion should happen immediately.",
                 risk=True,
             ),
             _score_item(
@@ -6164,42 +6594,49 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
                 "Growth Opportunity",
                 growth_opportunity_score,
                 f"{len(cross_sell)} cross-sell ideas, {len(lost_products)} lapsed products, {len(declining_categories)} declining families.",
+                implication="Higher scores imply more whitespace, reactivation, or attach-rate upside is commercially available.",
             ),
             _score_item(
                 "pricing_quality_score",
                 "Pricing Quality",
                 pricing_quality_score,
                 f"Average absolute peer delta {float(kpis.get('avg_abs_price_delta_pct') or 0.0):.1f}%.",
+                implication="Higher scores imply pricing is more disciplined versus the visible peer set.",
             ),
             _score_item(
                 "margin_quality_score",
                 "Margin Quality",
                 margin_quality_score,
                 f"Below-target exposure {float(under_target_margin_exposure_pct or 0.0):.1f}% with uplift potential {recoverable_margin_uplift:,.0f}.",
+                implication="Higher scores imply less leakage and less urgency for margin recovery action.",
             ),
             _score_item(
                 "weight_importance_score",
                 "Weight Importance",
                 weight_importance_score,
                 f"{float(total_weight_window or 0.0):,.0f} lb in window and {float(kpis.get('window_weight_share_pct') or 0.0):.1f}% of scoped weight.",
+                implication="Higher scores imply this account matters more to operations and supply planning.",
             ),
             _score_item(
                 "dependency_balance_score",
                 "Dependency Balance",
                 dependency_balance_score,
                 f"Top 5 product share {float(top5_product_share_pct or 0.0):.1f}% and top category share {float(top_category_share_pct or 0.0):.1f}%.",
+                implication="Higher scores imply a more balanced mix with less concentration risk.",
             ),
             _score_item(
                 "service_rhythm_score",
                 "Service Rhythm",
                 service_rhythm_score,
                 f"Cadence variability {float(cadence_variability_pct or 0.0):.1f}% and weekday concentration {float(kpis.get('best_weekday_share_pct') or 0.0):.1f}%.",
+                implication="Higher scores imply the account is easier to service and plan around operationally.",
             ),
             _score_item(
                 "forecastability_score",
                 "Forecastability",
                 forecastability_score,
                 f"Seasonality strength {float(seasonality_strength_score or 0.0):.1f} with monthly CV {float(monthly_cv_pct or 0.0):.1f}%.",
+                implication="Higher scores imply demand is easier to forecast and inventory against.",
             ),
         ],
     }
@@ -6279,6 +6716,63 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         ),
     }
 
+    protein_mix_rows = [
+        {
+            **row,
+            "family": row.get("family") or "Unassigned",
+            "revenue_share_pct": _safe_ratio_value(row.get("revenue"), protein_revenue_total, pct=True),
+            "weight_share_pct": _safe_ratio_value(row.get("weight_lb"), protein_weight_total, pct=True),
+        }
+        for row in protein_sorted[:10]
+    ]
+    protein_margin_watch = [
+        {
+            **row,
+            "family": row.get("family") or "Unassigned",
+            "revenue_share_pct": _safe_ratio_value(row.get("revenue"), protein_revenue_total, pct=True),
+        }
+        for row in sorted(
+            [row for row in protein_rows if row.get("revenue") or row.get("revenue_prior")],
+            key=lambda r: (float(r.get("margin_pct") if r.get("margin_pct") is not None else 999999.0), -(r.get("revenue", 0.0) or 0.0)),
+        )[:10]
+    ]
+    protein_whitespace = [
+        {
+            **row,
+            "family": row.get("family") or row.get("protein_family") or row.get("category") or "Unassigned",
+        }
+        for row in (
+            lost_proteins[:6]
+            + [
+                row
+                for row in cross_sell[:10]
+                if (row.get("protein_family") or row.get("category")) not in {rec.get("family") for rec in lost_proteins[:6]}
+            ][:4]
+        )
+    ]
+    top_protein = protein_mix_rows[0] if protein_mix_rows else None
+    fastest_growing_family = next((row for row in protein_mix_rows if (row.get("delta_revenue_pct") or 0.0) > 0), None)
+    protein_intelligence = {
+        "summary": {
+            "top_family": (top_protein or {}).get("family"),
+            "top_family_share_pct": (top_protein or {}).get("revenue_share_pct"),
+            "top5_family_share_pct": top5_protein_share_pct,
+            "family_count": len(protein_rows),
+            "dependency_posture": dependency_posture,
+            "dependency_balance_score": dependency_balance_score,
+            "fastest_growing_family": (fastest_growing_family or {}).get("family"),
+            "fastest_growing_family_delta_pct": (fastest_growing_family or {}).get("delta_revenue_pct"),
+        },
+        "mix": protein_mix_rows,
+        "margin_watch": protein_margin_watch,
+        "whitespace": protein_whitespace,
+        "narrative": (
+            f"{((top_protein or {}).get('family') or 'Top protein family')} represents "
+            f"{float((top_protein or {}).get('revenue_share_pct') or 0.0):.1f}% of current-window revenue. "
+            f"{len(protein_whitespace)} whitespace cues and {len(protein_margin_watch)} margin-watch families are visible in scope."
+        ),
+    }
+
     product_intelligence = {
         "top_revenue_products": top_revenue_products,
         "top_profit_products": top_profit_products,
@@ -6313,7 +6807,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         "negative_margin_watchlist": negative_margin_candidates[:10],
         "narrative": (
             f"{float(under_target_margin_exposure_pct or 0.0):.1f}% of current filter-window revenue sits below the "
-            f"{margin_target_pct:.0f}% target margin."
+            f"{float(margin_target_pct or 0.0):.0f}% weighted protein-aware target margin."
         ),
     }
 
@@ -6351,14 +6845,19 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
     }
 
     trust_coverage = {
-        "owner": kpis.get("owner_sales_rep"),
+        "owner": owner_name,
+        "owner_source": owner_source_label,
+        "historical_owner": historical_owner_name,
+        "last_sales_rep": last_sales_rep,
+        "last_sales_rep_date": last_sales_rep_date,
         "coverage_posture": coverage_posture,
         "trust_posture": trust_posture,
         "cost_coverage_pct": kpis.get("cost_coverage_pct"),
         "customers_in_scope": customers_in_scope,
         "customers_in_window": customers_in_window,
         "orders_in_scope_window": orders_in_scope_window,
-        "scope_note": "Window metrics reflect the active filter window. Lifetime metrics reflect visible history within the current RBAC and non-date filter scope.",
+        "window_reference_date": activity_reference_iso,
+        "scope_note": "Window metrics reflect the active filter window and snapshot date. Lifetime metrics reflect visible history within the current RBAC and non-date filter scope.",
     }
 
     trend_signal_points = sum(
@@ -6509,6 +7008,7 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         "lifecycle": lifecycle,
         "weight_analytics": weight_analytics,
         "product_intelligence": product_intelligence,
+        "protein_intelligence": protein_intelligence,
         "pricing_intelligence": pricing_intelligence,
         "ordering_rhythm": ordering_rhythm,
         "concentration": concentration,
@@ -6531,6 +7031,11 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
             "primary_region": kpis.get("primary_region"),
             "primary_shipping": kpis.get("primary_shipping"),
             "owner_sales_rep": kpis.get("owner_sales_rep"),
+            "historical_owner_sales_rep": kpis.get("historical_owner_sales_rep"),
+            "assigned_owner_sales_rep": kpis.get("assigned_owner_sales_rep"),
+            "dominant_seller_sales_rep": kpis.get("dominant_seller_sales_rep"),
+            "last_sales_rep": kpis.get("last_sales_rep"),
+            "last_sales_rep_date": kpis.get("last_sales_rep_date"),
             "primary_city": kpis.get("primary_city"),
             "primary_state": kpis.get("primary_state"),
             "unique_products": kpis.get("unique_products"),
@@ -6546,13 +7051,22 @@ def build_customers_drilldown(filters: Any, scope: Dict[str, Any], args: Any) ->
         "meta": {
             "page_id": "customer_drilldown",
             "entity_id": customer_id,
+            "entity_label": kpis.get("label"),
             "cached": False,
             "query_ms": int((time.perf_counter() - started) * 1000),
             "generated_at": _utc_now_iso(),
             "window_start": window_start_iso,
             "window_end": window_end_iso,
+            "window_reference_date": activity_reference_iso,
             "prior_window_start": prior_start_iso,
             "prior_window_end": prior_end_iso,
+            "dataset_version": str(fact_store.cache_buster()),
+            "scope": {
+                "is_admin": bool((scope or {}).get("is_admin")),
+                "scope_mode": (scope or {}).get("scope_mode"),
+                "allowed_count": (scope or {}).get("allowed_count"),
+                "scope_hash": (scope or {}).get("scope_hash"),
+            },
             "drilldown_v2": bool(drilldown_v2),
             "export_all": bool(drilldown_export_all),
         },

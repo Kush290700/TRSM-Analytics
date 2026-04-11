@@ -7,6 +7,7 @@ import pytest
 from app import create_app
 from app.auth.models import SessionLocal, User
 from app.core.access_policy import scope_for_user
+from app.core.exceptions import DatasetNotBuiltError
 from app.services.filters import read_sticky_filters_from_session, write_sticky_filters_to_session
 
 
@@ -187,6 +188,32 @@ def test_existing_user_assignment_does_not_create_duplicate(client):
     assert after_count == before_count
 
 
+def test_existing_user_assignment_still_works_without_fact_dataset(client, monkeypatch):
+    _login_admin(client)
+    existing, _ = _create_user(role="sales")
+
+    monkeypatch.setattr(
+        "app.services.fact_store.list_columns",
+        lambda: (_ for _ in ()).throw(DatasetNotBuiltError("dataset missing")),
+    )
+
+    resp = client.post(
+        "/api/_admin/users",
+        json={
+            "existing_user_id": int(existing.id),
+            "role": "sales",
+            "approve": True,
+            "visibility": [],
+            "scope": {"sales_rep_ids": []},
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload.get("mode") == "existing"
+    assert int(payload["user"]["id"]) == int(existing.id)
+
+
 def test_create_new_user_still_works(client):
     _login_admin(client)
     suffix = uuid.uuid4().hex[:8]
@@ -216,6 +243,33 @@ def test_create_new_user_still_works(client):
     with SessionLocal() as s:
         after_count = s.query(User).count()
     assert after_count == before_count + 1
+
+
+def test_scope_update_still_works_without_fact_dataset(client, monkeypatch):
+    _login_admin(client)
+    target, _ = _create_user(role="sales")
+
+    monkeypatch.setattr(
+        "app.services.fact_store.list_columns",
+        lambda: (_ for _ in ()).throw(DatasetNotBuiltError("dataset missing")),
+    )
+
+    resp = client.patch(
+        f"/api/_admin/users/{int(target.id)}/scope",
+        json={
+            "visibility": ["__all__"],
+            "scope": {
+                "sales_rep_ids": ["__all__"],
+                "customer_ids": [],
+                "region_ids": [],
+                "supplier_ids": [],
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["user"]["scope"]["scope_mode"] == "all"
 
 
 def test_all_scope_token_sets_user_scope_mode_all(client):
@@ -268,6 +322,30 @@ def test_admin_users_default_view_shows_active_users_only(client):
     assert payload["stats"]["total"] == 2
     assert payload["stats"]["active"] == 1
     assert payload["stats"]["disabled"] == 1
+
+
+def test_admin_users_list_batches_scope_and_access_hydration(client, monkeypatch):
+    _login_admin(client)
+    suffix = uuid.uuid4().hex[:6]
+    email = f"batched_{suffix}@example.com"
+    _create_user(email=email, is_active=True, is_approved=True)
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("list_users should not do per-user role/scope/permission hydration")
+
+    monkeypatch.setattr("app.blueprints.admin_api.list_user_role_names", _unexpected)
+    monkeypatch.setattr("app.blueprints.admin_api.list_user_permission_rules", _unexpected)
+    monkeypatch.setattr("app.blueprints.admin_api.list_effective_permission_keys_for_user", _unexpected)
+    monkeypatch.setattr("app.blueprints.admin_api.list_user_scope_rules", _unexpected)
+
+    resp = client.get(f"/api/_admin/users?query={suffix}&status=all")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+
+    assert payload["meta"]["list_mode"] == "batched"
+    assert payload["meta"]["duration_ms"] >= 0
+    assert payload["users"]
+    assert (payload["users"][0].get("scope") or {}).get("scope_mode") in {"none", "list", "all"}
 
 
 def test_admin_users_status_toggle_supports_active_disabled_and_all(client):
@@ -343,3 +421,10 @@ def test_admin_users_endpoints_disable_caching(client):
     assert "bootstrap.bundle.min.js" in html
     assert "function ensureModals()" in html
     assert "const scopeModal = new bootstrap.Modal" not in html
+    assert "let usersLoadController = null;" in html
+    assert "usersLoadController.abort();" in html
+    assert "let accessLoadController = null;" in html
+    assert "accessLoadController.abort();" in html
+    assert "let auditLoadController = null;" in html
+    assert "auditLoadController.abort();" in html
+    assert "let previewLoadController = null;" in html

@@ -5,6 +5,9 @@
     document.body.dataset.filtersHandler = "ajax";
   }
   const authFetch = window.authFetch || fetch;
+  const pageCache = window.analyticsPageCache || null;
+  const PAGE_CACHE_ID = "overview";
+  const PAGE_CACHE_POLICY = { freshMs: 90 * 1000, maxAgeMs: 20 * 60 * 1000 };
 
   const etags = new Map();
   const charts = {};
@@ -16,27 +19,55 @@
     moversSort: "delta_abs",
     driverMetric: "revenue",
     trend: { freq: "monthly", overlay: "profit", rolling: true },
-    forecast: { metric: "revenue", horizon: 6, includePartial: false, data: null, lastFilters: null, loading: false, stale: false },
+    forecast: { metric: "revenue", horizon: 6, includePartial: true, data: null, lastFilters: null, loading: false, stale: false, requestSeq: 0 },
     insights: { data: null, loading: false, error: null, lastFilters: null },
     chartLibraryMissingNotified: false,
   };
+  const DEFAULT_FORECAST = { metric: "revenue", horizon: 6, includePartial: true };
   const DEPRECATED_WINDOW_PARAMS = ["include_current_month", "include_current", "include_current_months"];
   let activeController = null;
   let insightsController = null;
   let requestSeq = 0;
   let lastAppliedQs = null;
+  let currentApplyId = "";
   let bootstrapped = false;
 
   const fmtCurrency0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const fmtCurrency1 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 1 });
   const fmtNumber0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
   const fmtNumber1 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+  const fmtDateShort = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const fmtDateTime = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   const fmtPercent1 = (v) => `${fmtNumber1.format(Number(v) || 0)}%`;
   const asNumber = (value) => {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
   };
   const emptyText = (value, fallback = "-") => (value === null || value === undefined || value === "" ? fallback : value);
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  const formatTimestampish = (value, { withTime = true } = {}) => {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return withTime ? fmtDateTime.format(parsed) : fmtDateShort.format(parsed);
+  };
+  const formatRefreshAge = (days, hours) => {
+    const dayNum = asNumber(days);
+    const hourNum = asNumber(hours);
+    if (hourNum !== null && hourNum < 48) return `${fmtNumber0.format(hourNum)}h`;
+    if (dayNum !== null) return `${fmtNumber0.format(dayNum)}d`;
+    return "n/a";
+  };
+  const isDefaultForecastSelection = () =>
+    state.forecast.metric === DEFAULT_FORECAST.metric &&
+    Number(state.forecast.horizon) === Number(DEFAULT_FORECAST.horizon) &&
+    Boolean(state.forecast.includePartial) === Boolean(DEFAULT_FORECAST.includePartial);
 
   const waitForFiltersReady = async () => {
     const fallbackState = () => {
@@ -74,18 +105,21 @@
   };
 
   const KPI_META = [
-    { key: "revenue", deltaKey: "revenue", group: "finance", label: "Revenue", fmt: "currency", tooltip: "Total revenue across the selected window. Use it to anchor every commercial comparison on the page." },
-    { key: "cost", deltaKey: "cost", group: "finance", label: "Cost", fmt: "currency", tooltip: "Total landed cost for fulfilled orders. This metric is mask-aware and partially gated by cost coverage." },
-    { key: "profit", deltaKey: "profit", group: "finance", label: "Profit", fmt: "currency", tooltip: "Revenue minus cost. Interpreting profit requires cost coverage to be healthy." },
-    { key: "margin_pct", deltaKey: "margin_pct", group: "finance", label: "Margin %", fmt: "percent", tooltip: "Profit as a percent of revenue. Healthy margin quality matters more than top-line growth on its own." },
-    { key: "qty", deltaKey: "units", group: "scale", label: "Units", fmt: "number", tooltip: "Units shipped or the best available order-line quantity proxy." },
-    { key: "weight", deltaKey: "weight", group: "scale", label: "Weight", fmt: "number", tooltip: "Shipped weight across the active filters. Use it to separate true volume shifts from order-count noise." },
-    { key: "orders", deltaKey: "orders", group: "demand", label: "Orders", fmt: "number", tooltip: "Unique orders in the active business window." },
-    { key: "customers", deltaKey: "customers", group: "demand", label: "Customers", fmt: "number", tooltip: "Distinct active customers in the current window." },
-    { key: "aov", deltaKey: "aov", group: "pricing", label: "AOV", fmt: "currency", tooltip: "Average revenue per order. Rising AOV with stable orders often signals mix or pricing improvement." },
-    { key: "asp", deltaKey: "asp", group: "pricing", label: "ASP", fmt: "currency", tooltip: "Average selling price per unit. Use alongside volume and mix to interpret price-led movement.", optional: true },
-    { key: "profit_per_order", deltaKey: "profit_per_order", group: "pricing", label: "Profit / Order", fmt: "currency", tooltip: "Profit contribution per order. Useful when revenue is growing but order quality is deteriorating.", optional: true },
-    { key: "profit_per_lb", deltaKey: "profit_per_lb", group: "pricing", label: "Profit / Lb", fmt: "currency", tooltip: "Profit yield per pound shipped. Use it to test whether scale is profitable scale.", optional: true },
+    { key: "qty", deltaKey: "qty", group: "scale", label: "Units", fmt: "number", badge: "Window total", tooltip: "Units shipped or the best available quantity proxy under the active filters." },
+    { key: "weight", deltaKey: "weight", group: "scale", label: "Weight", fmt: "number", badge: "Window total", tooltip: "Shipped weight across the active filters. Use it to separate true volume shifts from order-count noise." },
+    { key: "orders", deltaKey: "orders", group: "demand", label: "Orders", fmt: "number", badge: "Activity", tooltip: "Unique orders in the active filtered window." },
+    { key: "customers", deltaKey: "customers", group: "demand", label: "Active Customers", fmt: "number", badge: "Demand breadth", tooltip: "Distinct customers active in the current filtered window." },
+    { key: "aov", deltaKey: "aov", group: "pricing", label: "AOV", fmt: "currency", badge: "Basket", tooltip: "Average revenue per order. Rising AOV with stable orders often signals basket or mix improvement." },
+    { key: "asp", deltaKey: "asp", group: "pricing", label: "ASP", fmt: "currency", badge: "Pricing", tooltip: "Average selling price per unit. Use alongside volume and mix to interpret price-led movement.", optional: true },
+    { key: "profit_per_order", deltaKey: "profit_per_order", group: "pricing", label: "Profit / Order", fmt: "currency", badge: "Yield", tooltip: "Profit contribution per order. Useful when revenue is growing but order quality is deteriorating.", optional: true },
+    { key: "profit_per_lb", deltaKey: "profit_per_lb", group: "pricing", label: "Profit / Lb", fmt: "currency", badge: "Yield", tooltip: "Profit yield per pound shipped. Use it to test whether scale is profitable scale.", optional: true },
+  ];
+
+  const TRUST_KPI_META = [
+    { key: "cost_coverage_pct", group: "trust", label: "Cost Coverage", fmt: "percent", badge: "Coverage", tooltip: "Visible cost coverage across the current filtered window. Finance-sensitive outputs inherit this ceiling." },
+    { key: "packs_coverage_pct", group: "trust", label: "Pack Coverage", fmt: "percent", badge: "Coverage", tooltip: "Pack and weight attribute coverage used by weighted metrics and operational mix diagnostics." },
+    { key: "product_mapping_missing", group: "trust", label: "Missing Mapping", fmt: "number", badge: "Mapping", tooltip: "Rows still missing product mapping under the active filters." },
+    { key: "refresh_age", group: "trust", label: "Refresh Age", fmt: "text", badge: "Governance", tooltip: "Age of the last governed refresh marker, not the filtered window end date." },
   ];
 
   const els = {
@@ -94,6 +128,8 @@
     lastRefresh: document.getElementById("lastRefreshChip"),
     dataWindow: document.getElementById("dataWindowChip"),
     comparisonBasisChip: document.getElementById("comparisonBasisChip"),
+    periodModeChip: document.getElementById("periodModeChip"),
+    dataCutoffChip: document.getElementById("dataCutoffChip"),
     comparisonNoteText: document.getElementById("comparisonNoteText"),
     filterCountChip: document.getElementById("filterCountChip"),
     scopeModeChip: document.getElementById("scopeModeChip"),
@@ -196,10 +232,10 @@
     scoreConcentration: document.getElementById("scoreConcentration"),
     scoreMarginRisk: document.getElementById("scoreMarginRisk"),
     kpiGrid: document.getElementById("kpiGrid"),
-    kpiFinanceGrid: document.getElementById("kpiFinanceGrid"),
     kpiScaleGrid: document.getElementById("kpiScaleGrid"),
     kpiDemandGrid: document.getElementById("kpiDemandGrid"),
     kpiPricingGrid: document.getElementById("kpiPricingGrid"),
+    kpiTrustGrid: document.getElementById("kpiTrustGrid"),
     trendChart: document.getElementById("trendChart"),
     trendEmpty: document.getElementById("trendEmpty"),
     trendFreqToggle: document.getElementById("trendFreqToggle"),
@@ -220,6 +256,15 @@
     moversDeclinersBody: document.getElementById("moversDeclinersBody"),
     moversSummaryText: document.getElementById("moversSummaryText"),
     topMoversEmpty: document.getElementById("topMoversEmpty"),
+    focusLeadCustomerTitle: document.getElementById("focusLeadCustomerTitle"),
+    focusLeadCustomerValue: document.getElementById("focusLeadCustomerValue"),
+    focusLeadCustomerDetail: document.getElementById("focusLeadCustomerDetail"),
+    focusDecliningCustomerTitle: document.getElementById("focusDecliningCustomerTitle"),
+    focusDecliningCustomerValue: document.getElementById("focusDecliningCustomerValue"),
+    focusDecliningCustomerDetail: document.getElementById("focusDecliningCustomerDetail"),
+    focusCustomerMotionTitle: document.getElementById("focusCustomerMotionTitle"),
+    focusCustomerMotionValue: document.getElementById("focusCustomerMotionValue"),
+    focusCustomerMotionDetail: document.getElementById("focusCustomerMotionDetail"),
     emptyState: document.getElementById("overviewEmpty"),
     forecastChart: document.getElementById("forecastChart"),
     forecastEmpty: document.getElementById("forecastEmpty"),
@@ -265,6 +310,15 @@
     driversDetailsContent: document.getElementById("driversDetailsContent"),
     concentrationPanel: document.getElementById("concentrationPanel"),
     profitabilityPanel: document.getElementById("profitabilityPanel"),
+    focusSkuRiskTitle: document.getElementById("focusSkuRiskTitle"),
+    focusSkuRiskValue: document.getElementById("focusSkuRiskValue"),
+    focusSkuRiskDetail: document.getElementById("focusSkuRiskDetail"),
+    focusSkuRiskCountTitle: document.getElementById("focusSkuRiskCountTitle"),
+    focusSkuRiskCountValue: document.getElementById("focusSkuRiskCountValue"),
+    focusSkuRiskCountDetail: document.getElementById("focusSkuRiskCountDetail"),
+    focusProfitabilityTitle: document.getElementById("focusProfitabilityTitle"),
+    focusProfitabilityValue: document.getElementById("focusProfitabilityValue"),
+    focusProfitabilityDetail: document.getElementById("focusProfitabilityDetail"),
     marginRiskSummary: document.getElementById("marginRiskSummary"),
     marginRiskList: document.getElementById("marginRiskList"),
     negativeMarginSupplierFilter: document.getElementById("negativeMarginSupplierFilter"),
@@ -381,9 +435,11 @@
 
   const settleLoadingFallbacks = (mode = "partial") => {
     setPendingFallback(els.businessStatusLine, mode === "error" ? "Business status is temporarily unavailable. Try refreshing or adjusting filters." : "Business status resolved for the active filter window.");
-    setPendingFallback(els.filterSummary, "Default (last 3 months)");
+    setPendingFallback(els.filterSummary, "Default (Current FY)");
     setPendingFallback(els.dataWindow, "Not available");
     setPendingFallback(els.comparisonBasisChip, "Prior comparable window");
+    setPendingFallback(els.periodModeChip, "Filtered window");
+    setPendingFallback(els.dataCutoffChip, "Not available");
     setPendingFallback(els.comparisonNoteText, "Comparisons follow the active filtered window.");
     setPendingFallback(els.filterCountChip, "0 active");
     setPendingFallback(els.scopeModeChip, "Enterprise");
@@ -413,6 +469,11 @@
   };
 
   const applyEtags = (url, headers) => {
+    if (pageCache) {
+      const prepared = pageCache.prepareHeaders(url, headers);
+      Object.keys(headers).forEach((key) => delete headers[key]);
+      Object.assign(headers, prepared);
+    }
     const et = etags.get(url);
     if (et) headers["If-None-Match"] = et;
   };
@@ -439,6 +500,7 @@
     }
     const et = resp.headers.get("ETag");
     if (et) etags.set(url, et);
+    if (pageCache) pageCache.rememberResponse(url, resp);
     return { data: await resp.json() };
   };
 
@@ -503,6 +565,64 @@
     const sign = num > 0 ? "+" : "";
     return `${sign}${fmtNumber1.format(num)} pts`;
   };
+  const normalizeMarginStatusKey = (value) => String(value || "").trim().toLowerCase();
+  const clampNumber = (value, lower, upper) => Math.min(Math.max(Number(value), lower), upper);
+  const marginStatusBuffers = (minimum, target) => {
+    const minimumNum = asNumber(minimum) ?? 0;
+    const targetNum = asNumber(target) ?? minimumNum;
+    const span = Math.max(targetNum - minimumNum, 0);
+    return {
+      nearTarget: clampNumber(span * 0.2, 1, 3),
+      materiallyBelowMin: clampNumber(span * 0.35, 2, 5),
+    };
+  };
+  const marginStatusClass = (value) => {
+    const key = normalizeMarginStatusKey(value);
+    if (key === "red") return "is-red";
+    if (key === "orange") return "is-orange";
+    if (key === "yellow") return "is-yellow";
+    if (key === "light_green") return "is-light-green";
+    if (key === "green") return "is-green";
+    return "is-neutral";
+  };
+  const deriveMarginStatusKey = (actual, minimum, target, explicit = null) => {
+    const explicitKey = normalizeMarginStatusKey(explicit);
+    if (explicitKey) return explicitKey;
+    const actualNum = asNumber(actual);
+    const minimumNum = asNumber(minimum);
+    const targetNum = asNumber(target);
+    if (actualNum === null) return "no_cost";
+    if (minimumNum === null || targetNum === null) return "needs_mapping";
+    const { nearTarget, materiallyBelowMin } = marginStatusBuffers(minimumNum, targetNum);
+    if (actualNum < (minimumNum - materiallyBelowMin)) return "red";
+    if (actualNum < minimumNum) return "orange";
+    if (actualNum < (targetNum - nearTarget)) return "yellow";
+    if (actualNum <= (targetNum + nearTarget)) return "light_green";
+    return "green";
+  };
+  const marginStatusLabel = (key) => {
+    const normalized = normalizeMarginStatusKey(key);
+    if (normalized === "red") return "Materially below minimum";
+    if (normalized === "orange") return "Near minimum";
+    if (normalized === "yellow") return "Between minimum and target";
+    if (normalized === "light_green") return "Near target";
+    if (normalized === "green") return "Above target";
+    if (normalized === "no_cost") return "Cost unavailable";
+    return "Needs review";
+  };
+  const marginTargetSummary = ({ margin_pct, minimum_margin_pct, target_margin_pct, status_key } = {}) => {
+    const parts = [];
+    if (target_margin_pct !== null && target_margin_pct !== undefined) parts.push(`Target ${formatByFmt("percent", target_margin_pct)}`);
+    if (minimum_margin_pct !== null && minimum_margin_pct !== undefined) parts.push(`Min ${formatByFmt("percent", minimum_margin_pct)}`);
+    if (margin_pct !== null && margin_pct !== undefined && target_margin_pct !== null && target_margin_pct !== undefined) {
+      parts.push(`${formatSignedPoints(Number(margin_pct) - Number(target_margin_pct))} vs target`);
+    } else {
+      parts.push(marginStatusLabel(status_key));
+    }
+    return parts.filter(Boolean).join(" · ");
+  };
+  const marginStatusBadgeHtml = (key, label = null) =>
+    `<span class="overview-status-pill ${marginStatusClass(key)}">${escapeHtml(label || marginStatusLabel(key))}</span>`;
 
   const getWindowMeta = (payload = null) => {
     if (payload?.meta?.window) return payload.meta.window;
@@ -533,8 +653,18 @@
   };
   const primaryCardLabel = (windowMeta = getWindowMeta()) => {
     const label = primaryDeltaLabel(windowMeta);
-    if (label === "MoM" || label === "MTD") return `Revenue ${label}`;
+    if (label === "MoM" || label === "MTD" || label === "FYTD" || label === "FQTD" || label === "FY") return `Revenue ${label}`;
     return "Revenue change";
+  };
+  const periodModeLabel = (windowMeta = getWindowMeta()) => {
+    const method = String(windowMeta.method_label || windowMeta.method || "").toLowerCase();
+    if (method.includes("fiscal year-to-date")) return "Fiscal year-to-date";
+    if (method.includes("fiscal quarter-to-date")) return "Fiscal quarter-to-date";
+    if (method.includes("fiscal year")) return "Fiscal year";
+    if (method.includes("month-to-date") || method.includes("same_day")) return "Month-to-date";
+    if (method.includes("completed")) return "Completed months";
+    if (method.includes("matched")) return "Matched days";
+    return windowMeta.period_status_label || "Filtered window";
   };
 
   const drillQueryString = () => {
@@ -779,21 +909,22 @@
   const ensureKpiCards = () => {
     if (!els.kpiGrid || els.kpiGrid.querySelector("[data-metric-card]")) return;
     const groupContainerFor = (group) => {
-      if (group === "finance" && els.kpiFinanceGrid) return els.kpiFinanceGrid;
       if (group === "scale" && els.kpiScaleGrid) return els.kpiScaleGrid;
       if (group === "demand" && els.kpiDemandGrid) return els.kpiDemandGrid;
       if (group === "pricing" && els.kpiPricingGrid) return els.kpiPricingGrid;
+      if (group === "trust" && els.kpiTrustGrid) return els.kpiTrustGrid;
       return els.kpiGrid;
     };
-    KPI_META.forEach((meta) => {
+    const buildCard = (meta, kind = "metric") => {
       const card = document.createElement("article");
       card.className = "kpi-card shadow-soft";
       card.setAttribute("data-metric-card", meta.key);
+      card.setAttribute("data-kpi-kind", kind);
       card.innerHTML = `
         <div class="kpi-head d-flex justify-content-between align-items-center gap-2">
           <div class="kpi-meta">
             <div class="kpi-label fw-semibold">${meta.label}</div>
-            <span class="kpi-status" data-kpi-status="${meta.key}">Live</span>
+            <span class="kpi-status" data-kpi-status="${meta.key}">${meta.badge || "Window"}</span>
           </div>
           <i class="bi bi-info-circle text-muted" title="${meta.tooltip || ""}" data-bs-toggle="tooltip"></i>
         </div>
@@ -802,13 +933,15 @@
             <div class="kpi-value display-6 mb-1" data-kpi-value="${meta.key}">-</div>
           </div>
           <div class="kpi-deltas">
-            <span class="kpi-delta-pill" data-kpi-delta="${meta.deltaKey || meta.key}:mom">Compare: n/a</span>
+            <span class="kpi-delta-pill" data-kpi-delta="${meta.key}">${kind === "trust" ? "Scoped trust signal" : "Compare: n/a"}</span>
           </div>
         </div>
-        <div class="kpi-sub" data-kpi-sub="${meta.deltaKey || meta.key}:yoy">YoY: n/a</div>
+        <div class="kpi-sub" data-kpi-sub="${meta.key}">${kind === "trust" ? "Filter-aware and RBAC-aware." : "YoY: n/a"}</div>
       `;
       groupContainerFor(meta.group).appendChild(card);
-    });
+    };
+    KPI_META.forEach((meta) => buildCard(meta, "metric"));
+    TRUST_KPI_META.forEach((meta) => buildCard(meta, "trust"));
     if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
       els.kpiGrid.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => new bootstrap.Tooltip(el));
     }
@@ -819,27 +952,38 @@
     const kpis = payload.kpis || {};
     const deltas = payload.deltas || {};
     const health = payload.health || {};
+    const metaBlock = payload.meta || {};
     const windowMeta = getWindowMeta(payload);
     const primaryBadgeLabel = shortPrimaryBadge(windowMeta);
     const costCoverage = asNumber(health.cost_coverage_pct);
     const packsCoverage = asNumber(health.packs_coverage_pct ?? (health.pack_missing_pct != null ? (100 - health.pack_missing_pct) : null));
+    const setCardValue = (key, text, title = "", isEmpty = false) => {
+      const valEl = els.kpiGrid.querySelector(`[data-kpi-value="${key}"]`);
+      if (!valEl) return;
+      valEl.textContent = text;
+      valEl.title = title || "";
+      valEl.classList.toggle("is-empty", !!isEmpty);
+    };
+    const setCardMeta = (key, status, pillText, subText) => {
+      const statusEl = els.kpiGrid.querySelector(`[data-kpi-status="${key}"]`);
+      const pillEl = els.kpiGrid.querySelector(`[data-kpi-delta="${key}"]`);
+      const subEl = els.kpiGrid.querySelector(`[data-kpi-sub="${key}"]`);
+      if (statusEl) statusEl.textContent = status;
+      if (pillEl) pillEl.innerHTML = pillText;
+      if (subEl) subEl.textContent = subText;
+    };
     KPI_META.forEach((meta) => {
       const card = els.kpiGrid.querySelector(`[data-metric-card="${meta.key}"]`);
       const rawVal = kpis[meta.key];
       const missing = rawVal === null || rawVal === undefined || Number.isNaN(Number(rawVal));
-      const statusEl = els.kpiGrid.querySelector(`[data-kpi-status="${meta.key}"]`);
       if (card) {
         card.classList.toggle("is-hidden", Boolean(meta.optional && missing));
         card.setAttribute("aria-hidden", meta.optional && missing ? "true" : "false");
       }
-      let status = "Live";
-      if (["cost", "profit", "margin_pct"].includes(meta.key)) {
-        if (missing) status = "Restricted";
-        else if (costCoverage !== null && costCoverage < 90) status = "Partial";
-      } else if (meta.key === "qty" && packsCoverage !== null && packsCoverage < 98) {
-        status = "Coverage";
-      }
-      if (statusEl) statusEl.textContent = status;
+      let status = meta.badge || "Window";
+      if (meta.key === "qty" && packsCoverage !== null && packsCoverage < 98) status = "Coverage";
+      if (["profit_per_order", "profit_per_lb"].includes(meta.key) && (costCoverage !== null && costCoverage < 90)) status = "Partial";
+      if (missing && ["profit_per_order", "profit_per_lb", "asp"].includes(meta.key)) status = "Restricted";
       if (card) card.dataset.coverageState = status.toLowerCase();
       if (card) {
         setDrilldownPayload(card, overviewWorkspacePayload(meta.label, rawVal, {
@@ -847,30 +991,73 @@
           extra: { workspace_kind: "fact_orders", filter_mode: "current_window" },
         }));
       }
-      const valEl = els.kpiGrid.querySelector(`[data-kpi-value="${meta.key}"]`);
-      if (valEl) {
-        if (meta.optional && missing) {
-          valEl.textContent = "";
-        } else {
-          const { text, title } = formatDisplay(meta.key, rawVal, meta.fmt);
-          valEl.textContent = missing && ["cost", "profit", "margin_pct"].includes(meta.key) ? "Restricted" : (missing ? "N/A" : text);
-          valEl.title = title || "";
-          valEl.classList.toggle("is-empty", missing);
-        }
+      if (meta.optional && missing) {
+        setCardValue(meta.key, "", "", true);
+      } else {
+        const { text, title } = formatDisplay(meta.key, rawVal, meta.fmt);
+        setCardValue(meta.key, missing ? "N/A" : text, title, missing);
       }
-      const momEl = els.kpiGrid.querySelector(`[data-kpi-delta="${meta.deltaKey || meta.key}:mom"]`);
-      const yoyEl = els.kpiGrid.querySelector(`[data-kpi-sub="${meta.deltaKey || meta.key}:yoy"]`);
       const delta = deltas[meta.deltaKey || meta.key] || {};
-      if (momEl) {
-        momEl.innerHTML = meta.key === "margin_pct"
-          ? deltaBadgePoints(delta.mom, primaryBadgeLabel)
-          : deltaBadge(delta.mom_pct, primaryBadgeLabel);
+      const pillText = meta.key === "margin_pct"
+        ? deltaBadgePoints(delta.mom, primaryBadgeLabel)
+        : deltaBadge(delta.mom_pct, primaryBadgeLabel);
+      const subText = meta.key === "margin_pct"
+        ? `YoY: ${formatSignedPoints(delta.yoy)}`
+        : `YoY: ${delta.yoy_pct === null || delta.yoy_pct === undefined ? "n/a" : formatByFmt("percent", delta.yoy_pct)}`;
+      setCardMeta(meta.key, status, pillText, subText);
+    });
+
+    TRUST_KPI_META.forEach((meta) => {
+      const card = els.kpiGrid.querySelector(`[data-metric-card="${meta.key}"]`);
+      if (!card) return;
+      let rawVal = null;
+      let status = meta.badge || "Trust";
+      let pillText = "Scoped trust signal";
+      let subText = "Filter-aware and RBAC-aware.";
+
+      if (meta.key === "cost_coverage_pct") {
+        rawVal = costCoverage;
+        if (costCoverage !== null && costCoverage < 80) status = "At risk";
+        else if (costCoverage !== null && costCoverage < 90) status = "Watch";
+        pillText = costCoverage !== null && costCoverage < 90 ? "Finance view is partially constrained" : "Finance-sensitive KPIs are decision-grade";
+        subText = `Current filtered window${metaBlock.data_cutoff ? ` · data cutoff ${formatTimestampish(metaBlock.data_cutoff, { withTime: false })}` : ""}`;
+      } else if (meta.key === "packs_coverage_pct") {
+        rawVal = packsCoverage;
+        if (packsCoverage !== null && packsCoverage < 90) status = "At risk";
+        else if (packsCoverage !== null && packsCoverage < 98) status = "Watch";
+        pillText = packsCoverage !== null && packsCoverage < 98 ? "Weighted metrics may drift" : "Weighted metrics have strong coverage";
+        subText = "Pack and weight diagnostics use the same scoped rows shown on the page.";
+      } else if (meta.key === "product_mapping_missing") {
+        rawVal = Number(health.product_mapping_missing || 0);
+        if (rawVal > 0) status = rawVal >= 50 ? "At risk" : "Watch";
+        pillText = rawVal > 0 ? "Unmapped rows weaken movers and mix" : "No material mapping gap detected";
+        subText = "Mapping counts respect the current filters and RBAC scope.";
+      } else if (meta.key === "refresh_age") {
+        rawVal = formatRefreshAge(metaBlock.refresh_age_days, metaBlock.refresh_age_hours);
+        const refreshText = formatTimestampish(metaBlock.last_refresh);
+        const cutoffText = metaBlock.data_cutoff ? formatTimestampish(metaBlock.data_cutoff, { withTime: false }) : "n/a";
+        status = "Governed";
+        pillText = `Last refresh ${refreshText}`;
+        subText = `Data cutoff ${cutoffText}`;
       }
-      if (yoyEl) {
-        yoyEl.innerHTML = meta.key === "margin_pct"
-          ? deltaBadgePoints(delta.yoy, "YoY")
-          : deltaBadge(delta.yoy_pct, "YoY");
+
+      const missing = rawVal === null || rawVal === undefined || rawVal === "";
+      if (card) {
+        card.classList.toggle("is-hidden", false);
+        card.dataset.coverageState = status.toLowerCase().replace(/\s+/g, "-");
+        setDrilldownPayload(card, overviewWorkspacePayload(meta.label, rawVal, {
+          source_section: "Trust and Governance",
+          source_widget: meta.label,
+          extra: { workspace_kind: "overview_prebuilt", drilldown: "data_health" },
+        }));
       }
+      if (meta.fmt === "text") {
+        setCardValue(meta.key, missing ? "N/A" : String(rawVal), "", missing);
+      } else {
+        const { text, title } = formatDisplay(meta.key, rawVal, meta.fmt);
+        setCardValue(meta.key, missing ? "N/A" : text, title, missing);
+      }
+      setCardMeta(meta.key, status, pillText, subText);
     });
   };
 
@@ -907,6 +1094,12 @@
     }
     if (valueEl) valueEl.textContent = value || "-";
     if (detailEl) detailEl.textContent = detail || "No summary available.";
+  };
+
+  const setFocusCard = (titleEl, valueEl, detailEl, title, value, detail) => {
+    if (titleEl) titleEl.textContent = title || "Not available";
+    if (valueEl) valueEl.textContent = value || "-";
+    if (detailEl) detailEl.textContent = detail || "No scoped detail available for the active window.";
   };
 
   const classifyHealthSignal = (value, bands = {}, labels = {}) => {
@@ -1206,8 +1399,10 @@
       els.missingMappingChip.textContent = fmtNumber0.format(health.product_mapping_missing || 0);
     }
     if (els.freshnessChip) {
-      const freshness = health.freshness_sla_days;
-      els.freshnessChip.textContent = freshness === null || freshness === undefined ? "n/a" : `${fmtNumber0.format(freshness)}d`;
+      els.freshnessChip.textContent = formatRefreshAge(health.freshness_sla_days, health.freshness_sla_hours);
+      const refreshAt = health.governed_refresh_at ? formatTimestampish(health.governed_refresh_at) : "";
+      const cutoff = health.data_cutoff ? formatTimestampish(health.data_cutoff, { withTime: false }) : "";
+      els.freshnessChip.title = [refreshAt ? `Last refresh ${refreshAt}` : "", cutoff ? `Data cutoff ${cutoff}` : ""].filter(Boolean).join(" | ");
     }
     if (els.heroTrustStatus) {
       let status = "Healthy";
@@ -1226,7 +1421,7 @@
       const currentLabel = currentWindowLabel(windowMeta);
       const priorLabel = priorWindowLabel(windowMeta);
       const suffix = currentLabel && priorLabel ? ` Current: ${currentLabel}. Comparator: ${priorLabel}.` : "";
-      els.commandWindowNote.textContent = `${compareNote}${suffix}`;
+      els.commandWindowNote.textContent = `${periodModeLabel(windowMeta)} basis. ${compareNote}${suffix}`;
     }
     if (els.commandTrustNote) {
       const trustBits = [];
@@ -1246,6 +1441,10 @@
     const unit = scorecard.unit_economics || {};
     const growth = scorecard.growth_retention || {};
     const risk = scorecard.risk_indicators || {};
+    const profitability = payload.profitability || {};
+    const minimumMargin = asNumber(profitability.minimum_margin_pct);
+    const targetMargin = asNumber(profitability.target_margin_pct);
+    const derivedMarginStatus = deriveMarginStatusKey(headline.margin_pct, minimumMargin, targetMargin);
     const windowMeta = getWindowMeta(payload);
     const compareLabel = primaryCompareLabel(windowMeta);
     const compareNote = primaryComparisonNote(windowMeta);
@@ -1301,14 +1500,27 @@
         : `Cost coverage ${formatByFmt("percent", coverage)}`;
     }
     if (els.scoreMarginMeta) {
-      els.scoreMarginMeta.textContent = headline.margin_mom === null || headline.margin_mom === undefined
-        ? `${compareLabel} margin delta unavailable`
-        : `${primaryDeltaLabel(windowMeta)} ${formatSignedPoints(headline.margin_mom)}`;
+      els.scoreMarginMeta.textContent = targetMargin === null && minimumMargin === null
+        ? (headline.margin_mom === null || headline.margin_mom === undefined
+          ? `${compareLabel} margin delta unavailable`
+          : `${primaryDeltaLabel(windowMeta)} ${formatSignedPoints(headline.margin_mom)}`)
+        : marginTargetSummary({
+          margin_pct: headline.margin_pct,
+          minimum_margin_pct: minimumMargin,
+          target_margin_pct: targetMargin,
+          status_key: derivedMarginStatus,
+        });
     }
     if (els.scoreMarginSupport) {
-      els.scoreMarginSupport.textContent = headline.margin_yoy === null || headline.margin_yoy === undefined
-        ? "YoY margin comparator unavailable"
-        : `YoY ${formatSignedPoints(headline.margin_yoy)}`;
+      const riskCount = risk.margin_risk_sku_count;
+      const watchText = riskCount === null || riskCount === undefined
+        ? marginStatusLabel(derivedMarginStatus)
+        : `${marginStatusLabel(derivedMarginStatus)} · ${formatByFmt("number", riskCount)} below-target SKUs`;
+      els.scoreMarginSupport.textContent = targetMargin === null && minimumMargin === null
+        ? (headline.margin_yoy === null || headline.margin_yoy === undefined
+          ? "YoY margin comparator unavailable"
+          : `YoY ${formatSignedPoints(headline.margin_yoy)}`)
+        : watchText;
     }
     if (els.scoreRevenueMomMeta) {
       els.scoreRevenueMomMeta.textContent = headline.revenue_mom === null || headline.revenue_mom === undefined
@@ -1355,12 +1567,13 @@
       trend[freq] ||
       (freq === "weekly" ? trend.weekly : trend.monthly) ||
       trend;
-    const labels = trendBlock.months || trendBlock.labels || trend.months || [];
+    const labels = trendBlock.labels || trendBlock.months || trend.labels || trend.months || [];
     const overlayKey = state.trend.overlay || "profit";
     const overlayLabel = overlayKey === "margin_pct" ? "Margin %" : overlayKey === "units" ? "Units" : "Profit";
     if (els.trendSummaryText) {
       const note = windowMeta.trajectory_note ? `${windowMeta.trajectory_note} ` : "";
-      els.trendSummaryText.textContent = `${note}${freq === "weekly" ? "Weekly" : "Monthly"} revenue baseline with ${overlayLabel.toLowerCase()} overlay${state.trend.rolling ? " and rolling average" : ""}.`;
+      const bucketLabel = freq === "weekly" ? "Weekly" : String(trendBlock.bucket_label || windowMeta.trend_bucket_label || "Monthly");
+      els.trendSummaryText.textContent = `${note}${bucketLabel} revenue baseline with ${overlayLabel.toLowerCase()} overlay${state.trend.rolling ? " and rolling average" : ""}.`;
     }
     if (!labels.length) {
       if (els.trendEmpty) els.trendEmpty.classList.remove("d-none");
@@ -1445,11 +1658,24 @@
     clearChartFallback(els.mixChart);
     const labels = rows.map((r) => r.label);
     const values = rows.map((r) => r.value);
+    const entityIds = rows.map((r) => r.entity_id || r.label);
     const ctx = els.mixChart.getContext("2d");
     charts.mix = new Chart(ctx, {
       type: "bar",
       data: { labels, datasets: [{ label: "Revenue", data: values, backgroundColor: "rgba(13,110,253,0.3)", borderColor: "#0d6efd", borderWidth: 1 }] },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: (v) => fmtCurrency0.format(Number(v) || 0) } } } },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (_evt, elements) => {
+          const idx = elements && elements.length ? elements[0].index : null;
+          if (idx === null || idx === undefined) return;
+          const href = buildDrillLink(dim, entityIds[idx]);
+          if (href) window.location.assign(href);
+        },
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { callback: (v) => fmtCurrency0.format(Number(v) || 0) } } },
+      },
     });
   };
 
@@ -1469,6 +1695,7 @@
     }
     clearChartFallback(els.paretoChart);
     const values = payload.values || [];
+    const entityIds = payload.entity_ids || [];
     const cum = payload.cum_pct || [];
     const ctx = els.paretoChart.getContext("2d");
     charts.pareto = new Chart(ctx, {
@@ -1483,6 +1710,12 @@
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
+        onClick: (_evt, elements) => {
+          const idx = elements && elements.length ? elements[0].index : null;
+          if (idx === null || idx === undefined) return;
+          const href = buildDrillLink(dim, entityIds[idx] || labels[idx]);
+          if (href) window.location.assign(href);
+        },
         scales: {
           y: { beginAtZero: true, ticks: { callback: (v) => fmtCurrency0.format(Number(v) || 0) } },
           y1: { beginAtZero: true, position: "right", min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { callback: (v) => `${v}%` } },
@@ -1503,7 +1736,7 @@
         : "";
       const packsLabel = packsCoverage == null ? "n/a" : `${packsCoverage}%${packsRatio}`;
       const costCoverage = health.cost_coverage_pct ?? (health.cost_missing_pct != null ? (100 - health.cost_missing_pct) : null);
-      const freshness = health.freshness_sla_days;
+      const freshnessLabel = formatRefreshAge(health.freshness_sla_days, health.freshness_sla_hours);
       const trustCard = (label, value, detail) => `
         <article class="trust-card">
           <div class="trust-label">${label}</div>
@@ -1514,7 +1747,7 @@
         ${trustCard("Cost coverage", costCoverage == null ? "n/a" : `${fmtNumber1.format(Number(costCoverage) || 0)}%`, costCoverage != null && Number(costCoverage) < 90 ? "Finance outputs should be treated cautiously." : "Coverage is healthy for sensitive metrics.")}
         ${trustCard("Packs coverage", packsLabel, packsCoverage != null && Number(packsCoverage) < 98 ? "Weighted metrics may be understated." : "Weighted metrics have strong pack coverage.")}
         ${trustCard("Missing mapping", fmtNumber0.format(health.product_mapping_missing || 0), Number(health.product_mapping_missing || 0) > 0 ? "Resolve orphaned items to improve movers and mix." : "No significant mapping gaps detected.")}
-        ${trustCard("Freshness SLA", freshness === null || freshness === undefined ? "n/a" : `${fmtNumber0.format(freshness)}d`, freshness !== null && freshness !== undefined ? "Days since the latest governed refresh checkpoint." : "No freshness marker available.")}
+        ${trustCard("Refresh age", freshnessLabel, freshnessLabel !== "n/a" ? "Age of the latest governed refresh checkpoint, not the filtered period end." : "No governed refresh marker available.")}
       `;
     }
     if (els.healthList) {
@@ -1583,8 +1816,8 @@
       }
       return Math.abs(Number(b.delta) || 0) - Math.abs(Number(a.delta) || 0);
     };
-    gainers = gainers.sort(sorter).slice(0, 5);
-    decliners = decliners.sort(sorter).slice(0, 5);
+    gainers = gainers.sort(sorter).slice(0, 10);
+    decliners = decliners.sort(sorter).slice(0, 10);
     if (els.moversSummaryText) {
       const dimLabel = dim === "customer" ? "customers" : dim === "product" ? "products" : dim === "region" ? "regions" : dim;
       const priorLabel = priorWindowLabel(windowMeta);
@@ -1622,11 +1855,15 @@
               : pctText === "Low base"
                 ? 'title="Low-base denominator: percent change is unstable; prioritize $ delta."'
               : "";
+          const entityLink = buildDrillLink(dim, r.entity_id || r.label);
+          const labelHtml = entityLink
+            ? `<a href="${entityLink}" class="text-decoration-none fw-semibold">${r.label || "Unknown"}</a>`
+            : `<span>${r.label || "Unknown"}</span>`;
           return `
           <tr>
             <td class="text-truncate" title="${r.label || ""}">
               <div class="d-flex flex-column gap-1">
-                <span>${r.label || "Unknown"}</span>
+                ${labelHtml}
                 <span style="display:inline-block;height:4px;background:${delta >= 0 ? "#198754" : "#dc3545"};width:${barWidth}px;border-radius:999px;"></span>
               </div>
             </td>
@@ -1639,6 +1876,93 @@
 
     els.moversGainersBody.innerHTML = gainers.length ? renderRows(gainers) : '<tr><td colspan="4" class="text-muted">No gainers</td></tr>';
     els.moversDeclinersBody.innerHTML = decliners.length ? renderRows(decliners) : '<tr><td colspan="4" class="text-muted">No decliners</td></tr>';
+  };
+
+  const renderCommercialFocus = (payload = {}, insightsPayload = {}) => {
+    const customerMovers = ((payload.top_movers || {}).customer || {});
+    const gainers = Array.isArray(customerMovers.gainers) ? [...customerMovers.gainers] : [];
+    const decliners = Array.isArray(customerMovers.decliners) ? [...customerMovers.decliners] : [];
+    gainers.sort((a, b) => Math.abs(Number(b.delta) || 0) - Math.abs(Number(a.delta) || 0));
+    decliners.sort((a, b) => Math.abs(Number(a.delta) || 0) - Math.abs(Number(b.delta) || 0));
+    const leadGainer = gainers[0] || null;
+    const leadDecliner = decliners[0] || null;
+    const profitability = insightsPayload.profitability || {};
+    const marginRisk = Array.isArray(profitability.margin_risk) ? profitability.margin_risk : [];
+    const leadRisk = [...marginRisk].sort((a, b) => Number(a.profit_impact || 0) - Number(b.profit_impact || 0))[0] || null;
+    const riskRevenueShare = marginRisk.reduce((acc, row) => acc + (Number(row.revenue_share || 0) || 0), 0);
+    const marginStats = profitability.margin_pct || {};
+    const p50 = asNumber(marginStats.p50);
+    const p10 = asNumber(marginStats.p10);
+    const belowZero = asNumber(marginStats.below_zero);
+
+    setFocusCard(
+      els.focusLeadCustomerTitle,
+      els.focusLeadCustomerValue,
+      els.focusLeadCustomerDetail,
+      leadGainer?.label || "No major gainer",
+      leadGainer ? formatByFmt("currency", leadGainer.delta) : "-",
+      leadGainer
+        ? `${formatByFmt("currency", leadGainer.current)} current revenue${leadGainer.delta_pct_label ? ` • ${leadGainer.delta_pct_label}` : leadGainer.delta_pct !== null && leadGainer.delta_pct !== undefined ? ` • ${formatByFmt("percent", leadGainer.delta_pct)}` : ""}.`
+        : "No customer gainer cleared the current top-10 movement threshold."
+    );
+
+    setFocusCard(
+      els.focusDecliningCustomerTitle,
+      els.focusDecliningCustomerValue,
+      els.focusDecliningCustomerDetail,
+      leadDecliner?.label || "No major decliner",
+      leadDecliner ? formatByFmt("currency", leadDecliner.delta) : "-",
+      leadDecliner
+        ? `${formatByFmt("currency", leadDecliner.current)} current revenue${leadDecliner.delta_pct_label ? ` • ${leadDecliner.delta_pct_label}` : leadDecliner.delta_pct !== null && leadDecliner.delta_pct !== undefined ? ` • ${formatByFmt("percent", leadDecliner.delta_pct)}` : ""}.`
+        : "No customer decliner cleared the current top-10 movement threshold."
+    );
+
+    setFocusCard(
+      els.focusCustomerMotionTitle,
+      els.focusCustomerMotionValue,
+      els.focusCustomerMotionDetail,
+      "Customer breadth",
+      `${fmtNumber0.format(gainers.length)} up / ${fmtNumber0.format(decliners.length)} down`,
+      gainers.length || decliners.length
+        ? `${leadGainer ? `${leadGainer.label} leads gains` : "No lead gainer"}${leadDecliner ? ` while ${leadDecliner.label} leads declines` : ""}.`
+        : "Customer movement is muted for the active business window."
+    );
+
+    setFocusCard(
+      els.focusSkuRiskTitle,
+      els.focusSkuRiskValue,
+      els.focusSkuRiskDetail,
+      leadRisk?.label || "No lead SKU risk",
+      leadRisk ? formatByFmt("currency", leadRisk.profit_impact) : "-",
+      leadRisk
+        ? `${leadRisk.supplier || "Unknown supplier"} / ${leadRisk.protein || "Unknown protein"}${leadRisk.revenue !== null && leadRisk.revenue !== undefined ? ` • revenue ${formatByFmt("currency", leadRisk.revenue)}` : ""}.`
+        : "No current SKU met the margin-risk watchlist threshold."
+    );
+
+    setFocusCard(
+      els.focusSkuRiskCountTitle,
+      els.focusSkuRiskCountValue,
+      els.focusSkuRiskCountDetail,
+      "SKU watchlist",
+      fmtNumber0.format(marginRisk.length),
+      marginRisk.length
+        ? `${fmtPercent1(riskRevenueShare)} of visible revenue sits in the current top SKU margin-risk watchlist.`
+        : "Visible revenue does not currently require a top-10 SKU margin-risk watchlist."
+    );
+
+    const profitabilityValue = p50 === null ? "-" : formatByFmt("percent", p50);
+    const profitabilityDetail = [
+      p10 !== null ? `P10 ${formatByFmt("percent", p10)}` : null,
+      belowZero !== null ? `${fmtNumber0.format(belowZero)} SKUs below 0% margin` : null,
+    ].filter(Boolean).join(" • ");
+    setFocusCard(
+      els.focusProfitabilityTitle,
+      els.focusProfitabilityValue,
+      els.focusProfitabilityDetail,
+      "Margin quality",
+      profitabilityValue,
+      profitabilityDetail || "Profitability distribution will appear when scoped margin diagnostics are available."
+    );
   };
 
   const renderInsights = (insights = {}) => {
@@ -1936,16 +2260,24 @@
       els.concentrationPanel.textContent = "No concentration data available.";
       return;
     }
-    const block = (label, data) => `
+    const block = (label, data, kind) => {
+      const topLabel = data.top1_label || "Top contributor";
+      const topLink = buildDrillLink(kind, data.top1_entity_id || data.top1_label || "");
+      const topHtml = topLink
+        ? `<a href="${topLink}" class="text-decoration-none">${topLabel}</a>`
+        : topLabel;
+      return `
       <div class="mb-3">
         <div class="text-muted small d-flex align-items-center gap-1">${label}
           <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip" title="Top 1/Top 5 share of revenue; HHI is a 0-10,000 concentration index."></i>
         </div>
         <div class="score-value">${data.top1_share === null || data.top1_share === undefined ? "n/a" : formatByFmt("percent", data.top1_share)}</div>
+        <div class="text-muted small">Top entity ${topHtml}</div>
         <div class="text-muted small">Top 5 ${data.top5_share === null || data.top5_share === undefined ? "n/a" : formatByFmt("percent", data.top5_share)}</div>
         <div class="text-muted small">HHI ${data.hhi === null || data.hhi === undefined ? "n/a" : formatByFmt("number", data.hhi)} · ${data.risk_label || "n/a"}</div>
       </div>`;
-    els.concentrationPanel.innerHTML = `${block("Customers", cust)}${block("Products", prod)}`;
+    };
+    els.concentrationPanel.innerHTML = `${block("Customers", cust, "customer")}${block("Products", prod, "product")}`;
     if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
       els.concentrationPanel.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => new bootstrap.Tooltip(el));
     }
@@ -1958,15 +2290,21 @@
     const stats = profitability.margin_pct || {};
     const message = profitability.message ? `<div class="text-muted small mb-2">${profitability.message}</div>` : "";
     const coverage = profitability.coverage || {};
+    const minimumMargin = asNumber(profitability.minimum_margin_pct);
+    const targetMargin = asNumber(profitability.target_margin_pct);
     const covText =
       coverage.cost_pct !== null && coverage.cost_pct !== undefined
         ? `<div class="text-muted small mb-2">Cost coverage: ${formatByFmt("percent", coverage.cost_pct)}</div>`
         : "";
+    const targetText =
+      minimumMargin === null && targetMargin === null
+        ? ""
+        : `<div class="text-muted small mb-2">Weighted target ${targetMargin === null ? "n/a" : formatByFmt("percent", targetMargin)} · minimum ${minimumMargin === null ? "n/a" : formatByFmt("percent", minimumMargin)}</div>`;
     if (!stats || (stats.p10 === undefined && stats.p50 === undefined && stats.p90 === undefined)) {
-      els.profitabilityPanel.innerHTML = `${message}${covText}<div class="text-muted">No profitability distribution available.</div>`;
+      els.profitabilityPanel.innerHTML = `${message}${covText}${targetText}<div class="text-muted">No profitability distribution available.</div>`;
     } else {
       els.profitabilityPanel.innerHTML = `
-        ${message}${covText}
+        ${message}${covText}${targetText}
         <div class="mini-list">
           <div class="mb-1">P10 <strong>${stats.p10 === null || stats.p10 === undefined ? "n/a" : formatByFmt("percent", stats.p10)}</strong></div>
           <div class="mb-1">P50 <strong>${stats.p50 === null || stats.p50 === undefined ? "n/a" : formatByFmt("percent", stats.p50)}</strong></div>
@@ -1979,6 +2317,8 @@
       const belowZero = stats && stats.below_zero !== undefined ? Number(stats.below_zero || 0) : null;
       const aboveFifty = stats && stats.above_fifty !== undefined ? Number(stats.above_fifty || 0) : null;
       const parts = [`${fmtNumber0.format(risks.length)} margin risk items`];
+      if (targetMargin !== null) parts.push(`Target ${formatByFmt("percent", targetMargin)}`);
+      if (minimumMargin !== null) parts.push(`Min ${formatByFmt("percent", minimumMargin)}`);
       if (belowZero !== null) parts.push(`Negative margin: ${fmtNumber0.format(belowZero)}`);
       if (aboveFifty !== null) parts.push(`Above 50% margin: ${fmtNumber0.format(aboveFifty)}`);
       els.marginRiskSummary.textContent = parts.join(" | ");
@@ -2014,11 +2354,19 @@
             const label = r.label || "Unknown";
             const risk = r.risk ? r.risk.replace(/_/g, " ") : "risk";
             const impact = Number(r.profit_impact || 0);
+            const rowStatusKey = deriveMarginStatusKey(r.margin_pct, r.minimum_margin_pct, r.target_margin_pct, r.status_key);
+            const marginContext = marginTargetSummary({
+              margin_pct: r.margin_pct,
+              minimum_margin_pct: r.minimum_margin_pct,
+              target_margin_pct: r.target_margin_pct,
+              status_key: rowStatusKey,
+            });
             return `<li>
               <div class="d-flex justify-content-between align-items-start gap-2">
                 <span><strong>${link ? `<a href="${link}" class="text-decoration-none">${label}</a>` : label}</strong> <span class="text-muted">(${r.supplier || "Unknown"} / ${r.protein || "Unknown"})</span></span>
                 <span class="text-muted">${formatByFmt("currency", impact)}</span>
               </div>
+              <div class="text-muted small mt-1">${marginStatusBadgeHtml(rowStatusKey, r.target_status)} <span>${escapeHtml(marginContext)}</span></div>
               <div class="text-muted small mt-1">${risk} exposure${r.revenue === null || r.revenue === undefined ? "" : ` · revenue ${formatByFmt("currency", r.revenue)}`}</div>
             </li>`;
           })
@@ -2070,7 +2418,7 @@
         .join("");
       return `<div class="mb-3"><div class="text-muted small">${title}</div><ul class="list-unstyled mini-list mb-0">${list}</ul></div>`;
     };
-    const html = `${renderList("Regions", mix.region)}${renderList("Methods", mix.method)}${renderList("Suppliers", mix.supplier)}`;
+    const html = `${renderList("Regions", mix.region)}${renderList("Methods", mix.method)}${renderList("Suppliers", mix.supplier)}${renderList("Proteins", mix.protein)}`;
     els.opsMixPanel.innerHTML = html || '<div class="text-muted">No mix data available.</div>';
   };
 
@@ -2239,15 +2587,22 @@
     const diagnostics = data.diagnostics || {};
     const partial = diagnostics.partial_period || {};
     const summary = data.summary || model.selection_reason || "Forecast summary will appear here after the model runs.";
-    const historyPoints = model.train_points ?? diagnostics.train_points ?? diagnostics.history_points ?? 0;
-    const historyStart = diagnostics.history_start || null;
-    const historyEnd = diagnostics.history_end || null;
+    const historyPoints = model.train_points ?? diagnostics.train_points ?? diagnostics.history_basis_points ?? diagnostics.history_points ?? 0;
+    const availableHistoryPoints = diagnostics.available_history_points ?? diagnostics.history_points ?? historyPoints ?? 0;
+    const historyStart = diagnostics.history_basis_start || diagnostics.history_start || null;
+    const historyEnd = diagnostics.history_basis_end || diagnostics.history_end || null;
+    const availableHistoryStart = diagnostics.available_history_start || diagnostics.history_start || null;
+    const availableHistoryEnd = diagnostics.available_history_end || diagnostics.history_end || null;
     const trainingCutoff = diagnostics.training_cutoff || null;
     const qualityScore = asNumber(model.quality_score);
     const forecastability = asNumber(model.forecastability_score ?? diagnostics.forecastability_score);
     const smape = asNumber(model.smape);
     const wape = asNumber(model.wape);
     const dirAcc = asNumber(model.directional_accuracy);
+    const historyExcludedPoints = asNumber(diagnostics.history_excluded_points);
+    const historyBasisLabel = diagnostics.history_basis_label || "Comparable history";
+    const historyBasisReason = diagnostics.history_basis_reason || "";
+    const historyNonZeroShare = asNumber(diagnostics.history_non_zero_share_pct);
     const confidenceBadge = model.confidence_badge || data.confidence_badge || "Watch";
     const runnerUps = Array.isArray(model.runner_ups) ? model.runner_ups : [];
     const statusWarning = warnings[0] || (data.reason && !data.eligible ? data.reason : "");
@@ -2288,24 +2643,43 @@
       els.forecastQualityDetail.textContent = qualityBits.join(" • ") || "Validation metrics will appear here.";
     }
     if (els.forecastHistoryValue) {
-      const label = historyPoints ? `${fmtNumber0.format(historyPoints)} ${state.forecast.metric === "margin" ? "periods" : "points"}` : "-";
+      let label = "-";
+      if (historyPoints) {
+        label = `${fmtNumber0.format(historyPoints)} selected`;
+        if (availableHistoryPoints && Number(availableHistoryPoints) !== Number(historyPoints)) {
+          label = `${label} / ${fmtNumber0.format(availableHistoryPoints)} available`;
+        }
+      }
       els.forecastHistoryValue.textContent = label;
+      els.forecastHistoryValue.title = historyPoints ? `${fmtNumber0.format(historyPoints)} training month${Number(historyPoints) === 1 ? "" : "s"} used by the selected model.` : "";
     }
     if (els.forecastHistoryDetail) {
       const historyBits = [];
-      if (historyStart || historyEnd) historyBits.push(`History ${emptyText(historyStart, "?")} to ${emptyText(historyEnd, "?")}`);
+      historyBits.push(historyBasisLabel);
+      if (historyStart || historyEnd) historyBits.push(`Selected ${emptyText(historyStart, "?")} to ${emptyText(historyEnd, "?")}`);
+      if ((availableHistoryStart || availableHistoryEnd) && (availableHistoryStart !== historyStart || availableHistoryEnd !== historyEnd)) {
+        historyBits.push(`Available ${emptyText(availableHistoryStart, "?")} to ${emptyText(availableHistoryEnd, "?")}`);
+      }
       if (trainingCutoff) historyBits.push(`Cutoff ${trainingCutoff}`);
+      if (historyExcludedPoints) historyBits.push(`${fmtNumber0.format(historyExcludedPoints)} older month${Number(historyExcludedPoints) === 1 ? "" : "s"} excluded`);
       els.forecastHistoryDetail.textContent = historyBits.join(" • ") || "Training window and cutoff details will appear here.";
     }
     if (els.forecastBasisText) {
       const basisBits = [];
-      if (historyPoints) basisBits.push(`${fmtNumber0.format(historyPoints)} history point${Number(historyPoints) === 1 ? "" : "s"} scored`);
-      if (model.history_mode) basisBits.push(`Selected on ${String(model.history_mode).replace(/_/g, " ")} history`);
+      if (historyPoints) basisBits.push(`${fmtNumber0.format(historyPoints)} month${Number(historyPoints) === 1 ? "" : "s"} selected for training`);
+      if (availableHistoryPoints && Number(availableHistoryPoints) > Number(historyPoints || 0)) {
+        basisBits.push(`${fmtNumber0.format(availableHistoryPoints)} comparable month${Number(availableHistoryPoints) === 1 ? "" : "s"} available`);
+      }
+      if (model.history_mode) basisBits.push(`Model window ${String(model.history_mode).replace(/_/g, " ")}`);
       if (diagnostics.seasonality_strength_score !== undefined && diagnostics.seasonality_strength_score !== null) {
         basisBits.push(`Seasonality ${fmtNumber0.format(Number(diagnostics.seasonality_strength_score) || 0)}/100`);
       }
+      if (historyNonZeroShare !== null && historyNonZeroShare < 80) {
+        basisBits.push(`Non-zero months ${fmtNumber0.format(historyNonZeroShare)}%`);
+      }
       if (diagnostics.level_shift_detected) basisBits.push("Recent regime shift detected");
       if (partial.note) basisBits.push(partial.note);
+      if (historyBasisReason) basisBits.push(historyBasisReason);
       els.forecastBasisText.textContent = basisBits.join(" • ") || "Forecast basis will explain the history used, selected window mode, and partial-period treatment.";
     }
 
@@ -2492,21 +2866,42 @@
   const renderForecastState = (data = state.forecast.data || {}) => {
     renderForecastChart(data);
     renderForecastMeta(data);
+    const hasVisibleForecast =
+      !!(Array.isArray(data?.forecast) && data.forecast.length) ||
+      !!(Array.isArray(data?.series) && data.series.some((row) => row && (row.forecast !== null && row.forecast !== undefined)));
+    const hasNowcast = Boolean(data?.nowcast?.applied);
     if (els.forecastFiltersNotice) {
       els.forecastFiltersNotice.classList.toggle("d-none", !state.forecast.stale);
     }
     if (state.forecast.stale) {
-      setForecastStatus("Filters changed - run forecast again.", "warning");
+      setForecastStatus(
+        isDefaultForecastSelection() ? "Filters changed - default forecast refresh is available." : "Filters changed - refresh forecast to realign outlook.",
+        "warning"
+      );
     } else if (data && data.error) {
       setForecastStatus(data.error, "warning");
     } else if (data && data.eligible === false) {
-      setForecastStatus(data.reason || "Forecast unavailable for the current filters.", "warning");
-      if (els.forecastEmpty) {
+      if (hasNowcast || hasVisibleForecast) {
+        setForecastStatus("Current month estimate ready. Forward forecast remains limited by history depth.", "warning");
+        if (els.forecastEmpty) {
+          els.forecastEmpty.classList.add("d-none");
+        }
+      } else if (els.forecastEmpty) {
+        setForecastStatus(data.reason || "Forecast unavailable for the current filters.", "warning");
         els.forecastEmpty.classList.remove("d-none");
         els.forecastEmpty.textContent = data.reason || "Forecast unavailable for the current filters.";
       }
     } else if (!data || (!data.series || !data.series.length) && (!data.forecast || !data.forecast.length)) {
-      setForecastStatus("Click Run Forecast to generate predictions.", "muted");
+      setForecastStatus(
+        isDefaultForecastSelection() ? "Preparing smart default forecast for the active business window." : "Refresh forecast to generate predictions for the selected controls.",
+        "muted"
+      );
+      if (els.forecastEmpty) {
+        els.forecastEmpty.classList.remove("d-none");
+        els.forecastEmpty.textContent = isDefaultForecastSelection()
+          ? "The default forecast is preparing for the active window."
+          : "Refresh Forecast to generate predictions for the selected metric, horizon, and partial-month treatment.";
+      }
     }
   };
 
@@ -2515,15 +2910,30 @@
     const current = window.location.search || "";
     state.forecast.stale = current !== state.forecast.lastFilters;
     if (state.forecast.stale) {
-      setForecastStatus("Filters changed - run forecast again.", "warning");
+      setForecastStatus(
+        isDefaultForecastSelection() ? "Filters changed - default forecast refresh is available." : "Filters changed - refresh forecast to realign outlook.",
+        "warning"
+      );
     }
     renderForecastState();
   };
 
-  const runForecast = async () => {
+  const maybeAutoRunForecast = () => {
+    if (state.payload?.meta?.has_data === false) return;
+    if (!isDefaultForecastSelection()) return;
+    if (state.forecast.loading) return;
+    const currentFilters = window.location.search || "";
+    if (state.forecast.lastFilters === currentFilters && !state.forecast.stale) return;
+    runForecast({ auto: true });
+  };
+
+  const runForecast = async ({ auto = false } = {}) => {
     if (!els.forecastRunBtn) return;
+    if (state.forecast.loading) return;
+    const reqSeq = ++state.forecast.requestSeq;
+    const requestFilters = window.location.search || "";
     setForecastLoading(true);
-    setForecastStatus("Running forecast...", "primary");
+    setForecastStatus(auto ? "Running smart default forecast..." : "Running forecast...", "primary");
     try {
       const resp = await authFetch(buildForecastUrl(), { method: "GET" });
       let data = null;
@@ -2536,14 +2946,18 @@
         const message = data && data.error ? data.error : `Forecast request failed (${resp.status})`;
         throw new Error(message);
       }
+      if (reqSeq !== state.forecast.requestSeq) return;
       state.forecast.data = data || {};
-      state.forecast.lastFilters = window.location.search || "";
-      state.forecast.stale = false;
+      state.forecast.lastFilters = requestFilters;
+      state.forecast.stale = (window.location.search || "") !== requestFilters;
       renderForecastState(state.forecast.data);
     } catch (err) {
+      if (reqSeq !== state.forecast.requestSeq) return;
       setForecastStatus(err && err.message ? `Forecast failed: ${err.message}` : "Forecast failed", "danger");
     } finally {
+      if (reqSeq !== state.forecast.requestSeq) return;
       setForecastLoading(false);
+      if (state.forecast.stale && auto) maybeAutoRunForecast();
     }
   };
 
@@ -2558,13 +2972,30 @@
   };
 
   const renderMeta = (meta = {}) => {
-    if (els.lastRefresh && meta.last_refresh) els.lastRefresh.textContent = meta.last_refresh;
+    if (els.lastRefresh) {
+      els.lastRefresh.textContent = formatTimestampish(meta.last_refresh);
+      if (meta.last_refresh) {
+        const refreshAge = formatRefreshAge(meta.refresh_age_days, meta.refresh_age_hours);
+        els.lastRefresh.title = `Governed refresh ${formatTimestampish(meta.last_refresh)}${refreshAge !== "n/a" ? ` • age ${refreshAge}` : ""}`;
+      } else {
+        els.lastRefresh.title = "";
+      }
+    }
     const w = meta.window || {};
     if (els.dataWindow) {
       els.dataWindow.textContent = currentWindowLabel(w) || (w.start && w.end ? `${w.start} -> ${w.end}` : "Not available");
     }
     if (els.comparisonBasisChip) {
       els.comparisonBasisChip.textContent = primaryCompareLabel(w);
+    }
+    if (els.periodModeChip) {
+      els.periodModeChip.textContent = periodModeLabel(w);
+      const statusLabel = emptyText(w.period_status_label, "Filtered period");
+      els.periodModeChip.title = `${statusLabel}${w.method_label ? ` • ${w.method_label}` : ""}`;
+    }
+    if (els.dataCutoffChip) {
+      els.dataCutoffChip.textContent = meta.data_cutoff ? formatTimestampish(meta.data_cutoff, { withTime: false }) : "Not available";
+      els.dataCutoffChip.title = meta.data_cutoff ? `Latest governed data cutoff ${formatTimestampish(meta.data_cutoff, { withTime: false })}` : "";
     }
     if (els.comparisonNoteText) {
       const priorLabel = priorWindowLabel(w);
@@ -2586,7 +3017,7 @@
       }
     });
     if (els.filterSummary) {
-      els.filterSummary.textContent = parts.length ? parts.join(" | ") : "Default (last 3 months)";
+      els.filterSummary.textContent = parts.length ? parts.join(" | ") : "Default (Current FY)";
     }
     if (els.filterCountChip) {
       els.filterCountChip.textContent = `${fmtNumber0.format(activeFilterCount)} active`;
@@ -2636,6 +3067,7 @@
     renderStep("coverage-banner", () => applyCoverageBanner(payload.health || {}));
     renderStep("coverage-panel", () => updateGlobalCoveragePanel(payload.health || {}));
     const insightsPayload = state.insights.data || payload;
+    renderStep("commercial-focus", () => renderCommercialFocus(payload, insightsPayload));
     renderStep("insights", () => renderInsights(insightsPayload.insights || {}));
     renderStep("drivers", () => renderDrivers(insightsPayload.drivers || {}));
     renderStep("concentration", () => renderConcentration(insightsPayload.concentration || {}));
@@ -2646,6 +3078,117 @@
     }
     settleLoadingFallbacks(failed.length ? "partial" : "ready");
     ensureChartWarning();
+  };
+
+  const syncControlsFromState = () => {
+    if (els.dimToggle) {
+      els.dimToggle
+        .querySelectorAll("button[data-dim]")
+        .forEach((btn) => btn.classList.toggle("active", btn.getAttribute("data-dim") === state.dim));
+    }
+    if (els.moversDimToggle) {
+      els.moversDimToggle
+        .querySelectorAll("button[data-movers-dim]")
+        .forEach((btn) => btn.classList.toggle("active", btn.getAttribute("data-movers-dim") === state.moversDim));
+    }
+    if (els.moversSortSelect) els.moversSortSelect.value = state.moversSort || "delta_abs";
+    if (els.driversMetricToggle) {
+      els.driversMetricToggle
+        .querySelectorAll("button[data-driver-metric]")
+        .forEach((btn) => btn.classList.toggle("active", btn.getAttribute("data-driver-metric") === state.driverMetric));
+    }
+    if (els.trendFreqToggle) {
+      els.trendFreqToggle
+        .querySelectorAll("button[data-trend-freq]")
+        .forEach((btn) => btn.classList.toggle("active", btn.getAttribute("data-trend-freq") === state.trend.freq));
+    }
+    if (els.trendOverlayMetric) els.trendOverlayMetric.value = state.trend.overlay || "profit";
+    if (els.trendRollingToggle) els.trendRollingToggle.checked = !!state.trend.rolling;
+    if (els.forecastMetricButtons && els.forecastMetricButtons.forEach) {
+      els.forecastMetricButtons.forEach((btn) => btn.classList.toggle("active", btn.getAttribute("data-forecast-metric") === state.forecast.metric));
+    }
+    if (els.forecastHorizon) els.forecastHorizon.value = String(state.forecast.horizon || DEFAULT_FORECAST.horizon);
+    if (els.forecastIncludePartial) els.forecastIncludePartial.checked = !!state.forecast.includePartial;
+  };
+
+  const snapshotUiState = () => ({
+    dim: state.dim,
+    moversDim: state.moversDim,
+    moversSort: state.moversSort,
+    driverMetric: state.driverMetric,
+    trend: { ...state.trend },
+    forecast: {
+      metric: state.forecast.metric,
+      horizon: state.forecast.horizon,
+      includePartial: !!state.forecast.includePartial,
+      data: state.forecast.data,
+      lastFilters: state.forecast.lastFilters,
+      stale: !!state.forecast.stale,
+    },
+    insights: {
+      data: state.insights.data,
+      lastFilters: state.insights.lastFilters,
+      error: state.insights.error,
+    },
+  });
+
+  const applySnapshotUiState = (uiState = {}) => {
+    if (!uiState || typeof uiState !== "object") return;
+    if (uiState.dim) state.dim = String(uiState.dim);
+    if (uiState.moversDim) state.moversDim = String(uiState.moversDim);
+    if (uiState.moversSort) state.moversSort = String(uiState.moversSort);
+    if (uiState.driverMetric) state.driverMetric = String(uiState.driverMetric);
+    if (uiState.trend && typeof uiState.trend === "object") {
+      state.trend = {
+        freq: uiState.trend.freq || state.trend.freq,
+        overlay: uiState.trend.overlay || state.trend.overlay,
+        rolling: uiState.trend.rolling !== undefined ? !!uiState.trend.rolling : state.trend.rolling,
+      };
+    }
+    if (uiState.forecast && typeof uiState.forecast === "object") {
+      state.forecast.metric = uiState.forecast.metric || state.forecast.metric;
+      state.forecast.horizon = uiState.forecast.horizon || state.forecast.horizon;
+      state.forecast.includePartial = uiState.forecast.includePartial !== undefined ? !!uiState.forecast.includePartial : state.forecast.includePartial;
+      state.forecast.data = uiState.forecast.data || null;
+      state.forecast.lastFilters = uiState.forecast.lastFilters || null;
+      state.forecast.stale = !!uiState.forecast.stale;
+    }
+    if (uiState.insights && typeof uiState.insights === "object") {
+      state.insights.data = uiState.insights.data || null;
+      state.insights.lastFilters = uiState.insights.lastFilters || null;
+      state.insights.error = uiState.insights.error || null;
+    }
+  };
+
+  const persistSnapshot = (payload = state.payload) => {
+    const qs = sanitizeOverviewQs(state.lastSuccessfulQs || lastAppliedQs || window.location.search || "");
+    if (!pageCache || !payload || !qs) return false;
+    return pageCache.saveSnapshot(PAGE_CACHE_ID, {
+      qs,
+      payload,
+      uiState: snapshotUiState(),
+      scrollY: window.scrollY || 0,
+      meta: {
+        datasetVersion: payload?.meta?.dataset_version || null,
+      },
+    });
+  };
+
+  const restoreSnapshot = (qs, { restoreScroll = false } = {}) => {
+    if (!pageCache) return null;
+    const snapshot = pageCache.loadSnapshot(PAGE_CACHE_ID, { qs, ...PAGE_CACHE_POLICY });
+    if (!snapshot?.payload) return null;
+    applySnapshotUiState(snapshot.ui_state || {});
+    state.payload = snapshot.payload || {};
+    state.lastSuccessfulQs = qs;
+    syncControlsFromState();
+    setBanner(null);
+    renderAll();
+    renderForecastState(state.forecast.data || {});
+    if (restoreScroll) {
+      pageCache.restoreScroll(PAGE_CACHE_ID, { qs, ...PAGE_CACHE_POLICY, delayMs: 40 });
+    }
+    return snapshot;
   };
 
   const setQueryParam = (key, value) => {
@@ -2760,10 +3303,8 @@
           if (!metric) return;
           state.forecast.metric = metric;
           els.forecastMetricButtons.forEach((b) => b.classList.toggle("active", b === btn));
-          if (state.forecast.data) {
-            state.forecast.stale = true;
-            renderForecastState(state.forecast.data);
-          }
+          state.forecast.stale = !!state.forecast.data;
+          renderForecastState(state.forecast.data);
         });
       });
     }
@@ -2773,12 +3314,16 @@
         const val = parseInt(els.forecastHorizon.value, 10);
         state.forecast.horizon = [3, 6, 12].includes(val) ? val : 6;
         els.forecastHorizon.value = state.forecast.horizon;
+        state.forecast.stale = !!state.forecast.data;
+        renderForecastState(state.forecast.data);
       });
     }
     if (els.forecastIncludePartial) {
       els.forecastIncludePartial.checked = !!state.forecast.includePartial;
       els.forecastIncludePartial.addEventListener("change", () => {
         state.forecast.includePartial = !!els.forecastIncludePartial.checked;
+        state.forecast.stale = !!state.forecast.data;
+        renderForecastState(state.forecast.data);
       });
     }
     if (els.forecastRunBtn) {
@@ -2879,7 +3424,24 @@
     page.setAttribute("aria-busy", loading ? "true" : "false");
   };
 
-  const load = async (qsOverride) => {
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = "";
+    return applyId;
+  };
+
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId) payload.applyId = applyId;
+    if (typeof window.dispatchGlobalFiltersApplied === "function") {
+      window.dispatchGlobalFiltersApplied(payload);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+  };
+
+  const load = async (qsOverride, options = {}) => {
     const version = ++requestSeq;
     if (activeController) {
       activeController.abort();
@@ -2891,11 +3453,15 @@
       : sanitizeOverviewQs(new URLSearchParams(window.location.search || "").toString());
     const url = buildApiUrl(sanitizedQs);
     lastAppliedQs = sanitizedQs;
-    setLoading(true);
+    const hasVisibleSnapshot = !!state.payload;
+    if (!(options.background && hasVisibleSnapshot)) {
+      setLoading(true);
+    }
     try {
       const { data, notModified } = await fetchJson(url, controller.signal);
       if (notModified) {
         markForecastStale();
+        maybeAutoRunForecast();
         return;
       }
       state.payload = data || {};
@@ -2903,8 +3469,11 @@
       state.insights.data = null;
       state.insights.error = null;
       setBanner(null);
+      syncControlsFromState();
       renderAll();
+      persistSnapshot(state.payload);
       markForecastStale();
+      maybeAutoRunForecast();
     } catch (err) { // eslint-disable-line no-unused-vars
       if (err?.name === "AbortError") return;
       applyLoadFailureState(String(err && err.message ? err.message : err), { hasSnapshot: !!state.payload });
@@ -2913,11 +3482,7 @@
       setLoading(false);
       settleLoadingFallbacks("partial");
       ensureChartWarning();
-      window.dispatchEvent(
-        new CustomEvent("globalFilters:applied", {
-          detail: { qs: lastAppliedQs, requestId: state.payload?.meta?.request_id },
-        })
-      );
+      dispatchGlobalApplyAck({ qs: lastAppliedQs, requestId: state.payload?.meta?.request_id });
     }
   };
 
@@ -2938,12 +3503,20 @@
       const readyDetail = await waitForFiltersReady();
       qs = readyDetail?.qs;
     }
-    load(qs);
+    const sanitizedQs = sanitizeOverviewQs(qs || "");
+    const snapshot = restoreSnapshot(sanitizedQs, { restoreScroll: true });
+    if (snapshot?.fresh) {
+      markForecastStale();
+      maybeAutoRunForecast();
+      return;
+    }
+    load(sanitizedQs, { background: !!snapshot?.payload });
   };
 
   const onApply = (evt) => {
+    currentApplyId = String(evt?.detail?.applyId || "");
     const qs = sanitizeOverviewQs(evt?.detail?.qs || "");
-    load(qs);
+    load(qs, { background: !!state.payload });
   };
   const onReady = (evt) => {
     const qs = sanitizeOverviewQs(evt?.detail?.qs || "");
@@ -2952,5 +3525,11 @@
 
   window.addEventListener("globalFilters:apply", onApply);
   window.addEventListener("globalFilters:ready", onReady);
+  window.addEventListener("pagehide", () => {
+    persistSnapshot();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistSnapshot();
+  });
   bootstrap();
 })();

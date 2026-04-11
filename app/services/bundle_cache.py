@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -65,15 +66,23 @@ def cached_bundle(
         payload = builder()
         if isinstance(payload, dict):
             payload.setdefault("meta", {})
+            payload["meta"]["cache_built_at"] = int(time.time())
             payload["meta"]["dataset_version"] = dataset_version
             payload["meta"]["cached"] = False
         return payload
 
     result, hit = _CACHE.get_or_compute(key, ttl, _build)
-    if isinstance(result, dict):
-        result.setdefault("meta", {})
-        result["meta"]["cached"] = bool(hit)
-        result["meta"]["dataset_version"] = dataset_version
-        result["meta"]["cache_key"] = key
-        result["meta"]["cache_ttl"] = ttl
-    return result
+    payload = copy.deepcopy(result)
+    if isinstance(payload, dict):
+        payload.setdefault("meta", {})
+        payload["meta"]["cached"] = bool(hit)
+        payload["meta"]["dataset_version"] = dataset_version
+        payload["meta"]["cache_key"] = key
+        payload["meta"]["cache_ttl"] = ttl
+        built_at = payload["meta"].get("cache_built_at")
+        if built_at is not None:
+            try:
+                payload["meta"]["cache_age_seconds"] = max(0, int(time.time()) - int(built_at))
+            except Exception:
+                payload["meta"]["cache_age_seconds"] = 0
+    return payload

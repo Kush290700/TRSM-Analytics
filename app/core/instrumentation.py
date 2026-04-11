@@ -55,6 +55,37 @@ def _log(logger: logging.Logger, event: str, extra: Optional[dict[str, Any]] = N
         logger.debug("obs.log_failed", exc_info=True)
 
 
+def _flag_on(raw: Any) -> bool:
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _positive_int(raw: Any, default: int) -> int:
+    try:
+        return max(0, int(str(raw).strip()))
+    except Exception:
+        return default
+
+
+def _request_summary_log_info(resp: Any, duration_ms: Optional[int], meta: dict[str, Any], duck: dict[str, Any]) -> bool:
+    if _flag_on(os.getenv("REQUEST_SUMMARY_LOG_ALL")) or _flag_on(os.getenv("DEBUG_OBS")) or _flag_on(os.getenv("OBS_VERBOSE")) or _flag_on(os.getenv("DEBUG")):
+        return True
+    slow_ms = _positive_int(os.getenv("REQUEST_SUMMARY_INFO_MS"), 1200)
+    query_ms = _positive_int(duck.get("total_ms") or 0, 0) if duck.get("total_ms") is not None else 0
+    query_count = _positive_int(duck.get("count") or 0, 0) if duck.get("count") is not None else 0
+    cached = meta.get("cache_hit") if meta.get("cache_hit") is not None else meta.get("cached")
+    if getattr(resp, "status_code", 200) >= 500:
+        return True
+    if duration_ms is not None and duration_ms >= slow_ms:
+        return True
+    if query_ms >= slow_ms:
+        return True
+    if cached is False and duration_ms is not None and duration_ms >= max(250, slow_ms // 2):
+        return True
+    if query_count >= 8 and query_ms >= 250:
+        return True
+    return False
+
+
 def install_request_logging(app) -> None:
     """Attach request-id and start/end logging middleware."""
 
@@ -166,7 +197,8 @@ def install_request_logging(app) -> None:
                 "cache_key_hash": cache_key_hash,
             }
             try:
-                app.logger.info("api.request.summary", extra=summary)
+                log_fn = app.logger.info if _request_summary_log_info(resp, duration_ms, meta, duck) else app.logger.debug
+                log_fn("api.request.summary", extra=summary)
             except Exception:
                 app.logger.debug("api.request.summary_failed", exc_info=True)
         return resp

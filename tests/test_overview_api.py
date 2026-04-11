@@ -62,6 +62,7 @@ def app():
 @pytest.fixture()
 def client(app, monkeypatch):
     import app.services.frame as frame
+    import app.services.fact_store as fact_store
     import data_loader as loader
 
     df = _make_df()
@@ -78,6 +79,7 @@ def client(app, monkeypatch):
     # monkeypatch.setattr(frame, "load_canonical_df", lambda: df.copy(), raising=True)
     monkeypatch.setattr(loader, "get_fact_df", _snapshot, raising=True)
     monkeypatch.setattr(loader, "current_version", lambda: "test-version", raising=True)
+    monkeypatch.setattr(fact_store, "_require_manifest", lambda: None, raising=False)
 
     with app.test_client() as c:
         yield c

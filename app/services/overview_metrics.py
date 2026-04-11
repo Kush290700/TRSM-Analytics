@@ -5,7 +5,9 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 from typing import Any, Iterable, Optional
 
-from app.services.filters import FilterParams
+import pandas as pd
+
+from app.services.filters import FISCAL_DATE_TYPE, FilterParams, get_fiscal_periods
 
 
 EPSILON = 1e-9
@@ -39,6 +41,8 @@ class WindowContract:
     yoy_window_label: str = ""
     note: str = "Comparisons follow the active filtered window."
     trajectory_note: str = "Trajectory shows the active filtered window."
+    date_type: str = "calendar"
+    trend_bucket_label: str = "Month"
 
     @property
     def current_end_exclusive(self) -> date:
@@ -73,6 +77,8 @@ class WindowContract:
             "yoy_window_label": self.yoy_window_label,
             "note": self.note,
             "trajectory_note": self.trajectory_note,
+            "date_type": self.date_type,
+            "trend_bucket_label": self.trend_bucket_label,
         }
 
 
@@ -121,6 +127,150 @@ def _window_label(start: date, end: date) -> str:
     return f"{_date_label(start)} to {_date_label(end)}"
 
 
+def _fiscal_window_contract(filters: FilterParams, today: date) -> WindowContract | None:
+    preset = str(getattr(filters, "preset", None) or "").strip().lower()
+    date_type = str(getattr(filters, "date_type", None) or "").strip().lower()
+    if date_type != FISCAL_DATE_TYPE or preset not in {
+        "current_fy",
+        "previous_fy",
+        "current_fq",
+        "previous_fq",
+        "current_fm",
+        "previous_fm",
+        "fytd_comparison",
+    }:
+        return None
+
+    reference_date = _to_date(getattr(filters, "end", None)) or today
+    if preset in {"previous_fy", "previous_fq", "previous_fm"}:
+        reference_date = reference_date + timedelta(days=1)
+    periods = get_fiscal_periods(pd.Timestamp(reference_date))
+    period = periods.get(preset)
+    if not period:
+        return None
+
+    start = period["start"].date()
+    end = period["end"].date()
+    prior_month_start = period["comparison_start"].date()
+    prior_month_end = period["comparison_end"].date()
+    prior_year_start = period["yoy_start"].date()
+    prior_year_end = period["yoy_end"].date()
+    history_start = min(prior_year_start, prior_month_start, start)
+    current_days = max(1, (end - start).days + 1)
+    prior_days = max(1, (prior_month_end - prior_month_start).days + 1)
+    terminal_period_incomplete = end != _month_end(end)
+
+    if preset in {"current_fy", "fytd_comparison"}:
+        method = "fiscal_year_to_date_vs_prior_fiscal_year_to_date"
+        current_label = "Current fiscal year-to-date"
+        prior_label = "Prior fiscal year-to-date"
+        current_short = "Current FYTD"
+        prior_short = "Prior FYTD"
+        comparison_label = "Current FYTD vs prior FYTD"
+        delta_short_label = "FYTD"
+        note = (
+            f"Current fiscal year-to-date {_window_label(start, end)} is compared with "
+            f"prior fiscal year-to-date {_window_label(prior_month_start, prior_month_end)}."
+        )
+        trajectory_note = "Trajectory uses fiscal months (FM1, FM2, ...) for the active fiscal year window."
+    elif preset == "previous_fy":
+        method = "fiscal_year_vs_prior_fiscal_year"
+        current_label = "Previous fiscal year"
+        prior_label = "Prior fiscal year"
+        current_short = "Previous FY"
+        prior_short = "Prior FY"
+        comparison_label = "Previous FY vs prior FY"
+        delta_short_label = "FY"
+        note = (
+            f"Previous fiscal year {_window_label(start, end)} is compared with "
+            f"the prior fiscal year {_window_label(prior_month_start, prior_month_end)}."
+        )
+        trajectory_note = "Trajectory uses fiscal months from the selected fiscal year."
+    elif preset == "previous_fq":
+        method = "fiscal_quarter_vs_prior_fiscal_quarter"
+        current_label = "Previous fiscal quarter"
+        prior_label = "Prior fiscal quarter"
+        current_short = "Previous FQ"
+        prior_short = "Prior FQ"
+        comparison_label = "Previous FQ vs prior FQ"
+        delta_short_label = "FQ"
+        note = (
+            f"Previous fiscal quarter {_window_label(start, end)} is compared with "
+            f"the prior fiscal quarter {_window_label(prior_month_start, prior_month_end)}."
+        )
+        trajectory_note = "Trajectory uses fiscal months from the selected fiscal quarter."
+    elif preset == "current_fm":
+        method = "fiscal_month_to_date_vs_prior_fiscal_month_same_day"
+        current_label = "Current fiscal month-to-date"
+        prior_label = "Prior fiscal month same day"
+        current_short = "Current MoM (FMTD)"
+        prior_short = "Prior MoM (FMTD)"
+        comparison_label = "Current MoM (FMTD) vs prior MoM (FMTD)"
+        delta_short_label = "MoM (FMTD)"
+        note = (
+            f"Current fiscal month-to-date {_window_label(start, end)} is compared with "
+            f"{_window_label(prior_month_start, prior_month_end)} to align elapsed fiscal-month days."
+        )
+        trajectory_note = "Trajectory uses fiscal month labels and matched fiscal-month day comparisons."
+    elif preset == "previous_fm":
+        method = "fiscal_month_vs_prior_fiscal_month"
+        current_label = "Previous fiscal month"
+        prior_label = "Prior fiscal month"
+        current_short = "Previous FM"
+        prior_short = "Prior FM"
+        comparison_label = "Previous FM vs prior FM"
+        delta_short_label = "FM"
+        note = (
+            f"Previous fiscal month {_window_label(start, end)} is compared with "
+            f"the prior fiscal month {_window_label(prior_month_start, prior_month_end)}."
+        )
+        trajectory_note = "Trajectory uses fiscal month labels from the selected fiscal month."
+    else:
+        method = "fiscal_quarter_to_date_vs_prior_fiscal_quarter_same_day"
+        current_label = "Current fiscal quarter-to-date"
+        prior_label = "Prior fiscal quarter same day"
+        current_short = "Current FQTD"
+        prior_short = "Prior FQTD"
+        comparison_label = "Current FQTD vs prior FQTD"
+        delta_short_label = "FQTD"
+        note = (
+            f"Current fiscal quarter-to-date {_window_label(start, end)} is compared with "
+            f"{_window_label(prior_month_start, prior_month_end)} to align elapsed fiscal-quarter days."
+        )
+        trajectory_note = "Trajectory uses fiscal months and elapsed fiscal-quarter comparisons."
+
+    return WindowContract(
+        current_start=start,
+        current_end=end,
+        prior_month_start=prior_month_start,
+        prior_month_end=prior_month_end,
+        prior_year_start=prior_year_start,
+        prior_year_end=prior_year_end,
+        history_start=history_start,
+        defaulted=False,
+        current_days=current_days,
+        prior_days=prior_days,
+        method=method,
+        aligned_to_months=bool(preset in {"previous_fy", "previous_fq", "previous_fm"}),
+        terminal_period_incomplete=terminal_period_incomplete,
+        is_partial_period=bool(preset in {"current_fy", "current_fq", "current_fm", "fytd_comparison"}),
+        current_label=current_label,
+        prior_label=prior_label,
+        current_short_label=current_short,
+        prior_short_label=prior_short,
+        comparison_label=comparison_label,
+        delta_short_label=delta_short_label,
+        current_window_label=_window_label(start, end),
+        prior_window_label=_window_label(prior_month_start, prior_month_end),
+        yoy_label="Same Month / Same Fiscal Period",
+        yoy_window_label=_window_label(prior_year_start, prior_year_end),
+        note=note,
+        trajectory_note=trajectory_note,
+        date_type=FISCAL_DATE_TYPE,
+        trend_bucket_label="Fiscal Month",
+    )
+
+
 def resolve_window_contract(
     filters: FilterParams,
     *,
@@ -128,6 +278,9 @@ def resolve_window_contract(
     default_days: int = 180,
 ) -> WindowContract:
     today = datetime.utcnow().date()
+    fiscal_contract = _fiscal_window_contract(filters, today)
+    if fiscal_contract is not None:
+        return fiscal_contract
     start = _to_date(getattr(filters, "start", None))
     end = _to_date(getattr(filters, "end", None))
     defaulted = False
@@ -241,6 +394,8 @@ def resolve_window_contract(
         yoy_window_label=_window_label(prior_year_start, prior_year_end),
         note=note,
         trajectory_note=trajectory_note,
+        date_type="calendar",
+        trend_bucket_label="Month",
     )
 
 

@@ -41,6 +41,7 @@ from ..core.json_sanitizer import sanitize_for_json
 from ..core.filters import build_global_filter_form
 from ..core.rbac import can_view_costs, has_permission, permission_required, requires_roles
 from ..services import analytics_utils as au
+from app.core.exceptions import DatasetNotBuiltError
 from app.core.features import legacy_pandas_enabled
 from app.services import bundle_service, filters_service
 from app.services import fact_store
@@ -68,6 +69,75 @@ def _bundle_args_for_sections(*sections: str) -> MultiDict:
     if normalized:
         bundle_args["_sections"] = ",".join(normalized)
     return bundle_args
+
+
+def _empty_customers_bundle_payload(*sections: str) -> dict[str, Any]:
+    normalized = [str(section).strip().lower() for section in sections if str(section).strip()]
+    requested_sections = normalized or ["overview", "rfm", "clv", "cohorts"]
+    warning = "Customer analytics data is temporarily unavailable. Filters remain available."
+    return {
+        "kpis": {},
+        "table": {"rows": [], "page": 1, "page_size": 25, "total_rows": 0, "total_pages": 1},
+        "charts": {},
+        "drivers": {},
+        "definitions": {},
+        "health_strip": {"chips": [], "narrative": ""},
+        "executive_scorecard": {},
+        "executive_narrative": "",
+        "churn_risk_summary": {},
+        "clv": {},
+        "rfm": {},
+        "cohorts": {},
+        "warnings": [warning],
+        "meta": {
+            "page": 1,
+            "page_size": 25,
+            "total_rows": 0,
+            "total_pages": 1,
+            "sections": requested_sections,
+            "degraded": True,
+            "bundle_unavailable": True,
+        },
+    }
+
+
+def _customers_bundle_payload(*sections: str) -> dict[str, Any]:
+    args = _bundle_args_for_sections(*sections)
+    try:
+        payload = bundle_service.bundle("customers", args)
+    except DatasetNotBuiltError as exc:
+        current_app.logger.warning(
+            "customers.bundle.dataset_unavailable",
+            extra={"sections": list(sections), "path": request.path, "error": str(exc)},
+        )
+        return _empty_customers_bundle_payload(*sections)
+    except Exception as exc:
+        current_app.logger.exception(
+            "customers.bundle.page_failed",
+            extra={"sections": list(sections), "path": request.path},
+        )
+        fallback = _empty_customers_bundle_payload(*sections)
+        fallback.setdefault("meta", {})["error"] = str(exc)
+        return fallback
+
+    if not isinstance(payload, dict):
+        current_app.logger.warning(
+            "customers.bundle.invalid_payload",
+            extra={"sections": list(sections), "path": request.path, "payload_type": type(payload).__name__},
+        )
+        return _empty_customers_bundle_payload(*sections)
+
+    if payload.get("error"):
+        message = str((payload.get("error") or {}).get("message") or "Customer analytics data is unavailable.")
+        current_app.logger.warning(
+            "customers.bundle.page_degraded",
+            extra={"sections": list(sections), "path": request.path, "error": message},
+        )
+        fallback = _empty_customers_bundle_payload(*sections)
+        fallback.setdefault("meta", {})["error"] = message
+        return fallback
+
+    return payload
 
 
 @bp.before_request
@@ -505,7 +575,7 @@ def _attach_churn_features(
 @login_required
 @requires_roles("sales", "sales_manager", "production", "gm", "owner", "admin")
 def index():
-    payload = bundle_service.bundle("customers", _bundle_args_for_sections("overview"))
+    payload = _customers_bundle_payload("overview")
     v3_enabled = _customers_kpis_v3_enabled()
     v2_enabled = _customers_kpis_v2_enabled()
     try:
@@ -690,7 +760,7 @@ def index():
 @login_required
 @requires_roles("sales", "sales_manager", "production", "gm", "owner", "admin")
 def clv():
-    payload = bundle_service.bundle("customers", _bundle_args_for_sections("clv"))
+    payload = _customers_bundle_payload("clv")
     clv_payload = (payload.get("clv") or {}) if isinstance(payload, dict) else {}
     definitions = payload.get("definitions", {}) if isinstance(payload, dict) else {}
     show_costs = can_view_costs(current_user)
@@ -1199,6 +1269,8 @@ def drilldown(customer_id):
             {
                 "sku": row.get("sku"),
                 "product": row.get("product"),
+                "protein_family": row.get("protein_family"),
+                "category": row.get("category"),
                 "revenue": row.get("revenue"),
                 "weight_lb": row.get("weight_lb"),
                 "profit": row.get("profit") if show_costs else None,
@@ -1314,6 +1386,9 @@ def drilldown(customer_id):
             "avg_lb_per_week": kpis_data.get("avg_lb_per_week"),
             "avg_lb_per_month": kpis_data.get("avg_lb_per_month"),
             "owner_sales_rep": kpis_data.get("owner_sales_rep"),
+            "historical_owner_sales_rep": kpis_data.get("historical_owner_sales_rep"),
+            "last_sales_rep": kpis_data.get("last_sales_rep"),
+            "last_sales_rep_date": kpis_data.get("last_sales_rep_date"),
             "primary_city": kpis_data.get("primary_city"),
             "primary_state": kpis_data.get("primary_state"),
             "best_weekday_share_pct": kpis_data.get("best_weekday_share_pct"),
@@ -1404,6 +1479,7 @@ def drilldown(customer_id):
         window_end=meta_payload.get("window_end"),
         generated_at=meta_payload.get("generated_at"),
         dataset_version=meta_payload.get("dataset_version"),
+        window_reference_date=meta_payload.get("window_reference_date"),
         show_costs=show_costs,
     )
     """
@@ -2184,7 +2260,7 @@ def _cohort_metrics(cust_df: pd.DataFrame, threshold_days: int) -> tuple[pd.Data
 @permission_required("page.customers.view")
 def cohorts():
     if not _cohorts_v2_enabled():
-        payload = bundle_service.bundle("customers", _bundle_args_for_sections("cohorts"))
+        payload = _customers_bundle_payload("cohorts")
         cohorts_payload = (payload.get("cohorts") or {}) if isinstance(payload, dict) else {}
         heatmap = cohorts_payload.get("heatmap") or {}
         cohort_labels = heatmap.get("cohorts") or []
@@ -2417,7 +2493,7 @@ def _rfm_scores(recency: pd.Series, frequency: pd.Series, monetary: pd.Series) -
 @login_required
 @requires_roles("sales", "sales_manager", "production", "gm", "owner", "admin")
 def rfm():
-    payload = bundle_service.bundle("customers", _bundle_args_for_sections("rfm"))
+    payload = _customers_bundle_payload("rfm")
     rfm_payload = (payload.get("rfm") or {}) if isinstance(payload, dict) else {}
     definitions = payload.get("definitions", {}) if isinstance(payload, dict) else {}
     show_costs = can_view_costs(current_user)
@@ -2691,7 +2767,13 @@ def export():
     _enforce_customers_export_access(page)
 
     df_f = pd.DataFrame()
-    if not (page == "drilldown" and _customer_drilldown_v2_enabled()):
+    uses_bundle_export = (
+        (page == "clv" and _customers_clv_v2_enabled())
+        or (page == "kpis" and (_customers_kpis_v3_enabled() or _customers_kpis_v2_enabled()))
+        or (page == "rfm" and _customers_rfm_v2_enabled())
+        or (page == "drilldown" and _customer_drilldown_v2_enabled())
+    )
+    if not uses_bundle_export:
         base_df = get_fact_df()
         params = _query_filter_params()
         effective_params = _clamp_params_to_data_window(base_df, params)
@@ -2984,6 +3066,147 @@ def export():
                     for key, val in ((payload.get("trust_coverage") or {}) if isinstance(payload, dict) else {}).items()
                 ]
             )
+            protein_focus = str(request.args.get("protein_focus") or "").strip()
+            protein_focus_token = protein_focus.lower()
+            action_lane = str(request.args.get("action_lane") or "").strip().lower()
+            negative_only = str(request.args.get("negative_only") or "").strip().lower() in {"1", "true", "yes", "on"}
+            below_target_only = str(request.args.get("below_target_only") or "").strip().lower() in {"1", "true", "yes", "on"}
+            def _normalize_token(value: Any) -> str:
+                return str(value or "").strip().lower()
+
+            def _token_matches(value: Any, token: str) -> bool:
+                if not token:
+                    return True
+                if isinstance(value, (list, tuple, set)):
+                    return any(_normalize_token(item) == token for item in value)
+                return _normalize_token(value) == token
+
+            def _filter_by_token(frame: pd.DataFrame, *candidate_cols: str) -> pd.DataFrame:
+                if frame.empty or not protein_focus_token:
+                    return frame
+                usable = [col for col in candidate_cols if col in frame.columns]
+                if not usable:
+                    return frame
+                mask = pd.Series(False, index=frame.index)
+                for col in usable:
+                    mask = mask | frame[col].apply(lambda value: _token_matches(value, protein_focus_token))
+                return frame.loc[mask].copy()
+
+            def _ensure_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+                if not frame.empty or list(frame.columns):
+                    return frame
+                return pd.DataFrame(columns=columns)
+
+            product_df = _filter_by_token(product_df, "protein_family")
+            price_df = _filter_by_token(price_df, "protein_family")
+            cross_sell_df = _filter_by_token(cross_sell_df, "protein_family", "family")
+            top_spend_df = _filter_by_token(top_spend_df, "protein_family")
+            top_weight_df = _filter_by_token(top_weight_df, "protein_family")
+            actions_df = _filter_by_token(actions_df, "related_families")
+            if not product_df.empty and negative_only and "margin_pct" in product_df.columns:
+                product_df = product_df.loc[pd.to_numeric(product_df["margin_pct"], errors="coerce") < 0].copy()
+            if not price_df.empty and negative_only and "margin_pct" in price_df.columns:
+                price_df = price_df.loc[pd.to_numeric(price_df["margin_pct"], errors="coerce") < 0].copy()
+            if not product_df.empty and below_target_only and "margin_pct" in product_df.columns:
+                product_targets = (
+                    pd.to_numeric(product_df["target_margin_pct"], errors="coerce")
+                    if "target_margin_pct" in product_df.columns
+                    else pd.Series(np.nan, index=product_df.index, dtype="float64")
+                )
+                product_df = product_df.loc[pd.to_numeric(product_df["margin_pct"], errors="coerce") < product_targets].copy()
+            if not price_df.empty and below_target_only and "margin_pct" in price_df.columns:
+                price_targets = (
+                    pd.to_numeric(price_df["target_margin_pct"], errors="coerce")
+                    if "target_margin_pct" in price_df.columns
+                    else pd.Series(np.nan, index=price_df.index, dtype="float64")
+                )
+                price_df = price_df.loc[pd.to_numeric(price_df["margin_pct"], errors="coerce") < price_targets].copy()
+            if not actions_df.empty and action_lane and "lane" in actions_df.columns:
+                actions_df = actions_df.loc[actions_df["lane"].astype("string").str.strip().str.lower() == action_lane].copy()
+            product_df = _ensure_columns(
+                product_df,
+                [
+                    "sku",
+                    "product",
+                    "protein_family",
+                    "category",
+                    "revenue",
+                    "cost",
+                    "profit",
+                    "margin_pct",
+                    "weight_lb",
+                    "qty",
+                    "orders",
+                    "revenue_prior",
+                    "profit_prior",
+                ],
+            )
+            price_df = _ensure_columns(
+                price_df,
+                [
+                    "sku",
+                    "product",
+                    "category",
+                    "protein_family",
+                    "cust_unit_price",
+                    "peer_median",
+                    "delta_pct",
+                    "suggest_price",
+                    "revenue",
+                    "weight_lb",
+                    "margin_pct",
+                    "profit_lb",
+                    "price_quality_flag",
+                ],
+            )
+            cross_sell_df = _ensure_columns(
+                cross_sell_df,
+                [
+                    "sku",
+                    "product",
+                    "protein_family",
+                    "category",
+                    "co_orders",
+                    "revenue",
+                    "candidate_orders",
+                    "total_orders",
+                    "confidence_pct",
+                    "support_pct",
+                    "lift",
+                    "reason",
+                    "explanation",
+                ],
+            )
+            orders_df = _ensure_columns(
+                orders_df,
+                ["order_id", "order_date", "revenue", "cost", "profit", "weight_lb", "items", "lines"],
+            )
+            top_spend_df = _ensure_columns(top_spend_df, ["sku", "product", "protein_family", "category", "revenue", "revenue_share_pct"])
+            top_weight_df = _ensure_columns(top_weight_df, ["sku", "product", "protein_family", "category", "weight_lb", "weight_share_pct"])
+            categories_df = _ensure_columns(categories_df, ["category", "revenue", "profit", "weight_lb", "orders", "revenue_prior", "weight_prior"])
+            actions_df = _ensure_columns(
+                actions_df,
+                [
+                    "lane",
+                    "type",
+                    "title",
+                    "why",
+                    "detail",
+                    "urgency",
+                    "confidence",
+                    "owner",
+                    "related_products",
+                    "related_categories",
+                    "related_families",
+                    "revenue_upside",
+                    "profit_upside",
+                    "margin_upside_pp",
+                    "scope_label",
+                    "pathway_label",
+                    "tone",
+                    "priority_score",
+                ],
+            )
 
             seasonality_rows = []
             matrix = seasonality_payload.get("matrix") or []
@@ -3016,6 +3239,10 @@ def export():
                 "scope_hash": (meta_payload.get("scope") or {}).get("scope_hash"),
                 "table_rows": len(product_df.index),
                 "orders_rows": len(orders_df.index),
+                "protein_focus": protein_focus or None,
+                "action_lane": action_lane or None,
+                "negative_only": negative_only,
+                "below_target_only": below_target_only,
             }
             metadata_df = pd.DataFrame(
                 [{"field": str(key), "value": "" if val is None else str(val)} for key, val in metadata.items()]

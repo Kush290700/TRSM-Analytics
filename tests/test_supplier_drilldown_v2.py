@@ -9,6 +9,7 @@ from werkzeug.exceptions import Forbidden
 
 from app.services import fact_store
 from app.services import presentation
+from app.services import suppliers_bundle
 
 
 @pytest.fixture
@@ -22,6 +23,8 @@ def seed_supplier_drilldown_v2(tmp_path, monkeypatch):
             "SupplierName": "Supplier A",
             "ProductId": "P1",
             "ProductName": "Prime Rib",
+            "Protein": "Beef",
+            "Category": "Steaks",
             "CustomerId": "C1",
             "CustomerName": "Customer One",
             "RegionName": "West",
@@ -42,6 +45,8 @@ def seed_supplier_drilldown_v2(tmp_path, monkeypatch):
             "SupplierName": "Supplier A",
             "ProductId": "P2",
             "ProductName": "Striploin",
+            "Protein": "Beef",
+            "Category": "Steaks",
             "CustomerId": "C2",
             "CustomerName": "Customer Two",
             "RegionName": "West",
@@ -62,6 +67,8 @@ def seed_supplier_drilldown_v2(tmp_path, monkeypatch):
             "SupplierName": "Supplier A",
             "ProductId": "P1",
             "ProductName": "Prime Rib",
+            "Protein": "Beef",
+            "Category": "Steaks",
             "CustomerId": "C1",
             "CustomerName": "Customer One",
             "RegionName": "West",
@@ -82,6 +89,8 @@ def seed_supplier_drilldown_v2(tmp_path, monkeypatch):
             "SupplierName": "Supplier A",
             "ProductId": "P3",
             "ProductName": "Top Sirloin",
+            "Protein": "Beef",
+            "Category": "Steaks",
             "CustomerId": "C3",
             "CustomerName": "Customer Three",
             "RegionName": "South",
@@ -102,6 +111,8 @@ def seed_supplier_drilldown_v2(tmp_path, monkeypatch):
             "SupplierName": "Supplier B",
             "ProductId": "P9",
             "ProductName": "Outside Scope SKU",
+            "Protein": "Pork",
+            "Category": "Bacon",
             "CustomerId": "C9",
             "CustomerName": "Customer Nine",
             "RegionName": "North",
@@ -234,6 +245,8 @@ def test_supplier_drilldown_v2_export_products_vs_customers_columns(app_client, 
         "SKU",
         "Product",
         "ProductName",
+        "ProteinFamily",
+        "ProductCategory",
         "CustomerId",
         "CustomerName",
         "Region",
@@ -258,6 +271,8 @@ def test_supplier_drilldown_v2_export_products_vs_customers_columns(app_client, 
     assert len(frame.index) >= 2
     assert set(frame["SupplierId"].astype(str)) == {"SUP_A"}
     assert set(frame["Region"].astype(str)) <= {"West", "South"}
+    assert set(frame["ProteinFamily"].dropna().astype(str)) == {"Beef"}
+    assert set(frame["ProductCategory"].dropna().astype(str)) == {"Steaks"}
     assert frame["Product"].astype(str).str.contains(" — ").any()
     assert "ASP" not in frame.columns
 
@@ -286,6 +301,12 @@ def test_supplier_product_label_formatter_standardizes_sku_and_name():
     assert presentation.compact_product_label("13667", "Deli Bacon No Nitrate Added Fresh TRSM (Retail Case)", max_length=28).startswith("13667 — ")
 
 
+def test_supplier_drilldown_product_display_uses_sku_and_unnamed_product_fallback():
+    display = suppliers_bundle._product_display_fields("13667", None)
+    assert display["display_name"] == "13667 — Unnamed Product"
+    assert display["display_name_short"].startswith("13667 — ")
+
+
 def test_supplier_drilldown_v2_payload_uses_asp_per_lb_and_combined_product_labels(app_client, seed_supplier_drilldown_v2, monkeypatch):
     monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
     resp = app_client.get(
@@ -310,6 +331,13 @@ def test_supplier_drilldown_v2_payload_uses_asp_per_lb_and_combined_product_labe
     assert first.get("display_name") == "P1 — Prime Rib"
     assert "display_name_axis" in first
     assert "display_name_short" in first
+    assert first.get("protein_family") == "Beef"
+    assert first.get("product_category") == "Steaks"
+
+    protein_rows = ((supplier_v2.get("protein") or {}).get("rows") or [])
+    assert protein_rows
+    assert protein_rows[0].get("protein_family") == "Beef"
+    assert protein_rows[0].get("lead_category") == "Steaks"
 
 
 def test_supplier_drilldown_v2_summary_export_uses_asp_lb_header(app_client, seed_supplier_drilldown_v2, monkeypatch):
@@ -326,3 +354,16 @@ def test_supplier_drilldown_v2_summary_export_uses_asp_lb_header(app_client, see
     assert resp.status_code == 200
     frame = pd.read_csv(io.StringIO(resp.get_data(as_text=True)))
     assert "ASP/lb" in frame.columns
+
+
+def test_supplier_drilldown_v2_route_gracefully_renders_notice_when_bundle_errors(app_client, seed_supplier_drilldown_v2, monkeypatch):
+    monkeypatch.setitem(app_client.application.config, "SUPPLIERS_V2", True)
+    monkeypatch.setitem(app_client.application.config, "SUPPLIER_DRILLDOWN_V2", True)
+    monkeypatch.setattr("app.services.bundle_service.drilldown", lambda *_args, **_kwargs: {"error": {"message": "synthetic supplier bundle failure"}, "meta": {}})
+
+    resp = app_client.get("/suppliers/SUP_A", query_string={"start": "2025-03-01", "end": "2025-04-30"})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "synthetic supplier bundle failure" in body
+    assert "Supplier Command Center" in body
+    assert "Protein & Category Exposure" in body

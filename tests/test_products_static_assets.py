@@ -13,6 +13,16 @@ def test_products_js_served(app):
         assert "renderActiveFilterSummary" in body
         assert "renderSectionBriefs" in body
         assert "renderProductIntel" in body
+        assert "renderPricingStatusSummary" in body
+        assert "renderProteinIntelligence" in body
+        assert "SECTION_GROUPS" in body
+        assert "bubbleXMetric" in body
+        assert "visualStatusKey" in body
+        assert "products-v4-live3" in body
+        assert 'data-column="velocity_per_month"' in body
+        assert "updateTableLayerContextForSubset" in body
+        assert "root.dataset.productsBootstrapped" in body
+        assert "proteinExecutionWatchList" in body
 
 
 def test_products_js_url_for(app):
@@ -30,3 +40,7 @@ def test_products_workspace_css_served(app):
         body = resp.get_data(as_text=True)
         assert ".products-sku-intel-panel" in body
         assert ".products-layer-context" in body
+        assert ".pricing-status-summary-grid" in body
+        assert ".products-health-grid" in body
+        assert ".product-intel-pricing-card" in body
+        assert ".protein-family-row" in body

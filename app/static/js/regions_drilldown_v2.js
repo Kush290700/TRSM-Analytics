@@ -33,7 +33,9 @@
     currentPayload: {},
     sectionObserver: null,
     retentionSearch: "",
+    requestSeq: 0,
   };
+  let currentApplyId = "";
 
   const fmtMoney0 = (v) => (v == null || Number.isNaN(Number(v)) ? "—" : nfMoney0.format(Number(v)));
   const fmtMoney2 = (v) => (v == null || Number.isNaN(Number(v)) ? "—" : nfMoney2.format(Number(v)));
@@ -59,6 +61,47 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  const fmtSignedPoints = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "";
+    return `${numeric > 0 ? "+" : ""}${nfPct.format(numeric)} pts`;
+  };
+  const normalizeStatusKey = (value) => String(value || "").trim().toLowerCase();
+  const marginStatusClass = (value) => {
+    const key = normalizeStatusKey(value);
+    if (key === "red") return "is-red";
+    if (key === "orange") return "is-orange";
+    if (key === "yellow") return "is-yellow";
+    if (key === "light_green") return "is-light-green";
+    if (key === "green") return "is-green";
+    return "is-neutral";
+  };
+  const marginStatusLabel = (row = {}) => row?.target_status || row?.profitability_band || "Needs review";
+  const marginContextText = (row = {}) => {
+    const parts = [];
+    if (row.target_margin_pct != null) parts.push(`Target ${fmtPct(row.target_margin_pct)}`);
+    if (row.minimum_margin_pct != null) parts.push(`Min ${fmtPct(row.minimum_margin_pct)}`);
+    if (row.target_gap_pct_points != null) {
+      parts.push(`${fmtSignedPoints(row.target_gap_pct_points)} vs target`);
+    } else if (row.target_status) {
+      parts.push(row.target_status);
+    }
+    return parts.join(" · ");
+  };
+  const marginCellHtml = (row = {}) => {
+    const status = marginStatusLabel(row);
+    const context = marginContextText(row);
+    const marginValue = row.margin_pct_current !== null && row.margin_pct_current !== undefined ? row.margin_pct_current : row.margin_pct;
+    const pill = status
+      ? `<span class="region-status-pill ${marginStatusClass(row.status_key)}">${escapeHtml(status)}</span>`
+      : "";
+    return `
+      <div class="region-metric-stack region-metric-stack-end">
+        <div>${fmtPct(marginValue)}</div>
+        ${context || pill ? `<div class="region-metric-sub">${pill}${context ? `${pill ? " " : ""}<span>${escapeHtml(context)}</span>` : ""}</div>` : ""}
+      </div>
+    `;
+  };
   const normalizeQs = (qs) => String(qs || "").replace(/^\?/, "").trim();
   const truncate = (value, maxLen = 28) => {
     const text = String(value ?? "");
@@ -235,7 +278,10 @@
     setText("kpiProfit", fmtMoney0(score.total_profit));
     setText("kpiProfitMeta", score.profit_per_order == null ? "Profit per order unavailable" : `${fmtMoney2(score.profit_per_order)} profit per order`);
     setText("kpiMargin", fmtPct(score.margin_pct));
-    setText("kpiMarginMeta", score.revenue_per_unit == null ? "Revenue per unit unavailable" : `${fmtMoney2(score.revenue_per_unit)} revenue per unit`);
+    setText(
+      "kpiMarginMeta",
+      marginContextText(score) || (score.revenue_per_unit == null ? "Revenue per unit unavailable" : `${fmtMoney2(score.revenue_per_unit)} revenue per unit`)
+    );
     setText("kpiOrders", fmtInt(score.orders));
     setText("kpiOrdersMeta", score.revenue_per_lb == null ? "Revenue per lb unavailable" : `${fmtMoney2(score.revenue_per_lb)} revenue per lb`);
     setText("kpiCustomers", fmtInt(score.customers));
@@ -495,7 +541,7 @@
                 <tr>
                   <td><a href="${escapeHtml(href)}">${escapeHtml(row.product_name || row.product_id)}</a></td>
                   <td class="text-end">${fmtMoney0(row.revenue_current || row.revenue)}</td>
-                  <td class="text-end">${fmtPct(row.margin_pct_current || row.margin_pct)}</td>
+                  <td class="text-end">${marginCellHtml(row)}</td>
                   <td class="text-end">${fmtPct(row.revenue_share_pct)}</td>
                   <td><span class="${escapeHtml(riskBadgeClass(row.risk_tag))}">${escapeHtml(row.risk_tag || "—")}</span></td>
                 </tr>`;
@@ -534,7 +580,7 @@
                 <tr>
                   <td><a href="${escapeHtml(href)}">${escapeHtml(row.product_name || row.product_id)}</a></td>
                   <td class="text-end">${fmtMoney0(row.revenue_current || row.revenue)}</td>
-                  <td class="text-end">${fmtPct(row.margin_pct_current || row.margin_pct)}</td>
+                  <td class="text-end">${marginCellHtml(row)}</td>
                   <td><span class="${escapeHtml(riskBadgeClass(row.risk_tag))}">${escapeHtml(row.risk_tag || "—")}</span></td>
                 </tr>`;
             })
@@ -746,7 +792,25 @@
     initTooltips();
   };
 
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = "";
+    return applyId;
+  };
+
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId) payload.applyId = applyId;
+    if (typeof window.dispatchGlobalFiltersApplied === "function") {
+      window.dispatchGlobalFiltersApplied(payload);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+  };
+
   const fetchBundle = async () => {
+    const requestSeq = ++state.requestSeq;
     const bundleKey = buildBundleKey();
     if (!bundleKey) return;
     if (bundleKey === state.lastBundleKey && Object.keys(state.currentPayload || {}).length > 0) return;
@@ -768,13 +832,18 @@
       if (err && err.name === "AbortError") return;
       // keep current UI
     } finally {
+      if (requestSeq !== state.requestSeq) return;
       if (state.activeFetchController === controller) state.activeFetchController = null;
+      dispatchGlobalApplyAck({ qs: state.filterQs });
     }
   };
 
   const applyFilters = (qs) => {
     const normalized = normalizeQs(qs);
-    if (normalized === state.filterQs) return;
+    if (normalized === state.filterQs) {
+      dispatchGlobalApplyAck({ qs: state.filterQs });
+      return;
+    }
     state.filterQs = normalized;
     bindExportLinks();
     state.lastBundleKey = "";
@@ -793,6 +862,7 @@
   };
 
   const onGlobalFiltersApply = (evt) => {
+    currentApplyId = String(evt?.detail?.applyId || "");
     const qs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(qs);
   };

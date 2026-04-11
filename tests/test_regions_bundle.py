@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from app.services import fact_store
+from app.services import regions_bundle
 
 
 @pytest.fixture
@@ -106,3 +107,26 @@ def test_regions_bundle_pagination_and_non_null_metrics(app_client, seed_regions
     if target is not None:
         margin = target.get("margin_pct")
         assert margin is None or not math.isclose(float(margin), 100.0)
+        assert target.get("cost_coverage_pct") == pytest.approx(100.0)
+
+
+def test_regions_risk_profile_uses_shared_margin_status_when_status_missing():
+    risk_band, risk_score, reasons = regions_bundle._risk_profile(
+        {
+            "margin_pct": 21.0,
+            "minimum_margin_pct": 22.0,
+            "target_margin_pct": 31.0,
+            "status_key": None,
+            "churn_pct": 0.0,
+            "at_risk_pct": 0.0,
+            "top_customer_share_pct": 0.0,
+            "top_product_share_pct": 0.0,
+            "delta_revenue": 0.0,
+            "cost_coverage_pct": 100.0,
+            "packs_coverage_pct": 100.0,
+        }
+    )
+
+    assert risk_band == "Medium"
+    assert risk_score == 1
+    assert reasons == ["Low margin"]

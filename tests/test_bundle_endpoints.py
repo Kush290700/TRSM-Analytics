@@ -63,8 +63,29 @@ def test_bundle_endpoints_basic(client, page):
     if expected_sections is not None:
         assert meta.get("sections") == expected_sections
     assert resp.headers.get("X-Bundle-Cached") is not None
+    assert resp.headers.get("ETag") is not None
     assert meta.get("payload_bytes") is not None
     assert resp.headers.get("X-Payload-Bytes") is not None
+
+
+@pytest.mark.parametrize("page", PAGES)
+def test_bundle_endpoints_support_conditional_revalidation(client, page):
+    budget = BUNDLE_BUDGETS.get(page, {})
+    resp = client.get(f"/api/{page}/bundle", query_string=budget.get("query_string"))
+    if resp.status_code == 503:
+        pytest.skip("Dataset not built for bundle etag test")
+    assert resp.status_code == 200, f"{resp.status_code}: {resp.get_json()}"
+    etag = resp.headers.get("ETag")
+    assert etag
+
+    resp_304 = client.get(
+        f"/api/{page}/bundle",
+        query_string=budget.get("query_string"),
+        headers={"If-None-Match": etag},
+    )
+    assert resp_304.status_code == 304
+    assert resp_304.headers.get("ETag") == etag
+    assert resp_304.get_data(as_text=True) == ""
 
 
 @pytest.mark.parametrize("entity, param, col", DRILLDOWNS)

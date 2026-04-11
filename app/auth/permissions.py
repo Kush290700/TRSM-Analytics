@@ -763,8 +763,6 @@ _OWNER_GM_ADMIN_BASE: Set[str] = {
     "page.admin.view",
     "admin.users.manage",
     "admin.audit.view",
-    "admin.roles.manage",
-    "admin.permissions.manage",
     "scope.manage",
     "page.notifications.view",
     "admin.notifications.defaults",
@@ -896,12 +894,6 @@ DEFAULT_ROLE_PERMISSION_KEYS: Dict[str, Set[str]] = {
     ),
     "production": _merge_permissions(
         _OVERVIEW_ACCESS,
-        {
-            "page.customers.view",
-            "page.customers.drilldown.view",
-            "export.customers",
-            "feature.customers.dashboard.view",
-        },
         {
             "page.products.view",
             "page.products.drilldown.view",

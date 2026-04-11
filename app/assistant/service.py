@@ -2633,6 +2633,71 @@ def _trust_caveat_items(
     return items
 
 
+def _legacy_answer_type(question_type: str, presentation_type: str) -> str:
+    token = str(question_type or "").strip().lower()
+    if token == "definition_help":
+        return "definition"
+    if token == "page_help":
+        return "help"
+    if token == "history_analytics":
+        return "history"
+    if token == "comparison_analytics":
+        return "comparison"
+    if token == "ranking_analytics":
+        return "ranking"
+    if token == "grouped_analytics":
+        return "grouped"
+    if token in {"returns_analytics", "returns_workflow"}:
+        return "returns"
+    if token == "export_request":
+        return "export"
+    if token in {"executive_digest", "executive_summary"}:
+        return "executive"
+    return str(presentation_type or "summary").strip().lower() or "summary"
+
+
+def _legacy_export_actions(export_actions: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    actions: List[Dict[str, Any]] = []
+    for item in export_actions:
+        if not isinstance(item, Mapping):
+            continue
+        status = str(item.get("status") or "").strip().lower()
+        filename = str(item.get("filename") or "").strip()
+        download_url = str(item.get("download_url") or item.get("api_download_url") or "").strip()
+        status_url = str(item.get("status_url") or item.get("api_status_url") or "").strip()
+
+        if download_url:
+            actions.append(
+                {
+                    "kind": "download",
+                    "label": f"Download {filename}" if filename else "Download export",
+                    "url": download_url,
+                    "status": status or "completed",
+                    "filename": filename or None,
+                }
+            )
+            continue
+
+        if status_url:
+            if status in {"pending", "running"}:
+                label = f"Check export status for {filename}" if filename else "Check export status"
+            elif status in {"rate_limited", "busy"}:
+                label = f"Retry export for {filename}" if filename else "Retry export"
+            else:
+                label = f"View export status for {filename}" if filename else "View export status"
+            actions.append(
+                {
+                    "kind": "status",
+                    "label": label,
+                    "url": status_url,
+                    "status": status or None,
+                    "filename": filename or None,
+                }
+            )
+
+    return actions[:6]
+
+
 def _synthesize_answer(
     message: str,
     results: Sequence[Dict[str, Any]],
@@ -3547,18 +3612,23 @@ def _synthesize_answer(
     sections: List[Dict[str, str]] = []
     if question_type == "history_analytics":
         sections = [
-            {"title": "Trend Summary", "body": direct},
+            {"title": "History Series", "body": direct},
             {"title": "What Changed", "body": explanation},
         ]
     elif question_type == "comparison_analytics":
         sections = [
-            {"title": "Comparison Summary", "body": direct},
+            {"title": "Comparison", "body": direct},
             {"title": "What Matters", "body": explanation},
         ]
-    elif question_type in {"definition_help", "page_help"}:
+    elif question_type == "definition_help":
         sections = [
             {"title": "Definition", "body": direct},
             {"title": "How to Use It", "body": explanation},
+        ]
+    elif question_type == "page_help":
+        sections = [
+            {"title": "How To Use This Page", "body": direct},
+            {"title": "Good Next Questions", "body": explanation},
         ]
     elif question_type == "driver_mover":
         sections = [
@@ -3577,7 +3647,7 @@ def _synthesize_answer(
         ]
     elif question_type == "ranking_analytics":
         sections = [
-            {"title": "Ranked Result", "body": direct},
+            {"title": "Ranked Results", "body": direct},
             {"title": "What Stands Out", "body": explanation},
         ]
         if slots.query_shape == "nested_ranking" and nested_results:
@@ -3594,9 +3664,14 @@ def _synthesize_answer(
             {"title": "Top Priority", "body": direct},
             {"title": "What to Do Next", "body": explanation},
         ]
-    elif question_type in {"returns_analytics", "returns_workflow"}:
+    elif question_type == "returns_workflow":
         sections = [
-            {"title": "Returns Snapshot", "body": direct},
+            {"title": "Returns Summary", "body": direct},
+            {"title": "Workflow Help", "body": explanation},
+        ]
+    elif question_type == "returns_analytics":
+        sections = [
+            {"title": "Returns Summary", "body": direct},
             {"title": "Operational Context", "body": explanation},
         ]
     elif question_type == "export_request":
@@ -3669,12 +3744,16 @@ def _synthesize_answer(
         "executive_summary": "executive",
         "export_request": "export",
     }.get(question_type, "summary")
+    answer_type = _legacy_answer_type(question_type, presentation_type)
+    actions = _legacy_export_actions(export_actions)
     subject_focus = entity_label or top_entity_label or module_label
     action_topic = top_risk_title or top_entity_label or subject_focus
 
     return {
         "direct_answer": direct,
         "explanation": explanation,
+        "answer_type": answer_type,
+        "actions": actions,
         "sections": sections,
         "detail_panels": detail_panels,
         "evidence_cards": evidence_cards,
@@ -4697,6 +4776,8 @@ def handle_chat(payload: Mapping[str, Any]) -> Dict[str, Any]:
         "answer": {
             "direct_answer": direct_answer,
             "explanation": explanation,
+            "answer_type": synthesis.get("answer_type") or _legacy_answer_type(question_type, synthesis.get("presentation_type") or ""),
+            "actions": synthesis.get("actions") or [],
             "sections": synthesis.get("sections") or [],
             "detail_panels": synthesis.get("detail_panels") or [],
             "evidence_cards": synthesis.get("evidence_cards") or [],

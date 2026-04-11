@@ -977,6 +977,14 @@
   let previewModal = null;
   let bootstrapWarned = false;
   let accessSavePending = false;
+  let usersLoadController = null;
+  let usersLoadSeq = 0;
+  let accessLoadController = null;
+  let accessLoadSeq = 0;
+  let auditLoadController = null;
+  let auditLoadSeq = 0;
+  let previewLoadController = null;
+  let previewLoadSeq = 0;
 
   function createNoopModal(name) {
     return {
@@ -2049,8 +2057,19 @@
   }
 
   async function openAccessModal(userId) {
+    accessLoadSeq += 1;
+    const requestSeq = accessLoadSeq;
+    if (accessLoadController) {
+      try {
+        accessLoadController.abort();
+      } catch (err) {
+        /* ignore */
+      }
+    }
+    accessLoadController = new AbortController();
     try {
-      const res = await api(`/api/_admin/users/${userId}/permissions`);
+      const res = await api(`/api/_admin/users/${userId}/permissions`, { signal: accessLoadController.signal });
+      if (requestSeq !== accessLoadSeq) return;
       state.access = buildAccessState(userId, res);
       accessSavePending = false;
       if (accessUserId) accessUserId.value = String(userId);
@@ -2064,7 +2083,13 @@
       accessModal.show();
       syncAccessModalLayout({ resetScroll: true });
     } catch (err) {
+      if (err?.name === 'AbortError') return;
+      if (requestSeq !== accessLoadSeq) return;
       notify(err.message, 'danger');
+    } finally {
+      if (requestSeq === accessLoadSeq) {
+        accessLoadController = null;
+      }
     }
   }
 
@@ -2151,7 +2176,18 @@
   }
 
   async function loadUsers() {
+    usersLoadSeq += 1;
+    const requestSeq = usersLoadSeq;
+    if (usersLoadController) {
+      try {
+        usersLoadController.abort();
+      } catch (err) {
+        /* ignore */
+      }
+    }
+    usersLoadController = new AbortController();
     summaryEl.textContent = 'Loading users...';
+    paginationEl.textContent = 'Loading...';
     const params = new URLSearchParams({
       page: state.page,
       page_size: state.pageSize,
@@ -2160,7 +2196,8 @@
       status: state.status
     });
     try {
-      const res = await api(`/api/_admin/users?${params.toString()}`);
+      const res = await api(`/api/_admin/users?${params.toString()}`, { signal: usersLoadController.signal });
+      if (requestSeq !== usersLoadSeq) return;
       state.total = res.pagination.total;
       refreshTable(res.users, res.stats || {});
       const pages = Math.max(1, Math.ceil(res.pagination.total / res.pagination.page_size));
@@ -2168,7 +2205,15 @@
       summaryEl.textContent = `${res.pagination.total} ${statusLabel} (page ${res.pagination.page})`;
       paginationEl.textContent = `Page ${res.pagination.page} of ${pages}`;
     } catch (err) {
+      if (err?.name === 'AbortError') return;
+      if (requestSeq !== usersLoadSeq) return;
       notify(err.message, "danger");
+      summaryEl.textContent = 'Failed to load users.';
+      paginationEl.textContent = '';
+    } finally {
+      if (requestSeq === usersLoadSeq) {
+        usersLoadController = null;
+      }
     }
   }
 
@@ -2556,6 +2601,14 @@
   if (accessModalElement) {
     accessModalElement.addEventListener('shown.bs.modal', () => syncAccessModalLayout({ resetScroll: true }));
     accessModalElement.addEventListener('hidden.bs.modal', () => {
+      if (accessLoadController) {
+        try {
+          accessLoadController.abort();
+        } catch (err) {
+          /* ignore */
+        }
+        accessLoadController = null;
+      }
       if (accessModalBody) accessModalBody.scrollTop = 0;
     });
   }
@@ -2567,10 +2620,21 @@
   });
 
   async function loadAudit(userId) {
+    auditLoadSeq += 1;
+    const requestSeq = auditLoadSeq;
+    if (auditLoadController) {
+      try {
+        auditLoadController.abort();
+      } catch (err) {
+        /* ignore */
+      }
+    }
+    auditLoadController = new AbortController();
     try {
       const action = auditFilter.value;
       const url = action ? `/api/_admin/users/${userId}/audit?action=${encodeURIComponent(action)}` : `/api/_admin/users/${userId}/audit`;
-      const res = await api(url);
+      const res = await api(url, { signal: auditLoadController.signal });
+      if (requestSeq !== auditLoadSeq) return;
       const list = document.getElementById('auditList');
       list.innerHTML = res.audit.map(entry => `
         <div class="list-group-item">
@@ -2590,7 +2654,13 @@
       ensureModals();
       auditModal.show();
     } catch (err) {
+      if (err?.name === 'AbortError') return;
+      if (requestSeq !== auditLoadSeq) return;
       notify(err.message, 'danger');
+    } finally {
+      if (requestSeq === auditLoadSeq) {
+        auditLoadController = null;
+      }
     }
   }
 
@@ -2602,8 +2672,19 @@
   });
 
   async function loadPreview(userId) {
+    previewLoadSeq += 1;
+    const requestSeq = previewLoadSeq;
+    if (previewLoadController) {
+      try {
+        previewLoadController.abort();
+      } catch (err) {
+        /* ignore */
+      }
+    }
+    previewLoadController = new AbortController();
     try {
-      const res = await api(`/api/_admin/users/${userId}/preview`);
+      const res = await api(`/api/_admin/users/${userId}/preview`, { signal: previewLoadController.signal });
+      if (requestSeq !== previewLoadSeq) return;
       const preview = res.preview || {};
       const metrics = res.metrics || {};
       const scope = preview.scope || {};
@@ -2655,8 +2736,42 @@
       ensureModals();
       previewModal.show();
     } catch (err) {
+      if (err?.name === 'AbortError') return;
+      if (requestSeq !== previewLoadSeq) return;
       notify(err.message, 'danger');
+    } finally {
+      if (requestSeq === previewLoadSeq) {
+        previewLoadController = null;
+      }
     }
+  }
+
+  const auditModalElement = document.getElementById('auditModal');
+  if (auditModalElement) {
+    auditModalElement.addEventListener('hidden.bs.modal', () => {
+      if (auditLoadController) {
+        try {
+          auditLoadController.abort();
+        } catch (err) {
+          /* ignore */
+        }
+        auditLoadController = null;
+      }
+    });
+  }
+
+  const previewModalElement = document.getElementById('previewModal');
+  if (previewModalElement) {
+    previewModalElement.addEventListener('hidden.bs.modal', () => {
+      if (previewLoadController) {
+        try {
+          previewLoadController.abort();
+        } catch (err) {
+          /* ignore */
+        }
+        previewLoadController = null;
+      }
+    });
   }
 
   function syncBulkScopeAllUi() {

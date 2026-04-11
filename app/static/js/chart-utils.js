@@ -280,6 +280,114 @@
     });
   }
 
+  function getCssVar(name, fallback = "") {
+    const styles = getComputedStyle(document.body || document.documentElement);
+    const rootStyles = getComputedStyle(document.documentElement);
+    return styles.getPropertyValue(name).trim() || rootStyles.getPropertyValue(name).trim() || fallback;
+  }
+
+  function getThemePalette() {
+    return {
+      textPrimary: getCssVar('--color-text-primary', '#132033'),
+      textSecondary: getCssVar('--color-text-secondary', '#30455f'),
+      textMuted: getCssVar('--color-text-muted', '#607590'),
+      inverse: getCssVar('--color-text-inverse', '#f8fbff'),
+      border: getCssVar('--color-border-default', 'rgba(29, 42, 67, 0.16)'),
+      grid: getCssVar('--color-border-soft', 'rgba(29, 42, 67, 0.1)'),
+      surface: getCssVar('--color-surface-card', 'rgba(255, 255, 255, 0.96)'),
+    };
+  }
+
+  function themedPlotlyAxis(axis = {}, palette = getThemePalette()) {
+    const next = { ...axis };
+    const tickfont = { color: palette.textMuted, ...(axis.tickfont || {}) };
+    const titlefont = { color: palette.textSecondary, ...(axis.titlefont || {}) };
+    next.tickfont = tickfont;
+    next.titlefont = titlefont;
+    if (axis.showgrid !== false) next.gridcolor = axis.gridcolor || palette.grid;
+    if (axis.zeroline !== false) next.zerolinecolor = axis.zerolinecolor || palette.grid;
+    next.linecolor = axis.linecolor || palette.border;
+    return next;
+  }
+
+  function themedPlotlyLayout(layout = {}) {
+    const palette = getThemePalette();
+    const next = {
+      paper_bgcolor: layout.paper_bgcolor ?? 'rgba(0,0,0,0)',
+      plot_bgcolor: layout.plot_bgcolor ?? 'rgba(0,0,0,0)',
+      font: {
+        color: palette.textSecondary,
+        family: 'Manrope, Segoe UI, sans-serif',
+        ...(layout.font || {}),
+      },
+      ...layout,
+    };
+
+    const axisKeys = [
+      'xaxis', 'yaxis', 'xaxis2', 'yaxis2', 'xaxis3', 'yaxis3', 'xaxis4', 'yaxis4',
+    ];
+    axisKeys.forEach((key) => {
+      if (next[key]) next[key] = themedPlotlyAxis(next[key], palette);
+    });
+
+    next.legend = {
+      font: { color: palette.textSecondary, ...((layout.legend || {}).font || {}) },
+      ...(layout.legend || {}),
+    };
+
+    if (Array.isArray(layout.annotations)) {
+      next.annotations = layout.annotations.map((annotation) => ({
+        font: { color: palette.textSecondary, ...(annotation.font || {}) },
+        ...annotation,
+      }));
+    }
+
+    return next;
+  }
+
+  function applyChartJsDefaults() {
+    const ChartLib = window.Chart;
+    if (!ChartLib || ChartLib.__trsmContrastApplied) return;
+    const palette = getThemePalette();
+    ChartLib.defaults.color = palette.textMuted;
+    ChartLib.defaults.borderColor = palette.grid;
+    ChartLib.defaults.font.family = 'Manrope, Segoe UI, sans-serif';
+    if (ChartLib.defaults.plugins?.legend?.labels) {
+      ChartLib.defaults.plugins.legend.labels.color = palette.textSecondary;
+    }
+    if (ChartLib.defaults.plugins?.title) {
+      ChartLib.defaults.plugins.title.color = palette.textPrimary;
+    }
+    if (ChartLib.defaults.scale?.grid) {
+      ChartLib.defaults.scale.grid.color = palette.grid;
+    }
+    if (ChartLib.defaults.scale?.ticks) {
+      ChartLib.defaults.scale.ticks.color = palette.textMuted;
+    }
+    if (ChartLib.defaults.scale?.title) {
+      ChartLib.defaults.scale.title.color = palette.textSecondary;
+    }
+    ChartLib.__trsmContrastApplied = true;
+  }
+
+  function installPlotlyTheme() {
+    const PlotlyLib = window.Plotly;
+    if (!PlotlyLib || PlotlyLib.__trsmContrastApplied) return;
+    ['newPlot', 'react'].forEach((method) => {
+      const original = PlotlyLib[method];
+      if (typeof original !== 'function') return;
+      PlotlyLib[method] = function patchedPlotlyTheme(gd, data, layout, config) {
+        return original.call(this, gd, data, themedPlotlyLayout(layout || {}), config);
+      };
+    });
+    PlotlyLib.__trsmContrastApplied = true;
+  }
+
+  function applyChartTheme() {
+    applyChartJsDefaults();
+    installPlotlyTheme();
+  }
+
   // Export to global scope
   window.ChartUtils = {
     hasData,
@@ -290,8 +398,16 @@
     exportPlotlyDiv,
     addExportButton,
     safePlotlyPlot,
-    loadSheetJS
+    loadSheetJS,
+    getThemePalette,
+    themedPlotlyLayout,
+    applyChartTheme
   };
+
+  applyChartTheme();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyChartTheme, { once: true });
+  }
 
   // Auto-load SheetJS on script load
   loadSheetJS().catch(err => console.warn('Failed to load SheetJS:', err));

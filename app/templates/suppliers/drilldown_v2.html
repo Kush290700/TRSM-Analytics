@@ -1,7 +1,8 @@
 {% extends 'base.html' %}
 {% set filters_handler = 'ajax' %}
+{% set supplier_drilldown_rev = config.get('STATIC_REV', '20260325') ~ '-supplier-drilldown-v2-2' %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/supplier_drilldown_v2.css', v='20260316a') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/supplier_drilldown_v2.css', v=supplier_drilldown_rev) }}">
 
 <div id="SupplierDrilldownV2Meta"
      class="d-none"
@@ -11,9 +12,18 @@
      data-export-csv-base="{{ url_for('bundles.suppliers_drilldown_export_csv', supplier_id=supplier_id) }}"
      data-export-xlsx-base="{{ url_for('bundles.suppliers_drilldown_export_xlsx', supplier_id=supplier_id) }}"
      data-show-costs="{{ show_costs|tojson }}"
+     data-page-notice="{{ page_notice or '' }}"
      data-initial='{{ payload|tojson }}'></div>
 
 <div class="container-fluid py-3 pb-4 supplier-drilldown-v2">
+  <div class="supplier-v2-page-notice d-none" id="v2PageNotice" role="status" aria-live="polite">
+    <div class="supplier-v2-page-notice-copy">
+      <div class="supplier-v2-page-notice-title" id="v2PageNoticeTitle">Supplier detail notice</div>
+      <div class="supplier-v2-page-notice-text" id="v2PageNoticeText">Supplier detail data is refreshing.</div>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary d-none" type="button" id="v2RetryButton">Retry</button>
+  </div>
+
   <section class="supplier-v2-hero card mb-3">
     <div class="card-body">
       <div class="supplier-v2-hero-grid">
@@ -22,7 +32,8 @@
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
             <div class="supplier-v2-hero-copy">
               <h1 class="mb-1" id="v2Title">{{ supplier_name or supplier_id }}</h1>
-              <div class="small text-muted mb-2" id="v2HeroSubtitle">Executive supplier view for pricing quality, margin trust, customer dependency, and product concentration under the active scope.</div>
+              <div class="small text-muted mb-2" id="v2HeroSubtitle">Executive supplier view for pricing quality, margin trust, customer dependency, and protein concentration under the active scope.</div>
+              <div class="supplier-v2-hero-summary" id="v2HeroNarrative">Supplier detail narrative will populate after scoped supplier metrics load.</div>
               <div class="small text-muted" id="v2WindowSummary">Computed using current filters and scope.</div>
               <div class="small text-muted" id="v2ComparisonSummary">Prior-period context appears when a comparison window is available.</div>
             </div>
@@ -56,6 +67,8 @@
             <span class="supplier-v2-chip" id="badgeLifecycle">Lifecycle: —</span>
             <span class="supplier-v2-chip" id="badgeClass">Class: —</span>
             <span class="supplier-v2-chip" id="badgeCoverage">Cost coverage: —</span>
+            <span class="supplier-v2-chip" id="badgeTopProtein">Top protein: —</span>
+            <span class="supplier-v2-chip" id="badgeTopSku">Top SKU: —</span>
             <span class="supplier-v2-chip" id="badgeSupplierId">Supplier ID: {{ supplier_id }}</span>
             <span class="supplier-v2-chip" id="badgeLastSold">Last sold: —</span>
             <span class="supplier-v2-chip is-warn d-none" id="badgeDataWarn">Margin trust warning</span>
@@ -90,9 +103,11 @@
     <a class="supplier-v2-subnav-link" href="#sec-overview"><span>Overview</span><span class="supplier-v2-subnav-pill" id="navOverviewBadge">—</span></a>
     <a class="supplier-v2-subnav-link" href="#sec-trend"><span>Trend</span><span class="supplier-v2-subnav-pill" id="navTrendBadge">—</span></a>
     <a class="supplier-v2-subnav-link" href="#sec-mix"><span>Mix & Concentration</span><span class="supplier-v2-subnav-pill" id="navMixBadge">—</span></a>
+    <a class="supplier-v2-subnav-link" href="#sec-protein"><span>Protein</span><span class="supplier-v2-subnav-pill" id="navProteinBadge">—</span></a>
     <a class="supplier-v2-subnav-link" href="#sec-pricing"><span>Pricing & Margin</span><span class="supplier-v2-subnav-pill" id="navPricingBadge">—</span></a>
     <a class="supplier-v2-subnav-link" href="#sec-customers"><span>Customers</span><span class="supplier-v2-subnav-pill" id="navCustomersBadge">—</span></a>
     <a class="supplier-v2-subnav-link" href="#sec-products"><span>Products</span><span class="supplier-v2-subnav-pill" id="navProductsBadge">—</span></a>
+    <a class="supplier-v2-subnav-link" href="#sec-actions"><span>Actions</span><span class="supplier-v2-subnav-pill" id="navActionsBadge">—</span></a>
     <a class="supplier-v2-subnav-link" href="#sec-exports"><span>Exports</span><span class="supplier-v2-subnav-pill" id="navExportsBadge">—</span></a>
   </nav>
 
@@ -125,7 +140,8 @@
           <div class="card-body">
             <div class="text-muted small">Margin %</div>
             <div class="fs-5 fw-semibold" id="kpiMargin">—</div>
-            <div class="small text-muted">Gross margin on cost-covered rows</div>
+            <div class="small text-muted" id="kpiMarginMeta">Gross margin on cost-covered rows</div>
+            <div class="small text-muted" id="kpiMarginStatus">Target context loading...</div>
           </div>
         </div>
       </div>
@@ -192,6 +208,32 @@
             <div class="text-muted small">Supplier Health <span class="metric-help" data-bs-toggle="tooltip" title="Composite health score balances margin, growth, concentration, stability, and cost coverage.">?</span></div>
             <div class="fs-5 fw-semibold"><span id="kpiHealthScore">—</span> <span id="kpiHealthLabel" class="badge">—</span></div>
             <div class="small text-muted" id="kpiHealthFormula">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row g-2 mt-1 supplier-v2-story-grid">
+      <div class="col-lg-4">
+        <div class="card h-100 supplier-v2-story-card">
+          <div class="card-body">
+            <div class="supplier-v2-panel-label">Commercial readout</div>
+            <div id="v2CommercialStory">Revenue, profit, and scale commentary will populate after the supplier bundle loads.</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card h-100 supplier-v2-story-card">
+          <div class="card-body">
+            <div class="supplier-v2-panel-label">Concentration & trust</div>
+            <div id="v2RiskStory">Concentration, coverage, and dependency commentary will populate once scoped metrics are available.</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card h-100 supplier-v2-story-card">
+          <div class="card-body">
+            <div class="supplier-v2-panel-label">Action focus</div>
+            <div id="v2ActionStory">Recommended supplier actions will appear here after the margin, protein, and customer layers load.</div>
           </div>
         </div>
       </div>
@@ -276,12 +318,95 @@
             <a class="btn btn-sm btn-outline-secondary js-v2-export" data-dataset="products" data-format="csv" href="#">Export</a>
           </div>
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-sm mb-0">
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
                 <thead>
                   <tr><th>Product</th><th class="text-end">Revenue</th><th class="text-end">Margin %</th><th>Signals</th></tr>
                 </thead>
                 <tbody id="v2ProductDiagRows"><tr><td colspan="4" class="text-center text-muted">No product diagnostics in selected window.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-protein" class="supplier-v2-section mb-3">
+    <div class="supplier-v2-section-head">
+      <h4 class="mb-1">Protein & Category Exposure</h4>
+      <p class="text-muted mb-0">See which protein families and categories anchor the supplier relationship, where mix is shifting, and where negotiation risk is concentrated.</p>
+    </div>
+    <div class="row g-2">
+      <div class="col-lg-6">
+        <div class="card h-100">
+          <div class="card-header">
+            <h5 class="mb-1">Revenue by Protein Family</h5>
+            <div class="small text-muted">Current-window supplier exposure by protein family with matched-period mix shift.</div>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap">
+              <canvas id="v2ProteinRevenueChart"></canvas>
+            </div>
+            <div class="small text-muted mt-2" id="v2ProteinNarrative">Protein concentration commentary will populate after the supplier bundle loads.</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card h-100">
+          <div class="card-header">
+            <h5 class="mb-1">Revenue by Category</h5>
+            <div class="small text-muted">Category breadth inside the supplier relationship, including where mix moved versus prior.</div>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap">
+              <canvas id="v2CategoryRevenueChart"></canvas>
+            </div>
+            <div class="small text-muted mt-2" id="v2CategoryNarrative">Category breadth commentary will populate after the supplier bundle loads.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row g-2 mt-1">
+      <div class="col-12">
+        <div class="supplier-v2-chip-filter-row" id="v2ProteinFocusChips"></div>
+      </div>
+      <div class="col-lg-5">
+        <div class="supplier-v2-focus-card-grid" id="v2ProteinFocusCards"></div>
+      </div>
+      <div class="col-lg-7">
+        <div class="card h-100">
+          <div class="card-header">
+            <h5 class="mb-1">Protein Family Watch</h5>
+            <div class="small text-muted">Protein-specific revenue, margin, mix shift, and breadth to guide negotiation and diversification decisions.</div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
+                <thead>
+                  <tr><th>Protein</th><th>Lead category</th><th class="text-end">Revenue</th><th class="text-end">Share</th><th class="text-end">Δ Mix</th><th class="text-end">Margin %</th></tr>
+                </thead>
+                <tbody id="v2ProteinRows"><tr><td colspan="6" class="text-muted text-center">No protein diagnostics in the selected window.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row g-2 mt-1">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-1">Category Breadth</h5>
+            <div class="small text-muted">Category-level contribution, share shift, and breadth inside the supplier relationship.</div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
+                <thead>
+                  <tr><th>Category</th><th class="text-end">Revenue</th><th class="text-end">Share</th><th class="text-end">Δ Mix</th><th class="text-end">Margin %</th><th class="text-end">SKUs</th></tr>
+                </thead>
+                <tbody id="v2CategoryRows"><tr><td colspan="6" class="text-muted text-center">No category diagnostics in the selected window.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -348,8 +473,8 @@
             <a class="btn btn-sm btn-outline-secondary js-v2-export" data-dataset="pricing_outliers" data-format="csv" href="#">Export</a>
           </div>
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-sm mb-0">
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
                 <thead><tr><th>Product</th><th class="text-end">ASP/lb</th><th class="text-end">Δ vs Peer</th><th>Signal</th></tr></thead>
                 <tbody id="v2OutliersRows"><tr><td colspan="4" class="text-muted text-center">No outliers detected under active filters.</td></tr></tbody>
               </table>
@@ -364,15 +489,15 @@
           <div class="card-header d-flex justify-content-between align-items-center">
             <div>
               <h5 class="mb-1">Margin Priority Products</h5>
-              <div class="small text-muted">Below-target-margin products ranked by estimated gross profit uplift to the 27% margin target.</div>
+              <div class="small text-muted">Below-target products ranked by estimated gross profit uplift to each protein-aware target margin.</div>
             </div>
             <a class="btn btn-sm btn-outline-danger js-v2-export" data-dataset="margin_risk" data-format="csv" href="#">Export</a>
           </div>
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-sm mb-0">
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
                 <thead><tr><th>Product</th><th class="text-end">Revenue</th><th class="text-end">Margin %</th><th class="text-end">Uplift to Target</th><th>Last sold</th></tr></thead>
-                <tbody id="v2MarginRiskRows"><tr><td colspan="5" class="text-muted text-center">No below-target-margin products in the selected window.</td></tr></tbody>
+                <tbody id="v2MarginRiskRows"><tr><td colspan="5" class="text-muted text-center">No below-target products in the selected window.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -397,10 +522,10 @@
             <a class="btn btn-sm btn-outline-secondary js-v2-export" data-dataset="customers" data-format="csv" href="#">Export</a>
           </div>
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-sm mb-0">
-                <thead><tr><th>Customer</th><th class="text-end">Revenue</th><th class="text-end">Profit</th><th class="text-end">Margin %</th><th class="text-end">Orders</th><th>Last Order</th></tr></thead>
-                <tbody id="v2TopCustomersRows"><tr><td colspan="6" class="text-muted text-center">No customer data in current selection.</td></tr></tbody>
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
+                <thead><tr><th>Customer</th><th class="text-end">Revenue</th><th class="text-end">Share</th><th class="text-end">Profit</th><th class="text-end">Margin %</th><th class="text-end">Orders</th><th>Last Order</th></tr></thead>
+                <tbody id="v2TopCustomersRows"><tr><td colspan="7" class="text-muted text-center">No customer data in current selection.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -430,8 +555,8 @@
             <div class="small text-muted">Customers with lower supplier spend versus the prior comparison window.</div>
           </div>
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-sm mb-0">
+            <div class="table-responsive supplier-v2-table-shell">
+              <table class="table table-sm mb-0 supplier-v2-grid-table">
                 <thead><tr><th>Customer</th><th class="text-end">Current</th><th class="text-end">Prior</th><th class="text-end">Δ</th></tr></thead>
                 <tbody id="v2DeclinerRows"><tr><td colspan="4" class="text-muted text-center">No customer declines detected in the selected window.</td></tr></tbody>
               </table>
@@ -445,13 +570,14 @@
   <section id="sec-products" class="supplier-v2-section mb-3">
     <div class="supplier-v2-section-head">
       <h4 class="mb-1">Products</h4>
-      <p class="text-muted mb-0">Detailed SKU-level diagnostics with sorting, search, and direct product drilldown links.</p>
+      <p class="text-muted mb-0">Detailed SKU-level diagnostics with protein/category context, sorting, search, and direct product drilldown links.</p>
     </div>
     <div class="card">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
           <h5 class="mb-1">Decision-Ready Product Table</h5>
           <div class="small text-muted" id="v2ProductToolbarNote">Use search, sort, and direct drilldown links to isolate product-level pricing and margin issues.</div>
+          <div class="small text-muted" id="v2ProductFilterState">Showing all visible supplier SKUs in the active filter window.</div>
         </div>
         <div class="d-flex gap-2 align-items-center">
           <div class="small text-muted text-nowrap" id="v2ProductResultCount">— products</div>
@@ -460,27 +586,69 @@
         </div>
       </div>
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-sm mb-0" id="v2ProductsTable">
+        <div class="table-responsive supplier-v2-table-shell">
+          <table class="table table-sm mb-0 supplier-v2-grid-table supplier-v2-products-table" id="v2ProductsTable">
+            <colgroup>
+              <col class="supplier-v2-col-product">
+              <col class="supplier-v2-col-dimension">
+              <col class="supplier-v2-col-dimension">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-number">
+              <col class="supplier-v2-col-date">
+              <col class="supplier-v2-col-dimension">
+              <col class="supplier-v2-col-signals">
+            </colgroup>
             <thead>
               <tr>
                 <th data-sort="display_name" class="sortable">Product</th>
+                <th data-sort="protein_family" class="sortable">Protein</th>
+                <th data-sort="product_category" class="sortable">Category</th>
                 <th data-sort="revenue" class="sortable text-end">Revenue</th>
                 <th data-sort="profit" class="sortable text-end">Profit</th>
                 <th data-sort="margin_pct" class="sortable text-end">Margin %</th>
+                <th data-sort="target_margin_pct" class="sortable text-end">Target Margin %</th>
                 <th data-sort="orders" class="sortable text-end">Orders</th>
                 <th data-sort="units" class="sortable text-end">Units</th>
                 <th data-sort="weight_lb" class="sortable text-end">Weight (lb)</th>
                 <th data-sort="asp_lb" class="sortable text-end">ASP/lb</th>
+                <th data-sort="minimum_price_lb" class="sortable text-end">Min Price/lb</th>
+                <th data-sort="target_price_lb" class="sortable text-end">Target Price/lb</th>
+                <th data-sort="asp_lb_gap_to_target" class="sortable text-end">Gap to Target</th>
                 <th data-sort="asp_lb_delta_pct" class="sortable text-end">ASP/lb Δ%</th>
                 <th data-sort="revenue_share_pct" class="sortable text-end">Rev Share</th>
                 <th data-sort="last_sold" class="sortable">Last sold</th>
+                <th>Status</th>
                 <th>Signals</th>
               </tr>
             </thead>
-            <tbody id="v2ProductsRows"><tr><td colspan="12" class="text-muted text-center">No products in current selection.</td></tr></tbody>
+            <tbody id="v2ProductsRows"><tr><td colspan="19" class="text-muted text-center">No products in current selection.</td></tr></tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-actions" class="supplier-v2-section mb-3">
+    <div class="supplier-v2-section-head">
+      <h4 class="mb-1">Action & Negotiation Layer</h4>
+      <p class="text-muted mb-0">Translate supplier detail into concrete commercial, trust, and diversification actions without leaving the scoped view.</p>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <div class="supplier-v2-action-summary" id="v2ActionSummary">Action guidance will populate after the supplier bundle loads.</div>
+        <div class="supplier-v2-action-grid" id="v2ActionCards"></div>
       </div>
     </div>
   </section>
@@ -533,5 +701,5 @@
   </section>
 </div>
 
-<script src="{{ url_for('static', filename='js/suppliers_drilldown_v2.js', v='20260316a') }}" defer></script>
+<script src="{{ url_for('static', filename='js/suppliers_drilldown_v2.js', v=supplier_drilldown_rev) }}" defer></script>
 {% endblock %}

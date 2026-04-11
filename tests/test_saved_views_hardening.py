@@ -22,6 +22,8 @@ def authed_views_client(client, monkeypatch):
             return "1"
 
     monkeypatch.setattr("flask_login.utils._get_user", lambda *args, **kwargs: _DummyUser())
+    client.application.config["FILTERS_CANONICAL_V2"] = False
+    client.application.config["STICKY_FILTERS"] = True
     with get_session() as s:
         s.query(SavedView).filter(SavedView.user_id.in_([1, 2])).delete(synchronize_session=False)
         s.commit()

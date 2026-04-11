@@ -54,6 +54,74 @@ def test_window_contract_arbitrary_range_uses_matched_days() -> None:
     assert data["comparison_label"] == "Selected window vs prior matched days"
 
 
+def test_window_contract_current_fy_uses_prior_fytd() -> None:
+    params = FilterParams(
+        start=date(2025, 10, 1),
+        end=date(2026, 4, 8),
+        preset="current_fy",
+        date_type="fiscal",
+    )
+    window = om.resolve_window_contract(params, include_current_month=True)
+    data = window.as_dict()
+    assert data["prior_month_start"] == "2024-10-01"
+    assert data["prior_month_end"] == "2025-04-08"
+    assert data["prior_year_start"] == "2024-10-01"
+    assert data["prior_year_end"] == "2025-09-30"
+    assert data["method"] == "fiscal_year_to_date_vs_prior_fiscal_year_to_date"
+    assert data["date_type"] == "fiscal"
+    assert data["trend_bucket_label"] == "Fiscal Month"
+    assert data["comparison_label"] == "Current FYTD vs prior FYTD"
+
+
+def test_window_contract_current_fq_uses_prior_fiscal_quarter_days() -> None:
+    params = FilterParams(
+        start=date(2026, 4, 1),
+        end=date(2026, 4, 8),
+        preset="current_fq",
+        date_type="fiscal",
+    )
+    window = om.resolve_window_contract(params, include_current_month=True)
+    data = window.as_dict()
+    assert data["prior_month_start"] == "2026-01-01"
+    assert data["prior_month_end"] == "2026-01-08"
+    assert data["method"] == "fiscal_quarter_to_date_vs_prior_fiscal_quarter_same_day"
+    assert data["comparison_label"] == "Current FQTD vs prior FQTD"
+
+
+def test_window_contract_previous_fq_uses_prior_full_fiscal_quarter() -> None:
+    params = FilterParams(
+        start=date(2026, 1, 1),
+        end=date(2026, 3, 31),
+        preset="previous_fq",
+        date_type="fiscal",
+    )
+    window = om.resolve_window_contract(params, include_current_month=True)
+    data = window.as_dict()
+    assert data["start"] == "2026-01-01"
+    assert data["end"] == "2026-03-31"
+    assert data["prior_month_start"] == "2025-10-01"
+    assert data["prior_month_end"] == "2025-12-31"
+    assert data["method"] == "fiscal_quarter_vs_prior_fiscal_quarter"
+    assert data["comparison_label"] == "Previous FQ vs prior FQ"
+    assert data["is_partial_period"] is False
+
+
+def test_window_contract_current_fm_uses_prior_fiscal_month_days() -> None:
+    params = FilterParams(
+        start=date(2026, 4, 1),
+        end=date(2026, 4, 8),
+        preset="current_fm",
+        date_type="fiscal",
+    )
+    window = om.resolve_window_contract(params, include_current_month=True)
+    data = window.as_dict()
+    assert data["prior_month_start"] == "2026-03-01"
+    assert data["prior_month_end"] == "2026-03-08"
+    assert data["method"] == "fiscal_month_to_date_vs_prior_fiscal_month_same_day"
+    assert data["comparison_label"] == "Current MoM (FMTD) vs prior MoM (FMTD)"
+    assert data["trend_bucket_label"] == "Fiscal Month"
+
+
 def test_decomposition_effects_sum_to_total() -> None:
     out = om.decompose_price_volume_mix(
         current_total=1200.0,

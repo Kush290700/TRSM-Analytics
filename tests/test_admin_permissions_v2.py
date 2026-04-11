@@ -4,10 +4,11 @@ import uuid
 
 import pandas as pd
 from flask import jsonify, render_template_string
+from sqlalchemy import func, text
 
 from app import create_app
 from app.blueprints import products as products_blueprint
-from app.auth.models import AuditLog, SessionLocal, User
+from app.auth.models import AuditLog, Permission, Role, RolePermission, SessionLocal, User, UserRole, list_role_permissions, sync_permissions
 from app.auth.models import replace_user_permission_rules
 from app.core.payload_permissions import apply_payload_permissions
 from app.core.exports import dataframe_to_csv_response
@@ -73,6 +74,78 @@ def _audit_actions_for_target(user_id: int) -> list[str]:
     return [str(row[0]) for row in rows if row and row[0]]
 
 
+def test_sync_permissions_is_idempotent_for_user_role_backfill():
+    _build_app()
+
+    sync_permissions()
+    sync_permissions()
+
+    with SessionLocal() as s:
+        duplicates = (
+            s.query(UserRole.user_id, UserRole.role_id)
+            .group_by(UserRole.user_id, UserRole.role_id)
+            .having(func.count(UserRole.id) > 1)
+            .all()
+        )
+
+    assert duplicates == []
+
+
+def test_sync_permissions_removes_stale_production_customer_access():
+    _build_app()
+
+    stale_keys = {
+        "page.customers.view",
+        "page.customers.drilldown.view",
+        "export.customers",
+        "feature.customers.dashboard.view",
+    }
+
+    with SessionLocal() as s:
+        role = s.query(Role).filter(func.lower(Role.name) == "production").first()
+        assert role is not None
+
+        permission_rows = (
+            s.query(Permission)
+            .filter(func.lower(Permission.key).in_(sorted(stale_keys)))
+            .all()
+        )
+        assert {str(row.key).strip().lower() for row in permission_rows} == stale_keys
+
+        permission_ids = [int(row.id) for row in permission_rows]
+        (
+            s.query(RolePermission)
+            .filter(
+                RolePermission.role_id == int(role.id),
+                RolePermission.permission_id.in_(permission_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+        s.commit()
+
+        for permission_id in permission_ids:
+            s.add(RolePermission(role_id=int(role.id), permission_id=permission_id))
+        s.commit()
+
+    result = sync_permissions()
+
+    assert isinstance(result["role_permissions_removed"], int)
+    assert stale_keys.isdisjoint(set(list_role_permissions("production")))
+
+
+def test_init_auth_db_ensures_login_attempts_table():
+    _build_app()
+
+    with SessionLocal() as s:
+        tables = {
+            str(row[0])
+            for row in s.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+            if row and row[0]
+        }
+
+    assert "login_attempts" in tables
+
+
 def test_route_policy_honors_user_deny(monkeypatch):
     app = _build_app()
     user = _create_user(role="sales_manager", username_prefix="permdeny")
@@ -91,6 +164,23 @@ def test_api_bundle_policy_honors_feature_deny(monkeypatch):
     monkeypatch.setattr("app.core.rbac.current_user", user, raising=False)
     with app.test_request_context("/api/products/bundle"):
         assert route_permission_override_allows_request() is False
+
+
+def test_production_role_is_blocked_from_customer_pages_without_customer_permissions():
+    app = _build_app()
+    user = _create_user(role="production", username_prefix="prodcustdeny")
+
+    with app.test_client() as client:
+        _login(client, user)
+
+        html_resp = client.get("/customers/")
+        assert html_resp.status_code == 403
+
+        bundle_resp = client.get("/api/customers/bundle")
+        assert bundle_resp.status_code == 403
+
+        drill_resp = client.get("/customers/drilldown/C-1")
+        assert drill_resp.status_code == 403
 
 
 def test_csv_export_masks_sensitive_columns_without_export_permission(monkeypatch):

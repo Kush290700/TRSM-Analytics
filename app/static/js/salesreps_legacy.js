@@ -30,6 +30,7 @@
   let currentAbort = null;
   let currentReqId = 0;
   let bootstrapped = false;
+  let currentApplyId = null;
 
   const waitForFiltersReady = async () => {
     const fallbackState = () => {
@@ -68,6 +69,25 @@
 
   const safeNum = (val, fallback = 0) => (Number.isFinite(+val) ? +val : fallback);
   const normalizeQS = (qs) => (qs || "").replace(/^\?/, "");
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = null;
+    return applyId;
+  };
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId && !payload.applyId) payload.applyId = applyId;
+    try {
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(payload);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+    } catch (_err) {
+      /* ignore */
+    }
+  };
   const formatPercent = (val, isShare = false) => {
     if (val === null || val === undefined || val === "") return NA;
     let num = Number(val);
@@ -509,11 +529,7 @@
       toggleEmpty("revenueShareChart", true);
     } finally {
       if (reqId === currentReqId) {
-        try {
-          window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: { qs: state.qs } }));
-        } catch (err) {
-          /* ignore */
-        }
+        dispatchGlobalApplyAck({ qs: state.qs, page: "salesreps" });
       }
     }
   };
@@ -612,6 +628,7 @@
   };
 
   const onApply = (evt) => {
+    currentApplyId = evt?.detail?.applyId || null;
     const qs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(qs);
   };

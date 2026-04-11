@@ -2,9 +2,10 @@
 {% extends 'base.html' %}
 {% import 'products/_components.html' as products_ui %}
 {% set filters_handler = 'ajax' %}
+{% set products_v4_rev = config.get('STATIC_REV', '20260408') ~ '-products-live4' %}
 {% block head_extras %}
   {{ super() }}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/products_workspace_v4.css', v=config.get('STATIC_REV', '20260319-products-command-center')) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/products_workspace_v4.css', v=products_v4_rev) }}">
 {% endblock %}
 {% block content %}
 
@@ -52,7 +53,7 @@
           <span id="heroPostureBadge" class="badge rounded-pill text-bg-light text-dark d-none"></span>
         </div>
         <p class="mb-3 text-white-50">
-          Product Intelligence command center for pricing, margin recovery, demand health, assortment strategy, and commercial execution under the current scope.
+          Product Intelligence command center for pricing, margin recovery, protein-family mix, demand health, assortment strategy, and commercial execution under the current scope.
         </p>
 
         <div class="d-flex flex-wrap gap-3 text-white-50 small">
@@ -73,11 +74,15 @@
         <div class="products-hero-summary mt-3">
           <div class="products-hero-summary-card">
             <div class="products-hero-summary-label">Current posture</div>
-            <div class="products-hero-summary-value" id="heroPostureSummary">Loading portfolio posture...</div>
+            <div class="products-hero-summary-value" id="heroPostureSummary">
+              <span class="loading-skeleton-line w-100"></span>
+            </div>
           </div>
           <div class="products-hero-summary-card">
             <div class="products-hero-summary-label">Next move</div>
-            <div class="products-hero-summary-value" id="heroActionSummary">Loading execution focus...</div>
+            <div class="products-hero-summary-value" id="heroActionSummary">
+              <span class="loading-skeleton-line w-100"></span>
+            </div>
           </div>
         </div>
 
@@ -174,6 +179,7 @@
             <button class="btn btn-sm btn-outline-secondary workspace-watch-chip" type="button" data-watchlist-preset="clear">All products</button>
             <button class="btn btn-sm btn-outline-secondary workspace-watch-chip" type="button" data-watchlist-preset="recover_margin">Recover margin</button>
             <button class="btn btn-sm btn-outline-secondary workspace-watch-chip" type="button" data-watchlist-preset="protect_core">Protect core</button>
+            <button class="btn btn-sm btn-outline-secondary workspace-watch-chip" type="button" data-watchlist-preset="elastic_risk">Elastic risk</button>
             <button class="btn btn-sm btn-outline-secondary workspace-watch-chip" type="button" data-watchlist-preset="promote">Promote</button>
             <button class="btn btn-sm btn-outline-secondary workspace-watch-chip" type="button" data-watchlist-preset="rationalize">Rationalize</button>
           </div>
@@ -194,16 +200,55 @@
     <div id="decisionSignalsBand" class="products-signal-band mb-3" aria-live="polite">
       <div class="decision-signal-card tone-neutral">
         <div class="decision-signal-label">Signals</div>
-        <div class="decision-signal-value">Loading...</div>
-        <div class="decision-signal-note">Computing portfolio, pricing, and demand posture.</div>
+        <div class="decision-signal-value"><span class="loading-skeleton-line w-75"></span></div>
+        <div class="decision-signal-note"><span class="loading-skeleton-line w-100"></span></div>
       </div>
     </div>
 
     <div class="products-brief-row mb-3" id="focusActionsBand">
       <div class="products-brief-card">
         <div class="products-brief-label">Action focus</div>
-        <div class="products-brief-value">Loading...</div>
-        <div class="products-brief-note">Execution priorities will populate here.</div>
+        <div class="products-brief-value"><span class="loading-skeleton-line w-75"></span></div>
+        <div class="products-brief-note"><span class="loading-skeleton-line w-100"></span></div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-xl-8">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h5 class="card-title mb-0">Why did this change?</h5>
+              <div class="text-muted small">Plain-English root-cause summary for the active comparison window.</div>
+            </div>
+            <button id="rootCauseOpenTable" type="button" class="btn btn-sm btn-outline-secondary">Open driver table</button>
+          </div>
+          <div class="card-body">
+            <div id="rootCauseHeadline" class="root-cause-headline">
+              <span class="loading-skeleton-line w-100"></span>
+            </div>
+            <div id="rootCauseDrivers" class="root-cause-driver-list mt-3">
+              <div class="root-cause-driver-card">
+                <span class="loading-skeleton-line w-50"></span>
+                <span class="loading-skeleton-line w-100 mt-2"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-xl-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Executive alerts</h5>
+              <div class="text-muted small">Slack, Teams, or email-ready messages for the highest-confidence anomalies.</div>
+            </div>
+            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">Ready</span>
+          </div>
+          <div class="card-body">
+            <div id="alertCandidateList" class="small text-muted">Preparing alert candidates...</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -229,7 +274,7 @@
           <div class="insight-label text-uppercase small">Top product</div>
           <div class="insight-value" id="insightTopProduct">—</div>
           <div class="insight-note" id="insightTopProductShare"></div>
-          <div class="insight-note text-muted">Tip: click <strong>Intel</strong> in the table for SKU-specific actions.</div>
+          <div class="insight-note insight-support-note" id="insightTopProductContext">Highest revenue SKU in the active filtered window.</div>
         </div>
       </div>
 
@@ -290,7 +335,7 @@
       </div>
       <div class="col-6 col-lg-3 col-xxl-2">
         <div class="metric-card shadow-sm h-100" data-requires-cost="1" data-emphasis="profit">
-          <div class="metric-label">Avg margin %</div>
+          <div class="metric-label">Avg gross margin %</div>
           <div class="metric-value" id="kpiMargin">—</div>
         </div>
       </div>
@@ -347,7 +392,7 @@
       </div>
       <div class="col-6 col-lg-3 col-xxl-2">
         <div class="metric-card shadow-sm h-100" data-requires-cost="1" data-emphasis="profit">
-          <div class="metric-label">Uplift @ 27%</div>
+          <div class="metric-label">Uplift to Target</div>
           <div class="metric-value" id="kpiUpliftPotential">—</div>
         </div>
       </div>
@@ -409,7 +454,7 @@
           </div>
         </div>
       </div>
-      <div class="col-xl-7">
+      <div class="col-xl-6">
         <div class="card shadow-sm h-100">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
             {{ products_ui.section_heading(
@@ -491,7 +536,7 @@
       </div>
     </div>
     <div class="row g-3">
-      <div class="col-xl-8">
+      <div class="col-xl-7">
         <div class="card h-100 shadow-sm">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
@@ -510,18 +555,19 @@
         </div>
       </div>
 
-      <div class="col-xl-4 d-flex flex-column gap-3">
+      <div class="col-xl-6 d-flex flex-column gap-3">
         <div class="card shadow-sm flex-grow-1">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
               <h5 class="card-title mb-0">Price vs velocity</h5>
-              <div class="text-muted small">Bubble size = revenue share.</div>
+              <div class="text-muted small">Bubble size = revenue exposure · color = pricing band built from minimum and target gross-margin rules.</div>
             </div>
             <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">Top SKUs</span>
           </div>
           <div class="card-body">
             <div class="skeleton" data-for="priceVelocityChart"></div>
-            <div id="priceVelocityChart" class="chart-container" style="height:200px;" aria-label="Price vs velocity map"></div>
+            <div id="priceVelocityChart" class="chart-container" style="height:340px;" aria-label="Price vs velocity map"></div>
+            <div id="priceVelocityMeta" class="text-muted small mt-2">Bubble size reflects revenue exposure and color reflects the pricing band. Click a bubble to open SKU intelligence.</div>
           </div>
         </div>
 
@@ -566,6 +612,7 @@
                 </div>
               </div>
             </div>
+            <div id="velocityPulseMeta" class="velocity-pulse-meta text-muted small mt-3">Weekly pulse follows the current filtered window and gross-margin coverage.</div>
           </div>
         </div>
       </div>
@@ -576,9 +623,9 @@
   <section id="products-pricing" class="mb-4" data-workspace-section="pricing">
     <div class="products-layer-intro">
       <div>
-        <div class="products-layer-kicker">Pricing and margin intelligence</div>
-        <h3 class="products-layer-title">Where is margin leaking and what price action is justified?</h3>
-        <p class="products-layer-subtitle mb-0">Combine target uplift, realized price distribution, guardrails, and margin exposure to decide which SKUs should be raised, reviewed, protected, or left alone.</p>
+        <div class="products-layer-kicker">Pricing and gross-margin intelligence</div>
+        <h3 class="products-layer-title">Where is gross margin leaking and what price action is justified?</h3>
+        <p class="products-layer-subtitle mb-0">Combine target uplift, realized price distribution, guardrails, and gross-margin exposure to decide which SKUs should be raised, reviewed, protected, or left alone.</p>
         <div id="pricingLayerContext" class="products-layer-context mt-2">Summarizing below-target exposure and pricing actions...</div>
       </div>
     </div>
@@ -587,9 +634,9 @@
         <div class="card h-100 shadow-sm">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-              <h5 class="card-title mb-0">Performance bubble (target price uplift)</h5>
+              <h5 class="card-title mb-0">Performance bubble (gross-margin price gaps)</h5>
               <div class="text-muted small">
-                Target margin: <strong id="priceTargetMargin">—</strong> &middot; Floor: <strong id="priceBaseMargin">—</strong>
+                Target gross-margin band: <strong id="priceTargetMargin">—</strong> &middot; Minimum gross-margin band: <strong id="priceBaseMargin">—</strong>
               </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -603,18 +650,26 @@
                     <option value="all">All</option>
                   </select>
                 </div>
-                <div class="d-flex align-items-center gap-2">
+              <div class="d-flex align-items-center gap-2">
+                <label class="form-label small mb-0 text-muted" for="bubbleXMetric">X-axis</label>
+                <select id="bubbleXMetric" class="form-select form-select-sm" style="width:auto;">
+                  <option value="gap_to_target" selected>Gap to target</option>
+                  <option value="gap_to_min">Gap to minimum</option>
+                  <option value="margin_pct">Current gross margin %</option>
+                </select>
+              </div>
+              <div class="d-flex align-items-center gap-2">
                 <label class="form-label small mb-0 text-muted" for="bubbleYMetric">Y-axis</label>
                 <select id="bubbleYMetric" class="form-select form-select-sm" style="width:auto;">
                   <option value="velocity" selected>Velocity / month</option>
                   <option value="revenue">Revenue</option>
+                  <option value="profit">Profit</option>
                 </select>
               </div>
               <div class="d-flex align-items-center gap-2">
                   <label class="form-label small mb-0 text-muted" for="bubbleColorBy">Color</label>
                   <select id="bubbleColorBy" class="form-select form-select-sm" style="width:auto;">
-                    <option value="uplift_pct" selected>Uplift %</option>
-                    <option value="margin_pct">Margin %</option>
+                    <option value="status_key" selected>Pricing band</option>
                     <option value="segment">Segment</option>
                   </select>
                 </div>
@@ -624,12 +679,16 @@
                 </div>
                 <button id="bubbleResetZoom" class="btn btn-outline-secondary btn-sm" type="button">Reset zoom</button>
               </div>
-            </div>
+          </div>
           <div class="card-body">
+            <div id="priceBubbleSummary" class="pricing-status-summary-grid mb-3">
+              <div class="text-muted small">Loading pricing status summary…</div>
+            </div>
             <div class="skeleton" data-for="priceBubbleChart"></div>
-            <div id="priceBubbleChart" class="chart-container" style="height:320px;" aria-label="Performance bubble chart"></div>
+            <div id="priceBubbleChart" class="chart-container" style="height:460px;" aria-label="Performance bubble chart"></div>
+            <div id="priceBubbleLegend" class="pricing-status-legend mt-3"></div>
             <div id="priceBubbleMeta" class="text-muted small mt-2">
-              Bubble size = revenue share. Click a bubble to inspect SKU context without losing the current portfolio view.
+              Bubble size reflects revenue exposure and is capped for readability. Click a bubble to open SKU intelligence first.
             </div>
           </div>
         </div>
@@ -713,6 +772,50 @@
         </div>
       </div>
     </div>
+    <div class="row g-3 mt-1">
+      <div class="col-lg-6">
+        <div class="card h-100 shadow-sm">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Elastic guardrails</h5>
+              <div class="text-muted small">Demand-sensitive alerts for SKUs that are still technically inside static price bands.</div>
+            </div>
+            <span id="elasticGuardrailCount" class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25">0 watch</span>
+          </div>
+          <div class="card-body">
+            <div class="row g-2 mb-3">
+              <div class="col-sm-6">
+                <div class="mini-kpi">
+                  <div class="mini-kpi-label">Revenue at watch</div>
+                  <div class="mini-kpi-value" id="elasticGuardrailRevenue">—</div>
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="mini-kpi">
+                  <div class="mini-kpi-label">Highest sensitivity</div>
+                  <div class="mini-kpi-value" id="elasticGuardrailSensitivity">—</div>
+                </div>
+              </div>
+            </div>
+            <div id="elasticGuardrailList" class="small text-muted">Building demand-sensitive guardrails...</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card h-100 shadow-sm">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Alert candidates</h5>
+              <div class="text-muted small">High-priority anomalies summarized as outbound notifications.</div>
+            </div>
+            <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Push-ready</span>
+          </div>
+          <div class="card-body">
+            <div id="pricingAlertCandidateList" class="small text-muted">Composing anomaly alerts...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section id="products-risk-opportunity" class="mb-4" data-workspace-section="execution">
@@ -748,6 +851,87 @@
         </div>
       </div>
     </div>
+    <div class="row g-3 mb-3">
+      <div class="col-xl-7">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h5 class="card-title mb-0">Decision workbench</h5>
+              <div class="text-muted small">Model a pricing move, then approve and stage it without leaving the dashboard.</div>
+            </div>
+            <span id="stagedActionCountBadge" class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">0 staged</span>
+          </div>
+          <div class="card-body">
+            <div id="workbenchEmptyState" class="text-muted small">
+              Select a pricing fix, elastic guardrail alert, recommendation, or SKU to open a scenario model here.
+            </div>
+            <div id="decisionWorkbenchPanel" class="decision-workbench d-none">
+              <div class="decision-workbench-header">
+                <div>
+                  <div id="workbenchProductLabel" class="decision-workbench-title">Selected SKU</div>
+                  <div id="workbenchActionLabel" class="text-muted small mt-1">Scenario context will appear here.</div>
+                </div>
+                <button id="workbenchUseRecommended" type="button" class="btn btn-sm btn-outline-secondary">Use recommended price</button>
+              </div>
+              <div class="row g-3 mt-1">
+                <div class="col-lg-5">
+                  <label class="form-label small text-muted mb-1" for="workbenchScenarioRange">Scenario price change</label>
+                  <input id="workbenchScenarioRange" type="range" class="form-range" min="-12" max="18" step="1" value="0" aria-label="Scenario price change percent">
+                  <div id="workbenchScenarioMeta" class="decision-workbench-meta">Set a price scenario to preview demand, revenue, and gross profit impact.</div>
+                </div>
+                <div class="col-lg-7">
+                  <div class="decision-workbench-grid">
+                    <div class="decision-workbench-stat">
+                      <div class="decision-workbench-stat-label">Current price</div>
+                      <div id="workbenchCurrentPrice" class="decision-workbench-stat-value">—</div>
+                    </div>
+                    <div class="decision-workbench-stat">
+                      <div class="decision-workbench-stat-label">Scenario price</div>
+                      <div id="workbenchScenarioPrice" class="decision-workbench-stat-value">—</div>
+                    </div>
+                    <div class="decision-workbench-stat">
+                      <div class="decision-workbench-stat-label">Projected volume</div>
+                      <div id="workbenchProjectedVolume" class="decision-workbench-stat-value">—</div>
+                    </div>
+                    <div class="decision-workbench-stat">
+                      <div class="decision-workbench-stat-label">Projected revenue</div>
+                      <div id="workbenchProjectedRevenue" class="decision-workbench-stat-value">—</div>
+                    </div>
+                    <div class="decision-workbench-stat">
+                      <div class="decision-workbench-stat-label">Projected gross profit</div>
+                      <div id="workbenchProjectedProfit" class="decision-workbench-stat-value">—</div>
+                    </div>
+                    <div class="decision-workbench-stat">
+                      <div class="decision-workbench-stat-label">Elasticity proxy</div>
+                      <div id="workbenchElasticity" class="decision-workbench-stat-value">—</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="workbenchScenarioNarrative" class="products-layer-context mt-3 mb-0">Scenario explanation will appear here.</div>
+              <div class="d-flex flex-wrap gap-2 mt-3">
+                <button id="workbenchStageAction" type="button" class="btn btn-primary">Approve & stage</button>
+                <button id="workbenchClearAction" type="button" class="btn btn-outline-secondary">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-xl-5">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Staged actions</h5>
+              <div class="text-muted small">Shortlist of approved moves ready for pricing, costing, or commercial follow-through.</div>
+            </div>
+            <button id="stagedActionsClearAll" type="button" class="btn btn-sm btn-outline-secondary">Clear all</button>
+          </div>
+          <div class="card-body">
+            <div id="stagedActionsList" class="small text-muted">No staged actions yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="row g-3">
       <div class="col-xl-4" data-workspace-mode="analyst">
         <div class="card h-100 shadow-sm">
@@ -768,7 +952,7 @@
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
             <div>
               <h5 class="card-title mb-0">Margin risk and uplift</h5>
-              <div class="text-muted small">Focus on high-revenue SKUs below target margin.</div>
+              <div class="text-muted small">Focus on high-revenue SKUs below target gross margin.</div>
             </div>
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('products.export_movers_csv') }}{{ querystring|default('') }}">
               <i class="bi bi-download me-1"></i>Export Priority List
@@ -796,7 +980,7 @@
               </div>
               <div class="col-sm-3">
                 <div class="mini-kpi">
-                  <div class="mini-kpi-label">Profit uplift @ 27%</div>
+                  <div class="mini-kpi-label">Profit uplift to target</div>
                   <div class="mini-kpi-value" id="riskProfitUplift">—</div>
                 </div>
               </div>
@@ -855,13 +1039,13 @@
     <div class="products-layer-intro">
       <div>
         <div class="products-layer-kicker">Segment and assortment diagnostics</div>
-        <h3 class="products-layer-title">Which segments are shifting and which products are driving the mix?</h3>
-        <p class="products-layer-subtitle mb-0">Analyst mode keeps this layer open for deeper portfolio diagnostics. Executive mode leaves the shorter assortment summary below.</p>
+        <h3 class="products-layer-title">Which segments, protein families, and SKUs are driving the mix?</h3>
+        <p class="products-layer-subtitle mb-0">Analyst mode keeps this layer open for deeper portfolio diagnostics, including protein-family concentration and family-level margin pressure.</p>
         <div id="assortmentLayerContext" class="products-layer-context mt-2">Explaining mix shift, dependency, and segment movement under the active filters...</div>
       </div>
     </div>
     <div class="row g-3">
-      <div class="col-xl-4">
+      <div class="col-xl-3">
         <div class="card h-100 shadow-sm">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
             <h5 class="card-title mb-0">Segment summary</h5>
@@ -879,7 +1063,7 @@
         </div>
       </div>
 
-      <div class="col-xl-4">
+      <div class="col-xl-3">
         <div class="card h-100 shadow-sm">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
             <h5 class="card-title mb-0">Segment movers</h5>
@@ -891,7 +1075,7 @@
         </div>
       </div>
 
-      <div class="col-xl-4">
+      <div class="col-xl-3">
         <div class="card h-100 shadow-sm">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
             <h5 class="card-title mb-0">Segment mix shift</h5>
@@ -901,6 +1085,71 @@
           </div>
           <div class="card-body">
             <div id="segmentMixShiftList" class="small text-muted">Loading mix shift…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-xl-3">
+        <div class="card h-100 shadow-sm">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Protein intelligence</h5>
+            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Family</span>
+          </div>
+          <div class="card-body">
+            <div class="d-flex justify-content-between py-1"><span>Lead family</span><strong id="proteinLeadFamily">—</strong></div>
+            <div class="d-flex justify-content-between py-1"><span>Lead share</span><strong id="proteinLeadShare">—</strong></div>
+            <div class="d-flex justify-content-between py-1"><span>Families in scope</span><strong id="proteinFamilyCount">—</strong></div>
+            <hr class="my-3">
+            <div class="small text-uppercase text-muted mb-2">Mix shift</div>
+            <div id="proteinMixShiftList" class="small text-muted mb-3">Loading protein mix…</div>
+            <div class="small text-uppercase text-muted mb-2">Margin watch</div>
+            <div id="proteinMarginWatchList" class="small text-muted">Loading family watchlist…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row g-3 mt-1">
+      <div class="col-xl-4">
+        <div class="card h-100 shadow-sm protein-family-card">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Protein portfolio posture</h5>
+              <div class="text-muted small">Which protein families are anchoring the business and where mix is shifting.</div>
+            </div>
+            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">Portfolio</span>
+          </div>
+          <div class="card-body">
+            <div id="proteinNarrativeHeadline" class="protein-story-headline">Loading protein family posture…</div>
+            <div id="proteinNarrativeDetail" class="protein-story-detail text-muted small mt-2">Family-level mix shift, concentration, and margin context will appear here.</div>
+            <div id="proteinPortfolioList" class="small text-muted mt-3">Loading family leaders…</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-xl-4">
+        <div class="card h-100 shadow-sm protein-family-card">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Pricing opportunities by protein</h5>
+              <div class="text-muted small">Family-level price ladders and below-target gross-margin queues.</div>
+            </div>
+            <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25">Margin</span>
+          </div>
+          <div class="card-body">
+            <div id="proteinPricingOpportunityList" class="small text-muted">Loading family pricing queues…</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-xl-4">
+        <div class="card h-100 shadow-sm protein-family-card">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="card-title mb-0">Execution watch by protein</h5>
+              <div class="text-muted small">Where pricing fixes, cost gaps, and promote candidates concentrate.</div>
+            </div>
+            <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">Execution</span>
+          </div>
+          <div class="card-body">
+            <div id="proteinExecutionWatchList" class="small text-muted">Loading execution queues…</div>
           </div>
         </div>
       </div>
@@ -1022,7 +1271,8 @@
             <div class="row g-2 mb-3 align-items-start table-workspace-secondary">
               <div class="col-lg-8">
                 <div id="tableQuickFilters" class="d-flex flex-wrap gap-2">
-                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="below_target_margin">Below target margin</button>
+                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="below_target_margin">Below target gross margin</button>
+                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="below_minimum_margin">Below minimum gross margin</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="negative_margin">Negative margin</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="high_velocity">High velocity</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="top_revenue_20">Top 20% revenue</button>
@@ -1031,13 +1281,26 @@
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="outside_guardrail">Outside guardrail</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="high_customer_dependency">High customer dependency</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="missing_cost">Missing cost</button>
+                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="elastic_risk">Elastic risk</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="protect_core">Protect core</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="recover_margin">Recover margin</button>
+                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="at_or_above_target">At / above target</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="promote_candidate">Promote</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="rationalize_candidate">Rationalize</button>
                 </div>
                 <div class="small text-muted mt-2">
-                  Column groups: Sales, Prior window deltas, Pricing, Cost / Margin, and Risk / Signals. Quick filters now include role-ready watchlists such as Protect core, Recover margin, Promote, and Rationalize.
+                  Column groups: Sales, Prior window deltas, Pricing, Cost / Gross Margin, and Risk / Signals. Quick filters now include role-ready watchlists such as Protect core, Recover margin, Promote, and Rationalize.
+                </div>
+                <div class="small text-muted mt-2">
+                  Intent presets collapse the table to the columns needed for the decision you are making right now.
+                </div>
+                <div id="tableViewPresets" class="btn-group btn-group-sm mt-2 flex-wrap" role="group" aria-label="Table view presets">
+                  <button type="button" class="btn btn-outline-secondary" data-table-preset="summary">Summary</button>
+                  <button type="button" class="btn btn-outline-secondary" data-table-preset="margin_risk">Margin risk</button>
+                  <button type="button" class="btn btn-outline-secondary" data-table-preset="pricing_ladder">Pricing ladder</button>
+                  <button type="button" class="btn btn-outline-secondary" data-table-preset="demand">Demand drop</button>
+                  <button type="button" class="btn btn-outline-secondary" data-table-preset="execution">Execution</button>
+                  <button type="button" class="btn btn-outline-secondary" data-table-preset="all">All columns</button>
                 </div>
                 <div id="columnGroups" class="btn-group btn-group-sm mt-2" role="group" aria-label="Column groups">
                   <button type="button" class="btn btn-outline-secondary" data-col-group="performance">Performance</button>
@@ -1063,6 +1326,8 @@
                   <tr>
                     <th class="sticky-col sticky-col-1 sortable" data-key="sku" data-column="sku" scope="col">SKU</th>
                     <th class="sticky-col sticky-col-2 sortable" data-key="product_id" data-column="product" scope="col">Product</th>
+                    <th data-column="protein_family" scope="col">Protein / Category</th>
+                    <th data-column="product_category" scope="col">Category</th>
                     <th data-column="segment" scope="col">Segment</th>
                     <th data-column="supplier" scope="col">Supplier</th>
                     <th class="text-end sortable" data-key="customer_count" data-column="customer_count" scope="col">Customer Ct</th>
@@ -1079,10 +1344,12 @@
                     <th class="text-end sortable" data-key="orders" data-column="orders" scope="col">Orders</th>
                     <th class="text-end sortable" data-key="orders_current" data-column="orders_current" scope="col" id="thOrdersCurrent">Orders (Current)</th>
                     <th class="text-end sortable" data-key="orders_prior" data-column="orders_prior" scope="col" id="thOrdersPrior">Orders (Prior)</th>
+                    <th class="text-end sortable" data-key="velocity_per_month" data-column="velocity_per_month" scope="col">Velocity / mo</th>
                     <th class="text-end sortable" data-key="qty" data-column="qty" scope="col" id="thQty">Quantity</th>
                     <th class="text-end sortable" data-key="weight" data-column="weight" scope="col">Weight</th>
                     <th class="text-end sortable" data-key="current_unit_price" data-column="current_unit_price" scope="col">Current Price</th>
-                    <th class="text-end sortable" data-key="target_price" data-column="target_price" scope="col" id="thTarget">Target (27%)</th>
+                    <th class="text-end sortable requires-cost" data-key="minimum_price" data-column="minimum_price" scope="col">Minimum Price</th>
+                    <th class="text-end sortable" data-key="target_price" data-column="target_price" scope="col" id="thTarget">Target Price</th>
                     <th class="text-end sortable" data-key="uplift_pct" data-column="uplift_pct" scope="col">Uplift %</th>
                     <th class="text-end sortable requires-cost" data-key="cost" data-column="cost" scope="col">Cost</th>
                     <th class="text-end sortable requires-cost" data-key="profit" data-column="profit" scope="col">Profit</th>
@@ -1092,13 +1359,19 @@
                     <th class="text-end sortable requires-cost" data-key="profit_share" data-column="profit_share" scope="col">Profit Share</th>
                     <th class="text-end sortable requires-cost" data-key="contribution_margin_lb" data-column="contribution_margin_lb" scope="col">CM / lb</th>
                     <th class="text-end sortable requires-cost" data-key="current_unit_price" data-column="asp_lb" scope="col">ASP / lb</th>
-                    <th class="text-end sortable requires-cost" data-key="unit_cost" data-column="cost_lb" scope="col">Cost / lb</th>
-                    <th class="text-end sortable requires-cost" data-key="margin_pct" data-column="margin_pct" scope="col" id="thMarginPct">Margin %</th>
+                    <th class="text-end requires-cost" data-column="asp_lb_gap_to_min" scope="col">ASP Gap to Min</th>
+                    <th class="text-end requires-cost" data-column="minimum_price_lb" scope="col">Minimum Price / lb</th>
+                    <th class="text-end requires-cost" data-column="target_price_lb" scope="col">Target Price / lb</th>
+                    <th class="text-end requires-cost" data-column="asp_lb_gap_to_target" scope="col">ASP Gap to Target</th>
+                    <th class="text-end sortable requires-cost" data-key="unit_cost" data-column="cost_lb" scope="col">Effective Cost / lb</th>
+                    <th class="text-end sortable requires-cost" data-key="margin_pct" data-column="margin_pct" scope="col" id="thMarginPct">Gross Margin %</th>
+                    <th class="text-end sortable requires-cost" data-key="minimum_margin_pct" data-column="minimum_margin_pct" scope="col">Min Gross Margin %</th>
+                    <th class="text-end sortable requires-cost" data-key="target_margin_pct" data-column="target_margin_pct" scope="col">Target Gross Margin %</th>
                     <th class="text-end sortable requires-cost" data-key="margin_pct_prior" data-column="margin_pct_prior" scope="col">Margin % Prior</th>
                     <th class="text-end sortable requires-cost" data-key="margin_delta_pp" data-column="margin_delta_pp" scope="col">Δ Margin (pp)</th>
                     <th class="text-end sortable" data-key="price_variance_vs_median" data-column="price_variance_vs_median" scope="col">vs Median</th>
                     <th class="text-end sortable" data-key="volatility_score" data-column="volatility_score" scope="col">Volatility</th>
-                    <th data-column="margin_risk" scope="col">Margin Risk</th>
+                    <th data-column="margin_risk" scope="col">Pricing Band</th>
                     <th data-column="recommendation" scope="col">Recommendation</th>
                     <th data-column="first_sold" scope="col">First Sold</th>
                     <th class="sortable" data-key="last_sold" data-column="last_sold" scope="col">Last Sold</th>
@@ -1118,7 +1391,7 @@
                     <th class="text-end sortable" data-key="current_unit_price" scope="col">Current Price</th>
                     <th class="text-end sortable requires-cost" data-key="cost" scope="col">Cost</th>
                     <th class="text-end sortable requires-cost" data-key="profit" scope="col">Profit</th>
-                    <th class="text-end sortable requires-cost" data-key="target_price" scope="col" id="thTarget">Target (27%)</th>
+                    <th class="text-end sortable requires-cost" data-key="target_price" scope="col" id="thTarget">Target Price</th>
                     <th class="text-end sortable requires-cost" data-key="uplift_pct" scope="col">Uplift %</th>
                     <th class="text-end sortable requires-cost" data-key="margin_pct" scope="col" id="thMarginPct">Margin %</th>
                     <th class="text-end sortable requires-cost" data-key="margin" scope="col" id="thMargin">Margin $</th>
@@ -1131,7 +1404,7 @@
                 </thead>
                 {% endif %}
                   <tbody id="productTbody">
-                    <tr><td colspan="{% if product_intelligence_v2 %}45{% else %}18{% endif %}" class="text-center text-muted">Loading…</td></tr>
+                    <tr><td colspan="{% if product_intelligence_v2 %}57{% else %}18{% endif %}" class="text-center text-muted">Loading…</td></tr>
                   </tbody>
                 </table>
             </div>
@@ -1148,7 +1421,7 @@
         <h5 class="offcanvas-title mb-0" id="productIntelPanelLabel">Selected product context</h5>
         <div id="productIntelSource" class="text-muted small mt-1">Click a product in a chart, list, or watchlist to inspect it without leaving the page.</div>
       </div>
-      <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+      <button type="button" class="btn-close text-reset" id="productIntelClose" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body d-flex flex-column gap-3">
       <div class="products-layer-context mb-0">
@@ -1158,6 +1431,8 @@
         <div id="productIntelHeadline" class="product-intel-headline">Select a SKU from the portfolio map, movers, pricing actions, Pareto, or recommendations.</div>
         <div id="productIntelSubhead" class="text-muted small mt-1">The panel will explain why the SKU matters, what changed, and what to do next.</div>
       </div>
+      <div id="productIntelStatusRow" class="product-intel-pill-row"></div>
+      <div id="productIntelPricingSummary" class="product-intel-pricing-card text-muted small">Pricing context will appear here for the selected SKU.</div>
       <div id="productIntelStats" class="product-intel-grid">
         <div class="product-intel-stat">
           <div class="product-intel-stat-label">Revenue</div>
@@ -1175,7 +1450,7 @@
       <div class="d-flex flex-wrap gap-2 mt-auto">
         <a id="productIntelOpenDrilldown" class="btn btn-primary disabled" href="#" aria-disabled="true">Open full drilldown</a>
         <button id="productIntelFocusTable" type="button" class="btn btn-outline-secondary" disabled>Focus in table</button>
-        <button id="productIntelApplyAction" type="button" class="btn btn-outline-dark" disabled>Apply suggested action</button>
+        <button id="productIntelApplyAction" type="button" class="btn btn-outline-dark" disabled>Stage suggested action</button>
       </div>
     </div>
   </div>
@@ -1183,7 +1458,7 @@
 </div>
 
 {# Chart.js is loaded globally in base.html; products.js only renders charts. #}
-<script defer src="{{ url_for('static', filename='js/products.js', v=config.get('STATIC_REV', '20260319-products-command-center')) }}"></script>
+<script defer src="{{ url_for('static', filename='js/products.js', v=products_v4_rev) }}"></script>
 
 <style>
   /* Layout + polish */
@@ -1218,8 +1493,8 @@
   .products-subnav { top: 0.75rem; z-index: 1020; }
   .nav-pills-sm .nav-link { padding: .35rem .6rem; font-size: .88rem; }
   .nav-pills .nav-link { border-radius: 999px; }
-  .nav-pills .nav-link:not(.active) { color: #6c757d; background: rgba(108,117,125,.08); }
-  .nav-pills .nav-link:not(.active):hover { background: rgba(108,117,125,.14); }
+  .nav-pills .nav-link:not(.active) { color: var(--color-tab-text); background: rgba(255,255,255,.76); }
+  .nav-pills .nav-link:not(.active):hover { color: var(--color-tab-text-active); background: rgba(233,241,255,.9); }
 
   /* Cards */
   @media (prefers-reduced-motion: no-preference) {
@@ -1234,10 +1509,10 @@
     padding: 1rem 1.1rem;
     border: 1px solid rgba(0,0,0,0.05);
   }
-  .insight-label { color: #6c757d; letter-spacing: .06em; margin-bottom: .35rem; }
+  .insight-label { color: var(--color-card-meta); letter-spacing: .06em; margin-bottom: .35rem; }
   .insight-value { font-size: 1.35rem; font-weight: 700; color: #1f2933; }
   .insight-detail { font-weight: 600; min-height: 1.25rem; }
-  .insight-note { font-size: .82rem; color: #6c757d; margin-top: .25rem; }
+  .insight-note { font-size: .82rem; color: var(--color-card-meta); margin-top: .25rem; }
 
   .metric-card {
     background: linear-gradient(180deg, rgba(122,65,58,0.07), rgba(122,65,58,0));
@@ -1246,7 +1521,7 @@
     border: 1px solid rgba(0,0,0,0.04);
     text-align: center;
   }
-  .metric-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: #6c757d; }
+  .metric-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--color-card-meta); }
   .metric-value { font-size: 1.75rem; font-weight: 800; color: #1f2933; }
 
   .mini-kpi {
@@ -1255,9 +1530,9 @@
     border-radius: .85rem;
     padding: .75rem .85rem;
   }
-  .mini-kpi-label { font-size: .78rem; color: #6c757d; text-transform: uppercase; letter-spacing: .06em; }
+  .mini-kpi-label { font-size: .78rem; color: var(--color-card-meta); text-transform: uppercase; letter-spacing: .06em; }
   .mini-kpi-value { font-size: 1.1rem; font-weight: 800; color: #1f2933; }
-  .mini-kpi-note { font-size: .78rem; color: #6c757d; margin-top: .15rem; }
+  .mini-kpi-note { font-size: .78rem; color: var(--color-card-meta); margin-top: .15rem; }
 
   .predictive-card { border-left: 4px solid rgba(13,110,253,.35); }
   .momentum-card { border-left: 4px solid rgba(255,193,7,.45); }
@@ -1315,7 +1590,7 @@
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 600;
-    color: #364152;
+    color: var(--color-text-secondary);
   }
   .products-v2 .products-column-chooser-grid {
     display: grid;
@@ -1327,7 +1602,7 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.84rem;
-    color: #4b5563;
+    color: var(--color-text-secondary);
   }
   .products-v2 .products-table-v2 {
     min-width: 1450px;
@@ -1367,6 +1642,23 @@
   .products-v2 .product-name-cell {
     display: inline-block;
     max-width: 16rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .products-v2 .product-table-subcell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .products-v2 .product-table-subcell-main {
+    font-weight: 600;
+    color: #111827;
+  }
+  .products-v2 .product-table-subcell-meta {
+    font-size: 0.76rem;
+    color: var(--color-card-meta);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1421,7 +1713,7 @@
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #6b7280;
+    color: var(--color-card-meta);
   }
   .products-v2 .health-value {
     font-size: 1.7rem;
@@ -1431,7 +1723,7 @@
   }
   .products-v2 .health-meta {
     font-size: 0.82rem;
-    color: #5b6472;
+    color: var(--color-card-meta);
   }
   .products-v2 .health-card details {
     margin-top: 0.85rem;
@@ -1456,7 +1748,7 @@
     padding-bottom: 0.35rem;
   }
   .products-v2 .info-dot {
-    color: #6c757d;
+    color: var(--color-card-meta);
     text-decoration: none;
   }
   .products-v3 .products-hero {
@@ -1532,5 +1824,3 @@
 </style>
 
 {% endblock %}
-
-

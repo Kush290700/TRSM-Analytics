@@ -12,6 +12,21 @@ import numpy as np
 import pandas as pd
 
 
+FISCAL_YEAR_START_MONTH = 10
+FISCAL_YEAR_START_DAY = 1
+DEFAULT_DATE_PRESET = "current_fy"
+FISCAL_DATE_TYPE = "fiscal"
+_FISCAL_PRESET_TOKENS = {
+    "current_fy",
+    "previous_fy",
+    "current_fq",
+    "previous_fq",
+    "current_fm",
+    "previous_fm",
+    "fytd_comparison",
+}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Model
 # ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +39,7 @@ class FilterParams:
     - Empty tuples mean "All" (no filtering applied).
     - start/end are tz-naive pandas Timestamps (backend always coerces).
     - complete_months_only is a hint; most endpoints ignore it unless needed.
-    - preset captures the chosen date_preset (e.g., "last_3_months").
+    - preset captures the chosen date_preset (e.g., "current_fy").
     """
     start: pd.Timestamp | None = None
     end: pd.Timestamp | None = None
@@ -36,6 +51,7 @@ class FilterParams:
     products: tuple[str, ...] = ()
     sales_reps: tuple[str, ...] = ()
     preset: str | None = None
+    date_type: str | None = None
     protein_min: float | None = None
     protein_max: float | None = None
     protein_name_like: str | None = None
@@ -53,6 +69,7 @@ class FilterParams:
             self.products,
             self.sales_reps,
             self.preset,
+            self.date_type,
             self.protein_min,
             self.protein_max,
             self.protein_name_like,
@@ -71,6 +88,7 @@ _EMPTY_FILTERS = FilterParams(
     products=tuple(),
     sales_reps=tuple(),
     preset=None,
+    date_type=None,
     protein_min=None,
     protein_max=None,
     protein_name_like=None,
@@ -182,6 +200,7 @@ _FILTER_PARAM_NAMES = {
     "start", "start_date", "startdate", "date_start",
     "end", "end_date", "enddate", "date_end",
     "preset", "date_preset", "range_preset",
+    "date_type", "datetype",
     "status", "statuses", "order_status", "order_statuses",
     "region", "regions", "region_id", "region_ids", "regionid",
     "shipping_method", "shipping_methods", "shippingmethod", "shippingmethods", "methods",
@@ -450,7 +469,163 @@ def _parse_float(source: Any, keys: Iterable[str]) -> float | None:
         return None
 
 
-def _preset_to_range(preset: str | None, now: pd.Timestamp | None = None) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+def _is_fiscal_preset(preset: Any) -> bool:
+    token = str(preset or "").strip().lower()
+    return token in _FISCAL_PRESET_TOKENS
+
+
+def _normalize_date_type(value: Any, *, preset: Any = None) -> str | None:
+    token = str(value or "").strip().lower()
+    if token in {"fiscal", "fy"}:
+        return FISCAL_DATE_TYPE
+    if token in {"calendar", "standard"}:
+        return "calendar"
+    if _is_fiscal_preset(preset):
+        return FISCAL_DATE_TYPE
+    return None
+
+
+def _fiscal_year_start(now: pd.Timestamp) -> pd.Timestamp:
+    year = now.year
+    if (now.month, now.day) < (FISCAL_YEAR_START_MONTH, FISCAL_YEAR_START_DAY):
+        year -= 1
+    return pd.Timestamp(year=year, month=FISCAL_YEAR_START_MONTH, day=FISCAL_YEAR_START_DAY)
+
+
+def _fiscal_quarter_start(now: pd.Timestamp) -> pd.Timestamp:
+    fy_start = _fiscal_year_start(now)
+    months_since_start = ((now.year - fy_start.year) * 12) + (now.month - fy_start.month)
+    quarter_offset = max(0, months_since_start // 3) * 3
+    return (fy_start + pd.DateOffset(months=quarter_offset)).normalize()
+
+
+def _fiscal_month_start(now: pd.Timestamp) -> pd.Timestamp:
+    fy_start = _fiscal_year_start(now)
+    months_since_start = ((now.year - fy_start.year) * 12) + (now.month - fy_start.month)
+    return (fy_start + pd.DateOffset(months=months_since_start)).normalize()
+
+
+def _clamp_elapsed_period_end(
+    period_start: pd.Timestamp,
+    period_full_end: pd.Timestamp,
+    elapsed_days: int,
+) -> pd.Timestamp:
+    return min(period_full_end, (period_start + pd.Timedelta(days=max(0, elapsed_days))).normalize())
+
+
+def get_fiscal_periods(now: pd.Timestamp | None = None) -> dict[str, dict[str, pd.Timestamp]]:
+    if now is None:
+        try:
+            now = pd.Timestamp.utcnow()
+        except Exception:
+            now = pd.Timestamp.today()
+    today = _coerce_tznaive(now).normalize()
+    current_fy_start = _fiscal_year_start(today)
+    previous_fy_start = (current_fy_start - pd.DateOffset(years=1)).normalize()
+    previous_fy_end = (current_fy_start - pd.Timedelta(days=1)).normalize()
+    prior_fy_start = (previous_fy_start - pd.DateOffset(years=1)).normalize()
+    prior_fy_end = (previous_fy_start - pd.Timedelta(days=1)).normalize()
+
+    current_fq_start = _fiscal_quarter_start(today)
+    previous_fq_start = (current_fq_start - pd.DateOffset(months=3)).normalize()
+    previous_fq_full_end = (current_fq_start - pd.Timedelta(days=1)).normalize()
+    prior_fq_start = (previous_fq_start - pd.DateOffset(months=3)).normalize()
+    prior_fq_end = (previous_fq_start - pd.Timedelta(days=1)).normalize()
+
+    current_fm_start = _fiscal_month_start(today)
+    previous_fm_start = (current_fm_start - pd.DateOffset(months=1)).normalize()
+    previous_fm_full_end = (current_fm_start - pd.Timedelta(days=1)).normalize()
+    prior_fm_start = (previous_fm_start - pd.DateOffset(months=1)).normalize()
+    prior_fm_end = (previous_fm_start - pd.Timedelta(days=1)).normalize()
+
+    fy_elapsed_days = max(0, (today - current_fy_start).days)
+    current_fq_elapsed_days = max(0, (today - current_fq_start).days)
+    current_fm_elapsed_days = max(0, (today - current_fm_start).days)
+    previous_fy_ytd_end = _clamp_elapsed_period_end(previous_fy_start, previous_fy_end, fy_elapsed_days)
+    previous_fq_qtd_end = _clamp_elapsed_period_end(previous_fq_start, previous_fq_full_end, current_fq_elapsed_days)
+    previous_fm_mtd_end = _clamp_elapsed_period_end(previous_fm_start, previous_fm_full_end, current_fm_elapsed_days)
+
+    return {
+        "current_fy": {
+            "start": current_fy_start,
+            "end": today,
+            "comparison_start": previous_fy_start,
+            "comparison_end": previous_fy_ytd_end,
+            "yoy_start": previous_fy_start,
+            "yoy_end": previous_fy_end, # Full Fiscal Year
+        },
+        "previous_fy": {
+            "start": previous_fy_start,
+            "end": previous_fy_end,
+            "comparison_start": prior_fy_start,
+            "comparison_end": prior_fy_end,
+            "yoy_start": prior_fy_start,
+            "yoy_end": prior_fy_end,
+        },
+        "current_fq": {
+            "start": current_fq_start,
+            "end": today,
+            "comparison_start": previous_fq_start,
+            "comparison_end": previous_fq_qtd_end,
+            "yoy_start": (current_fq_start - pd.DateOffset(years=1)).normalize(),
+            "yoy_end": (previous_fq_full_end - pd.DateOffset(years=1) + pd.DateOffset(months=3)).normalize(), # Full Fiscal Quarter
+        },
+        "previous_fq": {
+            "start": previous_fq_start,
+            "end": previous_fq_full_end,
+            "comparison_start": prior_fq_start,
+            "comparison_end": prior_fq_end,
+            "yoy_start": (previous_fq_start - pd.DateOffset(years=1)).normalize(),
+            "yoy_end": (previous_fq_full_end - pd.DateOffset(years=1)).normalize(),
+        },
+        "current_fm": {
+            "start": current_fm_start,
+            "end": today,
+            "comparison_start": previous_fm_start,
+            "comparison_end": previous_fm_mtd_end,
+            "yoy_start": (current_fm_start - pd.DateOffset(years=1)).normalize(),
+            "yoy_end": (previous_fm_full_end - pd.DateOffset(years=1) + pd.DateOffset(months=1)).normalize(), # Full Fiscal Month
+        },
+        "previous_fm": {
+            "start": previous_fm_start,
+            "end": previous_fm_full_end,
+            "comparison_start": prior_fm_start,
+            "comparison_end": prior_fm_end,
+            "yoy_start": (previous_fm_start - pd.DateOffset(years=1)).normalize(),
+            "yoy_end": (previous_fm_full_end - pd.DateOffset(years=1)).normalize(),
+        },
+        "fytd_comparison": {
+            "start": current_fy_start,
+            "end": today,
+            "comparison_start": previous_fy_start,
+            "comparison_end": previous_fy_ytd_end,
+            "yoy_start": previous_fy_start,
+            "yoy_end": previous_fy_end,
+        },
+    }
+
+
+def fiscal_month_index(value: Any) -> int | None:
+    ts = _parse_date(value)
+    if ts is None:
+        return None
+    fy_start = _fiscal_year_start(ts.normalize())
+    return ((ts.year - fy_start.year) * 12) + (ts.month - fy_start.month) + 1
+
+
+def fiscal_month_label(value: Any) -> str | None:
+    idx = fiscal_month_index(value)
+    if idx is None:
+        return None
+    return f"FM{idx}"
+
+
+def _preset_to_range(
+    preset: str | None,
+    now: pd.Timestamp | None = None,
+    *,
+    date_type: str | None = None,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     """Return (start, end) for a given date preset token."""
     if not preset:
         return None, None
@@ -466,6 +641,20 @@ def _preset_to_range(preset: str | None, now: pd.Timestamp | None = None) -> tup
 
     start: pd.Timestamp | None = None
     end: pd.Timestamp | None = None
+    normalized_date_type = _normalize_date_type(date_type, preset=token)
+    if _is_fiscal_preset(token) or normalized_date_type == FISCAL_DATE_TYPE:
+        fiscal_periods = get_fiscal_periods(now)
+        fiscal_period = fiscal_periods.get(token)
+        if fiscal_period:
+            start = fiscal_period.get("start")
+            end = fiscal_period.get("end")
+            if start is not None and end is not None:
+                try:
+                    if start < _MIN_DEFAULT_START:
+                        start = _MIN_DEFAULT_START
+                except Exception:
+                    pass
+            return start, end
 
     if token in {"today"}:
         start = now
@@ -505,6 +694,12 @@ def _preset_to_range(preset: str | None, now: pd.Timestamp | None = None) -> tup
         end = (start + pd.DateOffset(months=3) - pd.Timedelta(days=1)).normalize()
     elif token in {"custom"}:
         return None, None
+    elif token == "fy2025":
+        start = pd.Timestamp(year=2024, month=4, day=1)
+        end = pd.Timestamp(year=2025, month=3, day=31)
+    elif token == "fy2024":
+        start = pd.Timestamp(year=2023, month=4, day=1)
+        end = pd.Timestamp(year=2024, month=3, day=31)
     elif token in {"all", "all_time", "__all__", "*"}:
         start, end = None, None
     else:
@@ -543,6 +738,7 @@ def parse_filters(args: Any) -> FilterParams:
     end = _parse_date(_first_value(args, ("end", "end_date", "endDate", "date_end")))
     preset_token = _first_value(args, ("date_preset", "preset", "range_preset"))
     preset = str(preset_token).strip().lower() if preset_token not in (None, "") else None
+    date_type = _normalize_date_type(_first_value(args, ("date_type", "dateType")), preset=preset)
 
     # Collect and normalize all filter values
     # Empty tuples = "All", populated tuples = specific filters
@@ -576,8 +772,9 @@ def parse_filters(args: Any) -> FilterParams:
         if preset in {"all", "__all__", "*"}:
             start, end = None, None
         else:
-            effective_preset = preset or "last_3_months"
-            start, end = _preset_to_range(effective_preset)
+            effective_preset = preset or DEFAULT_DATE_PRESET
+            date_type = _normalize_date_type(date_type, preset=effective_preset)
+            start, end = _preset_to_range(effective_preset, date_type=date_type)
             if start is None and end is None:
                 start, end = _default_filter_window()
             preset = effective_preset
@@ -588,6 +785,7 @@ def parse_filters(args: Any) -> FilterParams:
     else:
         # start/end provided -> preset is informational only
         preset = preset or None
+    date_type = _normalize_date_type(date_type, preset=preset)
 
     if start is not None and end is not None and start > end:
         start, end = end, start
@@ -607,6 +805,7 @@ def parse_filters(args: Any) -> FilterParams:
         sales_reps=sales_reps,
         statuses=statuses,
         preset=preset,
+        date_type=date_type,
         protein_min=protein_min,
         protein_max=protein_max,
         protein_name_like=protein_name_like,
@@ -618,7 +817,7 @@ def normalize_filters(filters: Any) -> FilterParams:
     """
     Coerce a mapping/FilterParams into a fully normalized FilterParams:
     - blank strings -> None
-    - default preset -> last_3_months when no dates provided
+    - default preset -> current_fy when no dates provided
     - enforces start <= end and minimum default start date
     """
     if isinstance(filters, FilterParams):
@@ -628,24 +827,10 @@ def normalize_filters(filters: Any) -> FilterParams:
 
     preset = getattr(candidate, "preset", None)
     preset = str(preset).strip().lower() if preset not in (None, "") else None
+    date_type = _normalize_date_type(getattr(candidate, "date_type", None), preset=preset)
 
     start = _parse_date(getattr(candidate, "start", None))
     end = _parse_date(getattr(candidate, "end", None))
-
-    # Admins should default to all-time unless explicitly narrowed
-    try:
-        from flask_login import current_user  # type: ignore
-
-        if (
-            start is None
-            and end is None
-            and preset is None
-            and getattr(current_user, "is_authenticated", False)
-            and str(getattr(current_user, "role", "")).lower() == "admin"
-        ):
-            preset = "all"
-    except Exception:
-        pass
 
     statuses = _stable_unique_tokens(_strip_all(tuple(getattr(candidate, "statuses", ()) or ())), lower=True)
     regions = _stable_unique_tokens(_strip_all(tuple(getattr(candidate, "regions", ()) or ())))
@@ -674,13 +859,15 @@ def normalize_filters(filters: Any) -> FilterParams:
         if preset in {"all", "__all__", "*"}:
             start, end = None, None
         else:
-            preset = preset or "last_3_months"
-            start, end = _preset_to_range(preset)
+            preset = preset or DEFAULT_DATE_PRESET
+            date_type = _normalize_date_type(date_type, preset=preset)
+            start, end = _preset_to_range(preset, date_type=date_type)
             if start is None and end is None:
                 start, end = _default_filter_window()
             applied_default = True
     elif preset in {"all", "__all__", "*"}:
         start, end = None, None
+    date_type = _normalize_date_type(date_type, preset=preset)
     if start is not None and end is not None and start > end:
         start, end = end, start
     if applied_default and start is not None and start < _MIN_DEFAULT_START:
@@ -697,6 +884,7 @@ def normalize_filters(filters: Any) -> FilterParams:
         sales_reps=sales_reps,
         statuses=statuses,
         preset=preset,
+        date_type=date_type,
         protein_min=protein_min,
         protein_max=protein_max,
         protein_name_like=protein_name_like,
@@ -735,6 +923,7 @@ def filters_to_store(filters: FilterParams) -> dict[str, Any]:
         "start_date": _ts_to_string(filters.start),
         "end_date": _ts_to_string(filters.end),
         "date_preset": getattr(filters, "preset", None),
+        "date_type": getattr(filters, "date_type", None),
         "statuses": _list(getattr(filters, "statuses", tuple())),
         "regions": _list(filters.regions),
         "shipping_methods": _list(filters.methods),
@@ -844,7 +1033,7 @@ def _scope_allowlists(scope_payload: Mapping[str, Any] | None, *, use_cache: boo
         from app.services import filters_service as _filters_service  # type: ignore
 
         try:
-            options_payload = _filters_service.get_filter_options({"preset": "all"}, scope_dict, use_cache=use_cache)
+            options_payload = _filters_service.load_filter_options({"preset": "all"}, scope_dict, use_cache=use_cache)
             raw_options = options_payload.get("options") if isinstance(options_payload, Mapping) else {}
             if isinstance(raw_options, Mapping):
                 for key, aliases in _OPTION_BUCKET_ALIASES.items():
@@ -937,6 +1126,7 @@ def sanitize_filters(
         products=_sanitize_values("products", getattr(params, "products", ())),
         sales_reps=_sanitize_values("sales_reps", getattr(params, "sales_reps", ())),
         preset=params.preset,
+        date_type=getattr(params, "date_type", None),
         protein_min=params.protein_min,
         protein_max=params.protein_max,
         protein_name_like=params.protein_name_like,
@@ -1105,6 +1295,15 @@ _PRESET_LABELS = {
     "90d": "Last 90 Days",
     "last_90_days": "Last 90 Days",
     "last_3_months": "Last 90 Days",
+    "current_fy": "Current FY",
+    "previous_fy": "Previous FY",
+    "current_fq": "Current FQ",
+    "previous_fq": "Previous FQ",
+    "current_fm": "Current FM",
+    "previous_fm": "Previous FM",
+    "fytd_comparison": "FYTD Comparison",
+    "fy2025": "FY 2025 (Apr-Mar)",
+    "fy2024": "FY 2024 (Apr-Mar)",
     "mtd": "Month to Date",
     "month_to_date": "Month to Date",
     "qtd": "Quarter to Date",
@@ -1127,9 +1326,9 @@ _SUMMARY_DIMENSIONS: tuple[tuple[str, str, str], ...] = (
     ("regions", "Region", "regions"),
     ("methods", "Shipping Method", "shipping_methods"),
     ("customers", "Customer", "customers"),
+    ("sales_reps", "Sales Rep", "sales_reps"),
     ("suppliers", "Supplier", "suppliers"),
     ("products", "Product", "products"),
-    ("sales_reps", "Sales Rep", "sales_reps"),
 )
 
 
@@ -1332,6 +1531,77 @@ def bind_filter_cache_key(cache_key: str | None) -> None:
         pass
 
 
+def _request_cache_bucket(name: str) -> dict[str, Any] | None:
+    try:
+        from flask import g, has_request_context
+
+        if not has_request_context():
+            return None
+        bucket = getattr(g, name, None)
+        if isinstance(bucket, dict):
+            return bucket
+        bucket = {}
+        setattr(g, name, bucket)
+        return bucket
+    except Exception:
+        return None
+
+
+def _cacheable_payload(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "lists"):
+        try:
+            return {
+                str(key): [_cacheable_payload(item) for item in items]
+                for key, items in sorted(value.lists(), key=lambda item: str(item[0]))
+            }
+        except Exception:
+            pass
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        for key in sorted(value.keys(), key=str):
+            try:
+                item = value.getlist(key) if hasattr(value, "getlist") else value[key]
+            except Exception:
+                item = value.get(key)
+            normalized[str(key)] = _cacheable_payload(item)
+        return normalized
+    if isinstance(value, (list, tuple, set)):
+        return [_cacheable_payload(item) for item in value]
+    return str(value)
+
+
+def _resolve_filters_request_cache_key(
+    source_payload: Any,
+    *,
+    session_obj: Mapping[str, Any] | None,
+    user_id: Any,
+    sticky_enabled: bool,
+    update_session: bool,
+    request_obj: Any,
+) -> str | None:
+    try:
+        session_filters = None
+        if isinstance(session_obj, Mapping):
+            session_filters = session_obj.get(STICKY_FILTERS_SESSION_KEY) or {}
+        key_payload = {
+            "source": _cacheable_payload(source_payload),
+            "session_filters": _cacheable_payload(session_filters),
+            "user_id": str(user_id) if user_id is not None else None,
+            "sticky_enabled": bool(sticky_enabled),
+            "update_session": bool(update_session),
+            "endpoint": getattr(request_obj, "endpoint", None),
+            "path": getattr(request_obj, "path", None),
+            "method": getattr(request_obj, "method", None),
+        }
+        return hashlib.sha256(
+            json.dumps(key_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
+    except Exception:
+        return None
+
+
 def _resolve_filters_from_source(
     source: Any,
     *,
@@ -1465,7 +1735,8 @@ def resolve_filters(
     if source_payload is None:
         source_payload = {}
 
-    return _resolve_filters_from_source(
+    request_cache = _request_cache_bucket("_resolved_filters_request_cache")
+    cache_key = _resolve_filters_request_cache_key(
         source_payload,
         session_obj=session_obj,
         user_id=user_id,
@@ -1473,6 +1744,20 @@ def resolve_filters(
         update_session=update_session,
         request_obj=request_obj,
     )
+    if request_cache is not None and cache_key and cache_key in request_cache:
+        return request_cache[cache_key]
+
+    result = _resolve_filters_from_source(
+        source_payload,
+        session_obj=session_obj,
+        user_id=user_id,
+        sticky_enabled=sticky_enabled,
+        update_session=update_session,
+        request_obj=request_obj,
+    )
+    if request_cache is not None and cache_key:
+        request_cache[cache_key] = result
+    return result
 
 
 def resolve_effective_filters(
@@ -1697,18 +1982,31 @@ def apply_filters(df: pd.DataFrame, filters: FilterParams) -> pd.DataFrame:
     # Protein numeric bounds
     protein_min = getattr(filters, "protein_min", None)
     protein_max = getattr(filters, "protein_max", None)
-    if ("Protein" in df.columns) and (protein_min is not None or protein_max is not None):
-        prot = pd.to_numeric(df["Protein"], errors="coerce")
-        if protein_min is not None:
-            mask &= (prot >= float(protein_min)).to_numpy(dtype=bool, na_value=False)
-        if protein_max is not None:
-            mask &= (prot <= float(protein_max)).to_numpy(dtype=bool, na_value=False)
+    protein_numeric_col = next(
+        (
+            col
+            for col in ("Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
+            if col in df.columns
+        ),
+        None,
+    )
+    if protein_numeric_col and (protein_min is not None or protein_max is not None):
+        prot = pd.to_numeric(df[protein_numeric_col], errors="coerce")
+        if prot.notna().any():
+            if protein_min is not None:
+                mask &= (prot >= float(protein_min)).to_numpy(dtype=bool, na_value=False)
+            if protein_max is not None:
+                mask &= (prot <= float(protein_max)).to_numpy(dtype=bool, na_value=False)
 
     # Product name contains
     token = (getattr(filters, "protein_name_like", None) or "").strip()
-    if token and "ProductName" in df.columns:
-        pn = df["ProductName"].astype("string")
-        mask &= pn.str.contains(token, case=False, na=False).to_numpy(dtype=bool, na_value=False)
+    if token:
+        text_mask = np.zeros(n, dtype=bool)
+        for col in ("ProteinType", "ProteinName", "Category", "ProductCategory", "Protein", "ProductName"):
+            if col in df.columns:
+                pn = df[col].astype("string")
+                text_mask |= pn.str.contains(token, case=False, na=False).to_numpy(dtype=bool, na_value=False)
+        mask &= text_mask
 
     # Apply mask
     if mask.all():
@@ -1758,6 +2056,7 @@ def merge_filters(*filters: FilterParams) -> FilterParams:
     products: tuple[str, ...] = tuple()
     sales_reps: tuple[str, ...] = tuple()
     preset: str | None = None
+    date_type: str | None = None
     protein_min: float | None = None
     protein_max: float | None = None
     protein_name_like: str | None = None
@@ -1779,6 +2078,8 @@ def merge_filters(*filters: FilterParams) -> FilterParams:
             sales_reps = tuple(getattr(f, "sales_reps"))
         if getattr(f, "preset", None):
             preset = str(getattr(f, "preset"))
+        if getattr(f, "date_type", None):
+            date_type = str(getattr(f, "date_type"))
         if getattr(f, "protein_min", None) is not None:
             protein_min = float(getattr(f, "protein_min"))
         if getattr(f, "protein_max", None) is not None:
@@ -1794,6 +2095,7 @@ def merge_filters(*filters: FilterParams) -> FilterParams:
         regions=regions, methods=methods, customers=customers,
         suppliers=suppliers, products=products, sales_reps=sales_reps,
         preset=preset,
+        date_type=date_type,
         protein_min=protein_min, protein_max=protein_max, protein_name_like=protein_name_like,
         complete_months_only=complete_months_only,
     )
@@ -1812,6 +2114,7 @@ def cache_key_from_filters(filters: FilterParams, extras: Mapping[str, Any] | No
         "products":  sorted(filters.products),
         "sales_reps": sorted(getattr(filters, "sales_reps", tuple())),
         "preset": getattr(filters, "preset", None),
+        "date_type": getattr(filters, "date_type", None),
         "protein_min": getattr(filters, "protein_min", None),
         "protein_max": getattr(filters, "protein_max", None),
         "protein_name_like": getattr(filters, "protein_name_like", None),

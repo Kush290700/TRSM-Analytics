@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import math
+import os
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Any, Iterable, Mapping, Sequence
@@ -9,6 +13,7 @@ from urllib.parse import urlencode
 import pandas as pd
 from flask import current_app, request, url_for
 
+from app.core.cache_manager import TTLValueCache
 from app.services import labor_store
 
 
@@ -34,6 +39,11 @@ TABLE_SORTS = {
     "work_rule": "work_rule",
 }
 
+_ANALYSIS_CACHE = TTLValueCache(maxsize=int(os.getenv("LABOR_ANALYSIS_CACHE_MAXSIZE", "48")))
+_FOCUS_CACHE = TTLValueCache(maxsize=int(os.getenv("LABOR_FOCUS_CACHE_MAXSIZE", "96")))
+_ANALYSIS_CACHE_TTL_SECONDS = max(30, int(os.getenv("LABOR_ANALYSIS_CACHE_TTL", "180")))
+_FOCUS_CACHE_TTL_SECONDS = max(30, int(os.getenv("LABOR_FOCUS_CACHE_TTL", "180")))
+
 
 @dataclass(frozen=True)
 class LaborFilters:
@@ -49,6 +59,66 @@ class LaborFilters:
     page_size: int = 50
     sort_by: str = "labor_cost"
     sort_dir: str = "desc"
+
+
+def _clone_cache_value(value: Any) -> Any:
+    if isinstance(value, pd.DataFrame):
+        return value.copy(deep=True)
+    if isinstance(value, dict):
+        return {key: _clone_cache_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_clone_cache_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_clone_cache_value(item) for item in value)
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return value
+
+
+def _analysis_filters(filters: LaborFilters) -> LaborFilters:
+    return replace(filters, page=1, page_size=50, sort_by="labor_cost", sort_dir="desc")
+
+
+def _filters_cache_payload(filters: LaborFilters) -> dict[str, Any]:
+    return {
+        "start": filters.start.isoformat(),
+        "end": filters.end.isoformat(),
+        "departments": list(filters.departments),
+        "employees": list(filters.employees),
+        "time_categories": list(filters.time_categories),
+        "statuses": list(filters.statuses),
+        "work_rules": list(filters.work_rules),
+        "search": filters.search or None,
+    }
+
+
+def _labor_cache_key(kind: str, filters: LaborFilters, *, extra: Mapping[str, Any] | None = None) -> str:
+    payload = {
+        "kind": kind,
+        "dataset_version": labor_store.get_dataset_version(),
+        "filters": _filters_cache_payload(_analysis_filters(filters)),
+        "extra": dict(extra or {}),
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _cached_analysis(filters: LaborFilters) -> dict[str, Any]:
+    normalized = _analysis_filters(filters)
+    cache_key = _labor_cache_key("analysis", normalized)
+    payload, _ = _ANALYSIS_CACHE.get_or_compute(cache_key, _ANALYSIS_CACHE_TTL_SECONDS, lambda: _li_build_analysis(normalized))
+    return _clone_cache_value(payload)
+
+
+def _cached_focus(kind: str, filters: LaborFilters, subject: str | None, builder) -> dict[str, Any] | None:
+    token = str(subject or "").strip()
+    if not token:
+        return None
+    normalized = _analysis_filters(filters)
+    cache_key = _labor_cache_key(f"focus:{kind}", normalized, extra={"subject": token})
+    payload, _ = _FOCUS_CACHE.get_or_compute(cache_key, _FOCUS_CACHE_TTL_SECONDS, builder)
+    return _clone_cache_value(payload)
 
 
 def _clean_tokens(values: Iterable[Any]) -> tuple[str, ...]:
@@ -1756,4 +1826,1501 @@ def build_export_frames(filters: LaborFilters, dataset: str) -> tuple[dict[str, 
             ),
         },
         "labor_snapshot",
+    )
+
+
+# === Labor Intelligence Enterprise Overrides ===
+
+_LI_WATCH_THRESHOLD = 40.0
+_LI_RISK_THRESHOLD = 67.0
+
+
+def _li_query_worker_daily(filters: LaborFilters) -> pd.DataFrame:
+    where_sql, params = build_where_clause(filters)
+    sql = f"""
+        SELECT
+            labor_date,
+            COALESCE(employee_code, '') AS employee_code,
+            COALESCE(employee_name, employee_code, 'Unknown Employee') AS employee_name,
+            COALESCE(SUM(labor_cost), 0) AS labor_cost,
+            COALESCE(SUM(paid_hours_allocated), 0) AS paid_hours,
+            COALESCE(SUM(CASE WHEN is_premium THEN labor_cost ELSE 0 END), 0) AS premium_cost,
+            COALESCE(SUM(CASE WHEN is_absence THEN labor_cost ELSE 0 END), 0) AS absence_cost
+        FROM labor_fact lf
+        WHERE {where_sql}
+        GROUP BY 1, 2, 3
+        ORDER BY 2, 1
+    """
+    frame = _query_df(sql, params)
+    if not frame.empty:
+        frame["labor_date"] = pd.to_datetime(frame["labor_date"], errors="coerce").dt.date
+    return frame
+
+
+def _li_safe_float(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        out = float(value)
+        if math.isnan(out) or math.isinf(out):
+            return None
+        return out
+    except Exception:
+        return None
+
+
+def _li_safe_int(value: Any) -> int:
+    try:
+        if value is None or pd.isna(value):
+            return 0
+        return int(value)
+    except Exception:
+        return 0
+
+
+def _li_ratio(numerator: Any, denominator: Any) -> float | None:
+    num = _li_safe_float(numerator)
+    den = _li_safe_float(denominator)
+    if num is None or den in (None, 0.0):
+        return None
+    return num / den
+
+
+def _li_delta_pct(current: Any, prior: Any) -> float | None:
+    cur = _li_safe_float(current)
+    prv = _li_safe_float(prior)
+    if cur is None or prv in (None, 0.0):
+        return None
+    return (cur - prv) / prv
+
+
+def _li_delta_points(current: Any, prior: Any) -> float | None:
+    cur = _li_safe_float(current)
+    prv = _li_safe_float(prior)
+    if cur is None or prv is None:
+        return None
+    return cur - prv
+
+
+def _li_component(value: Any, cap: float) -> float:
+    if cap <= 0:
+        return 0.0
+    safe = max(_li_safe_float(value) or 0.0, 0.0)
+    return min(safe, cap) / cap
+
+
+def _li_clean_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    return frame.replace([math.inf, -math.inf], pd.NA)
+
+
+def _li_format_currency(value: Any, default: str = "n/a") -> str:
+    safe = _li_safe_float(value)
+    if safe is None:
+        return default
+    return f"${safe:,.0f}" if abs(safe) >= 100 else f"${safe:,.2f}"
+
+
+def _li_format_percent(value: Any, default: str = "n/a", *, points: bool = False) -> str:
+    safe = _li_safe_float(value)
+    if safe is None:
+        return default
+    if points:
+        return f"{safe * 100:+.1f} pts"
+    return f"{safe:+.1%}" if safe < 0 else f"{safe:.1%}"
+
+
+def _li_format_number(value: Any, default: str = "n/a", decimals: int = 1) -> str:
+    safe = _li_safe_float(value)
+    if safe is None:
+        return default
+    fmt = f"{{:,.{decimals}f}}"
+    return fmt.format(safe)
+
+
+def _li_window_label(start: date, end: date) -> str:
+    return f"{start.strftime('%b %-d, %Y')} to {end.strftime('%b %-d, %Y')}"
+
+
+def _li_refresh_label(raw: Any) -> str | None:
+    if raw in (None, ""):
+        return None
+    ts = pd.to_datetime(raw, errors='coerce', utc=True)
+    if pd.isna(ts):
+        return str(raw)
+    return ts.strftime('%b %-d, %Y %H:%M UTC')
+
+
+def _li_priority_tone(score: Any) -> str:
+    safe = _li_safe_float(score) or 0.0
+    if safe >= _LI_RISK_THRESHOLD:
+        return 'danger'
+    if safe >= _LI_WATCH_THRESHOLD:
+        return 'warning'
+    return 'success'
+
+
+def _li_priority_posture(score: Any) -> str:
+    safe = _li_safe_float(score) or 0.0
+    if safe >= _LI_RISK_THRESHOLD:
+        return 'Risk'
+    if safe >= _LI_WATCH_THRESHOLD:
+        return 'Watch'
+    return 'Stable'
+
+
+def _li_share_stats(frame: pd.DataFrame, value_col: str, *, top_n: int) -> dict[str, float | None]:
+    if frame.empty or value_col not in frame.columns:
+        return {'top_share_pct': None, 'top_n_share_pct': None, 'hhi': None}
+    series = pd.to_numeric(frame[value_col], errors='coerce').fillna(0.0)
+    total = float(series.sum() or 0.0)
+    if total <= 0:
+        return {'top_share_pct': None, 'top_n_share_pct': None, 'hhi': None}
+    shares = (series / total).sort_values(ascending=False)
+    return {
+        'top_share_pct': float(shares.iloc[0]) if not shares.empty else None,
+        'top_n_share_pct': float(shares.head(top_n).sum()) if not shares.empty else None,
+        'hhi': float((shares ** 2).sum()) if not shares.empty else None,
+    }
+
+
+def _li_augment_trend(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    out = frame.copy()
+    if 'labor_cost' in out.columns and 'paid_hours' in out.columns:
+        out['blended_rate'] = pd.to_numeric(out['labor_cost'], errors='coerce') / pd.to_numeric(out['paid_hours'], errors='coerce')
+        out.loc[pd.to_numeric(out['paid_hours'], errors='coerce').fillna(0).eq(0), 'blended_rate'] = pd.NA
+    if 'premium_cost' in out.columns and 'labor_cost' in out.columns:
+        out['premium_share_pct'] = pd.to_numeric(out['premium_cost'], errors='coerce') / pd.to_numeric(out['labor_cost'], errors='coerce')
+        out.loc[pd.to_numeric(out['labor_cost'], errors='coerce').fillna(0).eq(0), 'premium_share_pct'] = pd.NA
+    if 'absence_cost' in out.columns and 'labor_cost' in out.columns:
+        out['absence_share_pct'] = pd.to_numeric(out['absence_cost'], errors='coerce') / pd.to_numeric(out['labor_cost'], errors='coerce')
+        out.loc[pd.to_numeric(out['labor_cost'], errors='coerce').fillna(0).eq(0), 'absence_share_pct'] = pd.NA
+    return _li_clean_frame(out)
+
+
+def _li_augment_weekday_pattern(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    out = frame.copy()
+    out['avg_blended_rate'] = pd.to_numeric(out['avg_daily_labor_cost'], errors='coerce') / pd.to_numeric(out['avg_daily_paid_hours'], errors='coerce')
+    out.loc[pd.to_numeric(out['avg_daily_paid_hours'], errors='coerce').fillna(0).eq(0), 'avg_blended_rate'] = pd.NA
+    return _li_clean_frame(out)
+
+
+def _li_classify_category(category_name: Any, labor_cost: Any, paid_hours: Any) -> dict[str, Any]:
+    label = str(category_name or 'Unclassified').strip() or 'Unclassified'
+    lowered = label.lower()
+    cost = _li_safe_float(labor_cost) or 0.0
+    hours = _li_safe_float(paid_hours) or 0.0
+    if cost > 0 and hours > 0:
+        kind = 'Cost-bearing'
+        note = 'Carries both paid hours and booked labor cost.'
+    elif cost <= 0 and hours > 0:
+        kind = 'Hours-only'
+        note = 'Operationally relevant hours without booked labor cost.'
+    elif cost > 0 and hours <= 0:
+        kind = 'Cost-only'
+        note = 'Booked labor cost without recorded paid hours.'
+    else:
+        kind = 'No activity'
+        note = 'No booked cost or paid hours in the active scope.'
+    category_class = 'other'
+    if any(token in lowered for token in ('overtime', 'premium', 'ot')):
+        category_class = 'premium'
+    elif any(token in lowered for token in ('absence', 'sick', 'vacation', 'pto', 'leave', 'holiday')):
+        category_class = 'absence'
+    elif any(token in lowered for token in ('work from home', 'wfh', 'remote')):
+        category_class = 'remote'
+    elif any(token in lowered for token in ('regular', 'worked', 'base')):
+        category_class = 'regular'
+    return {
+        'category_class': category_class,
+        'category_kind': kind,
+        'activity_note': note,
+        'share_display_pct': None if (cost <= 0 and hours <= 0) else None,
+        'share_display_label': 'Cost share' if cost > 0 else 'Hours share',
+    }
+
+
+def _li_department_management_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    components = {
+        'cost': 22 * _li_component(row.get('cost_delta_pct'), 0.25),
+        'hours': 12 * _li_component(row.get('hours_delta_pct'), 0.20),
+        'rate': 12 * _li_component(row.get('rate_delta_pct'), 0.15),
+        'premium': 16 * _li_component(row.get('premium_share_pct'), 0.12),
+        'absence': 14 * _li_component(row.get('absence_share_pct'), 0.08),
+        'volatility': 14 * _li_component(row.get('cost_volatility'), 0.30),
+        'concentration': 10 * _li_component(row.get('labor_cost_share_pct'), 0.35),
+    }
+    priority_score = round(sum(components.values()), 1)
+    dominant = max(components, key=components.get) if components else 'cost'
+    focus = 'maintain staffing rhythm'
+    reason = 'No single pressure source dominates under the active filters.'
+    action = 'Open department investigation'
+    if dominant == 'premium' and components[dominant] > 0:
+        focus = 'trace premium exposure'
+        reason = f"Premium share is {_li_format_percent(row.get('premium_share_pct'))} of department cost."
+        action = 'Trace premium exposure'
+    elif dominant == 'absence' and components[dominant] > 0:
+        focus = 'review absence pattern'
+        reason = f"Absence share is {_li_format_percent(row.get('absence_share_pct'))} of department cost."
+        action = 'Inspect absence-heavy categories'
+    elif dominant == 'rate' and components[dominant] > 0:
+        focus = 'review rate pressure'
+        reason = f"Blended rate is {_li_format_percent(row.get('rate_delta_pct'))} versus the prior comparable window."
+        action = 'Compare cost vs blended rate'
+    elif dominant == 'hours' and components[dominant] > 0:
+        focus = 'review staffing volume'
+        reason = f"Paid hours are {_li_format_percent(row.get('hours_delta_pct'))} versus the prior comparable window."
+        action = 'Compare cost vs hours'
+    elif dominant == 'volatility' and components[dominant] > 0:
+        focus = 'stabilize staffing rhythm'
+        reason = f"Daily labor cost volatility is {_li_format_percent(row.get('cost_volatility'))}."
+        action = 'Review staffing stability'
+    elif dominant == 'concentration' and components[dominant] > 0:
+        focus = 'review department dependency'
+        reason = f"Department carries {_li_format_percent(row.get('labor_cost_share_pct'))} of scoped labor cost."
+        action = 'Open department investigation'
+    elif components['cost'] > 0:
+        focus = 'review labor acceleration'
+        reason = f"Labor cost is {_li_format_percent(row.get('cost_delta_pct'))} versus the prior comparable window."
+        action = 'Open department investigation'
+    return {
+        'priority_score': priority_score,
+        'risk_posture': _li_priority_posture(priority_score),
+        'risk_tone': _li_priority_tone(priority_score),
+        'management_focus': focus,
+        'focus_reason': reason,
+        'action_label': action,
+    }
+
+
+def _li_worker_management_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    coverage_pressure = max((_li_safe_float(row.get('department_count')) or 0.0) - 1.0, 0.0)
+    components = {
+        'concentration': 24 * _li_component(row.get('labor_cost_share_pct'), 0.18),
+        'premium': 16 * _li_component(row.get('premium_share_pct'), 0.12),
+        'absence': 16 * _li_component(row.get('absence_share_pct'), 0.08),
+        'growth': 14 * _li_component(row.get('cost_delta_pct'), 0.35),
+        'coverage': 12 * _li_component(coverage_pressure, 3.0),
+        'volatility': 10 * _li_component(row.get('cost_volatility'), 0.40),
+        'recent': 8 * _li_component(row.get('recent_cost_acceleration_pct'), 0.35),
+    }
+    priority_score = round(sum(components.values()), 1)
+    dominant = max(components, key=components.get) if components else 'concentration'
+    focus = 'maintain current assignment'
+    reason = 'No worker-level risk factor dominates under the active filters.'
+    action = 'Open worker spotlight'
+    if dominant == 'premium' and components[dominant] > 0:
+        focus = 'trace premium exposure'
+        reason = f"Premium share is {_li_format_percent(row.get('premium_share_pct'))} of this worker's labor cost."
+        action = 'Trace premium exposure'
+    elif dominant == 'absence' and components[dominant] > 0:
+        focus = 'review absence pattern'
+        reason = f"Absence share is {_li_format_percent(row.get('absence_share_pct'))} of this worker's labor cost."
+        action = 'Review worker watchlist'
+    elif dominant == 'coverage' and components[dominant] > 0:
+        focus = 'review cross-department dependency'
+        reason = f"Worker covers {_li_safe_int(row.get('department_count'))} departments in the active scope."
+        action = 'Review cross-department coverage'
+    elif dominant == 'volatility' and components[dominant] > 0:
+        focus = 'review assignment consistency'
+        reason = f"Daily labor cost volatility is {_li_format_percent(row.get('cost_volatility'))}."
+        action = 'Review worker trend'
+    elif dominant == 'recent' and components[dominant] > 0:
+        focus = 'review recent labor acceleration'
+        reason = f"Recent worker cost run-rate is {_li_format_percent(row.get('recent_cost_acceleration_pct'))} versus the earlier half of the window."
+        action = 'Review worker trend'
+    else:
+        focus = 'review workload concentration'
+        reason = f"Worker carries {_li_format_percent(row.get('labor_cost_share_pct'))} of scoped labor cost."
+        action = 'Open worker spotlight'
+    exposure_profile = 'Diversified'
+    department_count = _li_safe_int(row.get('department_count'))
+    labor_share = _li_safe_float(row.get('labor_cost_share_pct')) or 0.0
+    if labor_share >= 0.15:
+        exposure_profile = 'Highly concentrated'
+    elif department_count >= 3:
+        exposure_profile = 'Cross-department anchor'
+    elif department_count == 2:
+        exposure_profile = 'Cross-department'
+    elif department_count <= 1:
+        exposure_profile = 'Single-department'
+    return {
+        'priority_score': priority_score,
+        'risk_posture': _li_priority_posture(priority_score),
+        'risk_tone': _li_priority_tone(priority_score),
+        'management_focus': focus,
+        'focus_reason': reason,
+        'action_label': action,
+        'exposure_profile': exposure_profile,
+    }
+
+
+def _li_category_management_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    classification = _li_classify_category(row.get('time_category'), row.get('labor_cost'), row.get('paid_hours'))
+    share_pct = row.get('labor_cost_share_pct') if (_li_safe_float(row.get('labor_cost')) or 0.0) > 0 else row.get('paid_hours_share_pct')
+    anomaly = 1.0 if classification['category_kind'] in {'Hours-only', 'Cost-only'} else 0.0
+    class_pressure = 1.0 if classification['category_class'] in {'premium', 'absence'} else 0.35
+    components = {
+        'share': 24 * _li_component(share_pct, 0.25),
+        'growth': 18 * _li_component(row.get('cost_delta_pct'), 0.35),
+        'hours': 10 * _li_component(row.get('hours_delta_pct'), 0.35),
+        'concentration': 18 * _li_component(row.get('leading_department_share_pct'), 0.75),
+        'class': 16 * class_pressure,
+        'anomaly': 14 * anomaly,
+    }
+    priority_score = round(sum(components.values()), 1)
+    dominant = max(components, key=components.get) if components else 'share'
+    focus = 'review category mix'
+    reason = classification['activity_note']
+    action = 'Open category spotlight'
+    if dominant == 'anomaly' and components[dominant] > 0:
+        focus = 'review coding quality'
+        reason = classification['activity_note']
+        action = 'Inspect raw labor rows'
+    elif classification['category_class'] == 'premium':
+        focus = 'trace premium exposure'
+        reason = f"{row.get('time_category')} is a premium category holding {_li_format_percent(share_pct)} of the scoped mix."
+        action = 'Trace premium exposure'
+    elif classification['category_class'] == 'absence':
+        focus = 'review absence pattern'
+        reason = f"{row.get('time_category')} is an absence category holding {_li_format_percent(share_pct)} of the scoped mix."
+        action = 'Inspect absence-heavy categories'
+    elif dominant == 'concentration' and components[dominant] > 0:
+        focus = 'review department dependency'
+        reason = f"{row.get('leading_department') or 'One department'} owns {_li_format_percent(row.get('leading_department_share_pct'))} of this category."
+        action = 'Open category spotlight'
+    elif dominant == 'growth' and components[dominant] > 0:
+        focus = 'review category growth'
+        reason = f"Category labor cost is {_li_format_percent(row.get('cost_delta_pct'))} versus the prior comparable window."
+        action = 'Open category spotlight'
+    return {
+        'priority_score': priority_score,
+        'risk_posture': _li_priority_posture(priority_score),
+        'risk_tone': _li_priority_tone(priority_score),
+        'management_focus': focus,
+        'focus_reason': reason,
+        'action_label': action,
+        'category_class': classification['category_class'],
+        'category_kind': classification['category_kind'],
+        'activity_note': classification['activity_note'],
+        'share_display_pct': share_pct,
+        'share_display_label': classification['share_display_label'],
+    }
+
+
+def _li_enrich_department_summary(current_departments: pd.DataFrame, prior_departments: pd.DataFrame, department_daily: pd.DataFrame) -> pd.DataFrame:
+    frame = _li_clean_frame(_enrich_department_summary(current_departments, prior_departments, department_daily))
+    if frame.empty:
+        return frame
+    if not department_daily.empty:
+        daily = department_daily.copy()
+        daily['blended_rate'] = pd.to_numeric(daily['labor_cost'], errors='coerce') / pd.to_numeric(daily['paid_hours'], errors='coerce')
+        daily.loc[pd.to_numeric(daily['paid_hours'], errors='coerce').fillna(0).eq(0), 'blended_rate'] = pd.NA
+        agg = (
+            daily.groupby('department_name', dropna=False)
+            .agg(
+                observation_days=('labor_date', 'nunique'),
+                daily_rate_mean=('blended_rate', 'mean'),
+                daily_rate_std=('blended_rate', 'std'),
+            )
+            .reset_index()
+        )
+        agg['rate_volatility'] = agg['daily_rate_std'] / agg['daily_rate_mean']
+        agg.loc[agg['observation_days'].fillna(0).lt(3), 'rate_volatility'] = pd.NA
+        frame = frame.merge(agg[['department_name', 'observation_days', 'rate_volatility']], on='department_name', how='left')
+    else:
+        frame['observation_days'] = pd.NA
+        frame['rate_volatility'] = pd.NA
+    records: list[dict[str, Any]] = []
+    for row in frame.to_dict(orient='records'):
+        enriched = dict(row)
+        enriched.update(_li_department_management_fields(row))
+        records.append(enriched)
+    return _li_clean_frame(pd.DataFrame(records))
+
+
+def _li_enrich_category_summary(current_categories: pd.DataFrame, prior_categories: pd.DataFrame, department_category_mix: pd.DataFrame) -> pd.DataFrame:
+    frame = _li_clean_frame(_enrich_category_summary(current_categories, prior_categories, department_category_mix))
+    if frame.empty:
+        return frame
+    records: list[dict[str, Any]] = []
+    for row in frame.to_dict(orient='records'):
+        enriched = dict(row)
+        enriched.update(_li_category_management_fields(row))
+        records.append(enriched)
+    return _li_clean_frame(pd.DataFrame(records))
+
+
+def _li_enrich_worker_summary(current_workers: pd.DataFrame, prior_workers: pd.DataFrame, worker_daily: pd.DataFrame) -> pd.DataFrame:
+    frame = _li_clean_frame(_enrich_worker_summary(current_workers, prior_workers))
+    if frame.empty:
+        return frame
+    if not worker_daily.empty:
+        daily = worker_daily.copy()
+        grouped = (
+            daily.groupby('employee_code', dropna=False)
+            .agg(
+                observation_days=('labor_date', 'nunique'),
+                daily_cost_mean=('labor_cost', 'mean'),
+                daily_cost_std=('labor_cost', 'std'),
+            )
+            .reset_index()
+        )
+        grouped['cost_volatility'] = grouped['daily_cost_std'] / grouped['daily_cost_mean']
+        grouped.loc[grouped['observation_days'].fillna(0).lt(3), 'cost_volatility'] = pd.NA
+        accel_rows: list[dict[str, Any]] = []
+        for employee_code, part in daily.groupby('employee_code', dropna=False):
+            ordered = part.sort_values('labor_date')
+            accel_rows.append(
+                {
+                    'employee_code': employee_code,
+                    'recent_cost_acceleration_pct': _recent_change(pd.to_numeric(ordered['labor_cost'], errors='coerce')),
+                }
+            )
+        accel = pd.DataFrame(accel_rows)
+        frame = frame.merge(grouped[['employee_code', 'observation_days', 'cost_volatility']], on='employee_code', how='left')
+        frame = frame.merge(accel, on='employee_code', how='left')
+    else:
+        frame['observation_days'] = pd.NA
+        frame['cost_volatility'] = pd.NA
+        frame['recent_cost_acceleration_pct'] = pd.NA
+    records: list[dict[str, Any]] = []
+    for row in frame.to_dict(orient='records'):
+        enriched = dict(row)
+        enriched.update(_li_worker_management_fields(row))
+        records.append(enriched)
+    return _li_clean_frame(pd.DataFrame(records))
+
+
+def _li_scope_url(filters: LaborFilters, *, department: Any = None, employee: Any = None, time_category: Any = None, start: Any = None, end: Any = None) -> str:
+    updates: dict[str, Any] = {}
+    if department is not None:
+        updates['department'] = department
+    if employee is not None:
+        updates['employee'] = employee
+    if time_category is not None:
+        updates['time_category'] = time_category
+    if start is not None:
+        updates['start'] = start
+    if end is not None:
+        updates['end'] = end
+    return build_url(filters, updates=updates, include_pagination=False)
+
+
+def _li_scope_filters_summary(filters: LaborFilters) -> str:
+    parts: list[str] = []
+    if filters.departments:
+        parts.append(f"{len(filters.departments)} department{'s' if len(filters.departments) != 1 else ''}")
+    if filters.employees:
+        parts.append(f"{len(filters.employees)} worker{'s' if len(filters.employees) != 1 else ''}")
+    if filters.time_categories:
+        parts.append(f"{len(filters.time_categories)} categor{'ies' if len(filters.time_categories) != 1 else 'y'}")
+    if filters.statuses:
+        parts.append(f"{len(filters.statuses)} status filter{'s' if len(filters.statuses) != 1 else ''}")
+    if filters.work_rules:
+        parts.append(f"{len(filters.work_rules)} work rule{'s' if len(filters.work_rules) != 1 else ''}")
+    if filters.search:
+        parts.append(f"search \"{filters.search}\"")
+    return ', '.join(parts) if parts else 'the full labor scope'
+
+
+def _li_add_scope_urls(frame: pd.DataFrame, filters: LaborFilters, *, department_col: str | None = None, employee_col: str | None = None, category_col: str | None = None) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    out = frame.copy()
+    if department_col and department_col in out.columns:
+        out['department_scope_url'] = [
+            _li_scope_url(filters, department=value) if value not in (None, '') else None
+            for value in out[department_col].tolist()
+        ]
+    if employee_col and employee_col in out.columns:
+        out['employee_scope_url'] = [
+            _li_scope_url(filters, employee=value) if value not in (None, '') else None
+            for value in out[employee_col].tolist()
+        ]
+    if category_col and category_col in out.columns:
+        out['category_scope_url'] = [
+            _li_scope_url(filters, time_category=value) if value not in (None, '') else None
+            for value in out[category_col].tolist()
+        ]
+    return out
+
+
+def _li_build_scope_summary(filters: LaborFilters, filter_options: Mapping[str, Any], prior_start: date, prior_end: date, current_summary: Mapping[str, Any], prior_summary: Mapping[str, Any]) -> dict[str, Any]:
+    option_maps = {
+        'departments': {opt['value']: opt['label'] for opt in filter_options.get('departments', [])},
+        'employees': {opt['value']: opt['label'] for opt in filter_options.get('employees', [])},
+        'time_categories': {opt['value']: opt['label'] for opt in filter_options.get('time_categories', [])},
+        'statuses': {opt['value']: opt['label'] for opt in filter_options.get('statuses', [])},
+        'work_rules': {opt['value']: opt['label'] for opt in filter_options.get('work_rules', [])},
+    }
+    chips: list[dict[str, Any]] = []
+
+    def add_group(prefix: str, values: Sequence[str], key: str, attr_name: str, options_key: str) -> None:
+        selected = list(values)
+        for value in selected:
+            remaining = tuple(item for item in selected if item != value)
+            chips.append(
+                {
+                    'label': f"{prefix}: {option_maps[options_key].get(value, value)}",
+                    'clear_url': build_url(filters, updates={key: remaining or None}, include_pagination=False),
+                    'tone': 'info',
+                }
+            )
+
+    add_group('Department', filters.departments, 'department', 'departments', 'departments')
+    add_group('Worker', filters.employees, 'employee', 'employees', 'employees')
+    add_group('Category', filters.time_categories, 'time_category', 'time_categories', 'time_categories')
+    add_group('Status', filters.statuses, 'status', 'statuses', 'statuses')
+    add_group('Work Rule', filters.work_rules, 'work_rule', 'work_rules', 'work_rules')
+    if filters.search:
+        chips.append(
+            {
+                'label': f"Search: {filters.search}",
+                'clear_url': build_url(filters, updates={'search': None}, include_pagination=False),
+                'tone': 'info',
+            }
+        )
+
+    window_days = max(1, (filters.end - filters.start).days + 1)
+    comparator_ready = _li_safe_int(prior_summary.get('transaction_count')) > 0
+    comparator_note = (
+        f"Comparing {_li_window_label(filters.start, filters.end)} against the immediately preceding {_li_window_label(prior_start, prior_end)} ({window_days} days each)."
+        if comparator_ready
+        else f"Current window {_li_window_label(filters.start, filters.end)} has no populated prior comparable window in {_li_window_label(prior_start, prior_end)}; delta metrics are shown as n/a."
+    )
+    trust_note = None
+    if window_days <= 7:
+        trust_note = 'Volatility and trend signals are based on a narrow window, so use them as watch signals rather than staffing verdicts.'
+    elif _li_safe_int(current_summary.get('active_departments')) <= 1:
+        trust_note = 'Concentration and stability metrics are being computed on a very narrow department scope.'
+    return {
+        'current_window_label': _li_window_label(filters.start, filters.end),
+        'prior_window_label': _li_window_label(prior_start, prior_end),
+        'comparator_note': comparator_note,
+        'active_scope_label': _li_scope_filters_summary(filters),
+        'chips': chips,
+        'trust_note': trust_note,
+    }
+
+
+def _li_metric(label: str, value: Any, fmt: str, definition: str, *, tone: str = 'default', delta: Any = None, delta_fmt: str = 'percent', delta_label: str = 'vs prior comparable window', note: str | None = None) -> dict[str, Any]:
+    return {
+        'label': label,
+        'value': value,
+        'format': fmt,
+        'definition': definition,
+        'tone': tone,
+        'delta': delta,
+        'delta_format': delta_fmt,
+        'delta_label': delta_label,
+        'note': note,
+    }
+
+
+def _li_build_scorecard_groups(analysis: Mapping[str, Any]) -> list[dict[str, Any]]:
+    current_summary = analysis['current_summary']
+    prior_summary = analysis['prior_summary']
+    overall = analysis['overall']
+    premium_delta = _li_delta_pct(current_summary.get('premium_cost'), prior_summary.get('premium_cost'))
+    absence_delta = _li_delta_pct(current_summary.get('absence_cost'), prior_summary.get('absence_cost'))
+    return [
+        {
+            'title': 'Cost & Hours',
+            'description': 'Core labor spend, paid-time volume, and blended-rate movement versus the prior comparable window.',
+            'metrics': [
+                _li_metric('Total Labor Cost', current_summary.get('total_labor_cost'), 'currency', 'Sum of labor_cost for all rows in scope.', tone='primary', delta=overall.get('cost_delta_pct')),
+                _li_metric('Paid Hours', current_summary.get('total_paid_hours'), 'number', 'Sum of paid_hours_allocated for all rows in scope.', tone='primary', delta=overall.get('hours_delta_pct')),
+                _li_metric('Blended Rate', current_summary.get('blended_rate'), 'currency', 'Total labor cost divided by total paid hours.', tone='primary', delta=overall.get('rate_delta_pct')),
+                _li_metric('Cost Delta', overall.get('cost_delta_pct'), 'percent', 'Percent change in total labor cost versus the prior comparable window.', tone='warning', delta_label='comparator', delta=None, note='Suppressed when the prior window has no populated labor rows.'),
+                _li_metric('Hours Delta', overall.get('hours_delta_pct'), 'percent', 'Percent change in paid hours versus the prior comparable window.', tone='warning', delta_label='comparator', delta=None, note='Helps separate staffing volume from rate pressure.'),
+                _li_metric('Rate Delta', overall.get('rate_delta_pct'), 'percent', 'Percent change in blended rate versus the prior comparable window.', tone='warning', delta_label='comparator', delta=None, note='Useful when cost rises faster than hours.'),
+            ],
+        },
+        {
+            'title': 'Premium / Absence',
+            'description': 'Premium and absence exposure, both in dollars and as a share of scoped labor cost.',
+            'metrics': [
+                _li_metric('Premium Cost', current_summary.get('premium_cost'), 'currency', 'Sum of labor_cost on rows flagged is_premium.', tone='warning', delta=premium_delta),
+                _li_metric('Premium Share', current_summary.get('premium_share_pct'), 'percent', 'Premium cost divided by total labor cost.', tone='warning', delta=_li_delta_points(current_summary.get('premium_share_pct'), prior_summary.get('premium_share_pct')), delta_fmt='points'),
+                _li_metric('Absence Cost', current_summary.get('absence_cost'), 'currency', 'Sum of labor_cost on rows flagged is_absence.', tone='danger', delta=absence_delta),
+                _li_metric('Absence Share', current_summary.get('absence_share_pct'), 'percent', 'Absence cost divided by total labor cost.', tone='danger', delta=_li_delta_points(current_summary.get('absence_share_pct'), prior_summary.get('absence_share_pct')), delta_fmt='points'),
+                _li_metric('Premium Delta', premium_delta, 'percent', 'Percent change in premium cost versus the prior comparable window.', tone='warning', delta_label='comparator', delta=None, note='A rising premium delta often signals coverage gaps or rule pressure.'),
+                _li_metric('Absence Delta', absence_delta, 'percent', 'Percent change in absence cost versus the prior comparable window.', tone='danger', delta_label='comparator', delta=None, note='Use with worker and category watchlists to isolate repeated exposure.'),
+            ],
+        },
+        {
+            'title': 'Workforce Footprint',
+            'description': 'How broad the scoped workforce is and how concentrated its labor cost has become.',
+            'metrics': [
+                _li_metric('Active Employees', current_summary.get('active_employees'), 'integer', 'Distinct employee_key values represented by the current filters.'),
+                _li_metric('Active Departments', current_summary.get('active_departments'), 'integer', 'Distinct department_key values represented by the current filters.'),
+                _li_metric('Transaction Rows', current_summary.get('transaction_count'), 'integer', 'Underlying labor transaction rows included by the active filters.'),
+                _li_metric('Worker Concentration', overall.get('worker_concentration_top5_share'), 'percent', 'Share of scoped labor cost carried by the top five workers.', tone='warning'),
+                _li_metric('Department Concentration', overall.get('department_concentration_top3_share'), 'percent', 'Share of scoped labor cost carried by the top three departments.', tone='warning'),
+            ],
+        },
+        {
+            'title': 'Operational Pressure',
+            'description': 'Stability and concentration indicators that signal where management should review staffing first.',
+            'metrics': [
+                _li_metric('Staffing Stability Score', overall.get('stability_score'), 'score', '100 is most stable. Derived from average department daily labor-cost volatility.', tone='primary', note='Higher is better.'),
+                _li_metric('Top Department Share', overall.get('top_department_share_pct'), 'percent', 'Largest single department share of scoped labor cost.', tone='warning'),
+                _li_metric('Top Worker Share', overall.get('top_worker_share_pct'), 'percent', 'Largest single worker share of scoped labor cost.', tone='warning'),
+                _li_metric('Workload Concentration', overall.get('worker_concentration_top3_share'), 'percent', 'Share of scoped labor cost carried by the top three workers.', tone='warning'),
+                _li_metric('Category Concentration', overall.get('category_concentration_top3_share'), 'percent', 'Share of the scoped category mix carried by the top three time categories.', tone='warning'),
+            ],
+        },
+    ]
+
+
+def _li_signal(title: str, tone: str, what_changed: str, why_it_matters: str, inspect_next: str, action_label: str | None, action_url: str | None) -> dict[str, Any]:
+    return {
+        'title': title,
+        'tone': tone,
+        'what_changed': what_changed,
+        'why_it_matters': why_it_matters,
+        'inspect_next': inspect_next,
+        'action_label': action_label,
+        'action_url': action_url,
+    }
+
+
+def _li_build_signals(filters: LaborFilters, analysis: Mapping[str, Any]) -> list[dict[str, Any]]:
+    current_summary = analysis['current_summary']
+    overall = analysis['overall']
+    departments = analysis['current_departments']
+    workers = analysis['worker_summary']
+    categories = analysis['category_mix']
+    review_department = analysis.get('review_department') or {}
+    review_worker = analysis.get('review_worker') or {}
+    review_category = analysis.get('review_category') or {}
+    premium_dept = departments.sort_values(['premium_share_pct', 'labor_cost'], ascending=[False, False]).head(1).to_dict(orient='records')
+    absence_dept = departments.sort_values(['absence_share_pct', 'labor_cost'], ascending=[False, False]).head(1).to_dict(orient='records')
+    unstable_dept = departments.sort_values(['cost_volatility', 'priority_score'], ascending=[False, False]).head(1).to_dict(orient='records')
+    premium_target = premium_dept[0] if premium_dept else {}
+    absence_target = absence_dept[0] if absence_dept else {}
+    unstable_target = unstable_dept[0] if unstable_dept else {}
+    driver_label = str(overall.get('driver_label') or 'stable')
+    rate_tone = 'danger' if driver_label == 'rate-driven' and (_li_safe_float(overall.get('cost_delta_pct')) or 0.0) > 0 else 'success'
+    hours_tone = 'warning' if driver_label == 'hours-driven' and (_li_safe_float(overall.get('cost_delta_pct')) or 0.0) > 0 else 'success'
+    return [
+        _li_signal(
+            'Department Labor Pressure',
+            review_department.get('risk_tone', 'success') if review_department else 'success',
+            f"{review_department.get('department_name', 'No department')} holds {_li_format_percent(review_department.get('labor_cost_share_pct'))} of scoped labor cost with {_li_format_percent(review_department.get('cost_delta_pct'))} cost change versus the prior window.",
+            review_department.get('focus_reason', 'No department pressure signal is elevated under the active filters.'),
+            'Open the department investigation layer to review workers, category mix, and recent trend before changing staffing.',
+            review_department.get('action_label') if review_department else None,
+            review_department.get('department_scope_url') if review_department else None,
+        ),
+        _li_signal(
+            'Premium Risk',
+            'warning' if (_li_safe_float(current_summary.get('premium_share_pct')) or 0.0) >= 0.08 else 'success',
+            f"Premium cost is {_li_format_currency(current_summary.get('premium_cost'))}, or {_li_format_percent(current_summary.get('premium_share_pct'))} of scoped labor cost.",
+            premium_target.get('focus_reason', 'Premium exposure is not elevated in the current scope.'),
+            'Inspect the most premium-heavy department, then review the worker watchlist before expanding headcount.',
+            'Trace premium exposure' if premium_target else None,
+            premium_target.get('department_scope_url') if premium_target else None,
+        ),
+        _li_signal(
+            'Absence Watch',
+            'danger' if (_li_safe_float(current_summary.get('absence_share_pct')) or 0.0) >= 0.04 else 'success',
+            f"Absence cost is {_li_format_currency(current_summary.get('absence_cost'))}, or {_li_format_percent(current_summary.get('absence_share_pct'))} of scoped labor cost.",
+            absence_target.get('focus_reason', 'Absence pressure is not elevated in the current scope.'),
+            'Inspect the absence-heavy department, then review worker and category rows to see whether the pattern is concentrated.',
+            'Inspect absence-heavy categories' if absence_target else None,
+            absence_target.get('department_scope_url') if absence_target else None,
+        ),
+        _li_signal(
+            'Rate-Driven Cost Acceleration',
+            rate_tone,
+            f"Blended rate moved {_li_format_percent(overall.get('rate_delta_pct'))} while paid hours moved {_li_format_percent(overall.get('hours_delta_pct'))} versus the prior comparable window.",
+            'When rate moves faster than hours, cost pressure is more likely tied to premium, work-rule mix, or higher-priced categories than to raw staffing volume.' if driver_label == 'rate-driven' else 'Rate is not the primary cost driver in the current scope.',
+            'Use the rate trend, department table, and premium watchlist together before changing schedules.',
+            'Compare cost vs blended rate',
+            build_url(filters, include_pagination=False),
+        ),
+        _li_signal(
+            'Hours-Driven Cost Acceleration',
+            hours_tone,
+            f"Paid hours moved {_li_format_percent(overall.get('hours_delta_pct'))} while total labor cost moved {_li_format_percent(overall.get('cost_delta_pct'))} versus the prior comparable window.",
+            'When hours move first, staffing volume or operating demand is likely driving labor cost.' if driver_label == 'hours-driven' else 'Hours are not the primary cost driver in the current scope.',
+            'Use the department scatter and daily trend to see whether hours pressure is concentrated in one team or spread across the operation.',
+            'Compare cost vs hours',
+            build_url(filters, include_pagination=False),
+        ),
+        _li_signal(
+            'Staffing Instability',
+            unstable_target.get('risk_tone', 'success') if unstable_target else 'success',
+            f"The highest department volatility in scope is {_li_format_percent(unstable_target.get('cost_volatility'))} in {unstable_target.get('department_name', 'the current scope')}.",
+            unstable_target.get('focus_reason', 'No unstable department is standing out in the current scope.'),
+            'Inspect the unstable department trend and compare whether pressure is coming from hours, rate, premium, or absence.',
+            'Review staffing stability' if unstable_target else None,
+            unstable_target.get('department_scope_url') if unstable_target else None,
+        ),
+        _li_signal(
+            'Worker Concentration Risk',
+            'warning' if (_li_safe_float(overall.get('top_worker_share_pct')) or 0.0) >= 0.12 else 'success',
+            f"The top worker carries {_li_format_percent(overall.get('top_worker_share_pct'))} of scoped labor cost, and the top three workers carry {_li_format_percent(overall.get('worker_concentration_top3_share'))}.",
+            review_worker.get('focus_reason', 'No worker concentration signal is elevated in the current scope.'),
+            'Open the worker spotlight to review premium, absence, and cross-department coverage before reassigning work.',
+            review_worker.get('action_label') if review_worker else None,
+            review_worker.get('employee_scope_url') if review_worker else None,
+        ),
+        _li_signal(
+            'Category Mix Pressure',
+            review_category.get('risk_tone', 'success') if review_category else 'success',
+            f"{review_category.get('time_category', 'No category')} holds {_li_format_percent(review_category.get('share_display_pct'))} of the scoped mix on a {review_category.get('share_display_label', 'mix')} basis.",
+            review_category.get('focus_reason', 'No category mix signal is elevated in the current scope.'),
+            'Open the category spotlight to see which department owns the mix shift and whether the category is premium, absence, or a coding anomaly.',
+            review_category.get('action_label') if review_category else None,
+            review_category.get('category_scope_url') if review_category else None,
+        ),
+        _li_signal(
+            'Review-First Department',
+            'primary',
+            f"Start with {review_department.get('department_name', 'the top department')} because it is the highest-priority department under the current scope.",
+            review_department.get('focus_reason', 'Use the department table to choose the first operational review.'),
+            'Open the department investigation layer and stay within the current filter scope.',
+            'Open department investigation' if review_department else None,
+            review_department.get('department_scope_url') if review_department else None,
+        ),
+        _li_signal(
+            'Review-First Worker',
+            'primary',
+            f"Start with {review_worker.get('employee_name', 'the top worker')} because this worker is the highest-priority individual exposure under the current scope.",
+            review_worker.get('focus_reason', 'Use the worker table to choose the first worker review.'),
+            'Open the worker spotlight to review cost, hours, category breadth, and cross-department coverage.',
+            'Review worker watchlist' if review_worker else None,
+            review_worker.get('employee_scope_url') if review_worker else None,
+        ),
+        _li_signal(
+            'Review-First Category',
+            'primary',
+            f"Start with {review_category.get('time_category', 'the top category')} because it is the highest-priority category under the current scope.",
+            review_category.get('focus_reason', 'Use the category table to choose the first category review.'),
+            'Open the category spotlight to review mix ownership, leading department, and worker contribution.',
+            'Review staffing mix' if review_category else None,
+            review_category.get('category_scope_url') if review_category else None,
+        ),
+    ]
+
+
+def _li_watch_row(entity: str, scope_label: str, reason: str, magnitude: str, posture: str, action_label: str | None, action_url: str | None, tone: str) -> dict[str, Any]:
+    return {
+        'entity': entity,
+        'scope_label': scope_label,
+        'reason': reason,
+        'magnitude': magnitude,
+        'risk_posture': posture,
+        'action_label': action_label,
+        'action_url': action_url,
+        'tone': tone,
+    }
+
+
+def _li_build_watchlist_sections(analysis: Mapping[str, Any]) -> list[dict[str, Any]]:
+    departments = analysis['department_watchlist']
+    workers = analysis['worker_watchlist']
+    categories = analysis['category_watchlist']
+    premium_rows = []
+    absence_rows = []
+    concentration_rows = []
+    unstable_rows = []
+    for row in departments.sort_values(['premium_share_pct', 'priority_score'], ascending=[False, False]).head(4).to_dict(orient='records'):
+        if (_li_safe_float(row.get('premium_share_pct')) or 0.0) >= 0.06:
+            premium_rows.append(_li_watch_row(row.get('department_name') or 'Unknown', 'Department', row.get('focus_reason') or 'Premium exposure is elevated.', f"{_li_format_percent(row.get('premium_share_pct'))} premium share | {_li_format_currency(row.get('labor_cost'))}", row.get('risk_posture') or 'Watch', 'Trace premium exposure', row.get('department_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in workers.sort_values(['premium_share_pct', 'priority_score'], ascending=[False, False]).head(4).to_dict(orient='records'):
+        if (_li_safe_float(row.get('premium_share_pct')) or 0.0) >= 0.06:
+            premium_rows.append(_li_watch_row(row.get('employee_name') or 'Unknown', 'Worker', row.get('focus_reason') or 'Premium exposure is elevated.', f"{_li_format_percent(row.get('premium_share_pct'))} premium share | {_li_format_currency(row.get('labor_cost'))}", row.get('risk_posture') or 'Watch', 'Review worker watchlist', row.get('employee_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in departments.sort_values(['absence_share_pct', 'priority_score'], ascending=[False, False]).head(4).to_dict(orient='records'):
+        if (_li_safe_float(row.get('absence_share_pct')) or 0.0) >= 0.03:
+            absence_rows.append(_li_watch_row(row.get('department_name') or 'Unknown', 'Department', row.get('focus_reason') or 'Absence exposure is elevated.', f"{_li_format_percent(row.get('absence_share_pct'))} absence share | {_li_format_currency(row.get('labor_cost'))}", row.get('risk_posture') or 'Watch', 'Inspect absence-heavy categories', row.get('department_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in workers.sort_values(['absence_share_pct', 'priority_score'], ascending=[False, False]).head(4).to_dict(orient='records'):
+        if (_li_safe_float(row.get('absence_share_pct')) or 0.0) >= 0.03:
+            absence_rows.append(_li_watch_row(row.get('employee_name') or 'Unknown', 'Worker', row.get('focus_reason') or 'Absence exposure is elevated.', f"{_li_format_percent(row.get('absence_share_pct'))} absence share | {_li_format_currency(row.get('labor_cost'))}", row.get('risk_posture') or 'Watch', 'Review worker watchlist', row.get('employee_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in departments.sort_values(['labor_cost_share_pct', 'priority_score'], ascending=[False, False]).head(3).to_dict(orient='records'):
+        if (_li_safe_float(row.get('labor_cost_share_pct')) or 0.0) >= 0.18:
+            concentration_rows.append(_li_watch_row(row.get('department_name') or 'Unknown', 'Department', 'Department labor cost share is concentrated.', f"{_li_format_percent(row.get('labor_cost_share_pct'))} of scoped labor cost", row.get('risk_posture') or 'Watch', 'Open department investigation', row.get('department_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in workers.sort_values(['labor_cost_share_pct', 'priority_score'], ascending=[False, False]).head(3).to_dict(orient='records'):
+        if (_li_safe_float(row.get('labor_cost_share_pct')) or 0.0) >= 0.12:
+            concentration_rows.append(_li_watch_row(row.get('employee_name') or 'Unknown', 'Worker', 'Worker labor cost share is concentrated.', f"{_li_format_percent(row.get('labor_cost_share_pct'))} of scoped labor cost", row.get('risk_posture') or 'Watch', 'Open worker spotlight', row.get('employee_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in categories.sort_values(['leading_department_share_pct', 'priority_score'], ascending=[False, False]).head(3).to_dict(orient='records'):
+        if (_li_safe_float(row.get('leading_department_share_pct')) or 0.0) >= 0.60:
+            concentration_rows.append(_li_watch_row(row.get('time_category') or 'Unknown', 'Category', row.get('focus_reason') or 'Category is concentrated in one department.', f"{_li_format_percent(row.get('leading_department_share_pct'))} led by {row.get('leading_department') or 'one department'}", row.get('risk_posture') or 'Watch', 'Open category spotlight', row.get('category_scope_url'), row.get('risk_tone') or 'warning'))
+    for row in analysis['current_departments'].sort_values(['cost_volatility', 'priority_score'], ascending=[False, False]).head(5).to_dict(orient='records'):
+        if (_li_safe_float(row.get('cost_volatility')) or 0.0) >= 0.18:
+            unstable_rows.append(_li_watch_row(row.get('department_name') or 'Unknown', 'Department', row.get('focus_reason') or 'Department volatility is elevated.', f"{_li_format_percent(row.get('cost_volatility'))} daily cost volatility", row.get('risk_posture') or 'Watch', 'Review staffing stability', row.get('department_scope_url'), row.get('risk_tone') or 'warning'))
+    sections = [
+        {
+            'title': 'Department Watchlist',
+            'subtitle': 'Departments that should be reviewed first under the active scope.',
+            'empty_message': 'No departments are breaching the current watch thresholds.',
+            'rows': [
+                _li_watch_row(row.get('department_name') or 'Unknown', 'Department', row.get('focus_reason') or 'Department review is warranted.', f"{_li_format_currency(row.get('labor_cost'))} | {_li_format_percent(row.get('cost_delta_pct'))} cost delta", row.get('risk_posture') or 'Watch', row.get('action_label'), row.get('department_scope_url'), row.get('risk_tone') or 'warning')
+                for row in departments.head(5).to_dict(orient='records')
+            ],
+        },
+        {
+            'title': 'Worker Watchlist',
+            'subtitle': 'Workers driving concentrated exposure, premium, absence, or cross-department dependency.',
+            'empty_message': 'No workers are breaching the current watch thresholds.',
+            'rows': [
+                _li_watch_row(row.get('employee_name') or 'Unknown', 'Worker', row.get('focus_reason') or 'Worker review is warranted.', f"{_li_format_currency(row.get('labor_cost'))} | {_li_format_percent(row.get('labor_cost_share_pct'))} of scoped cost", row.get('risk_posture') or 'Watch', row.get('action_label'), row.get('employee_scope_url'), row.get('risk_tone') or 'warning')
+                for row in workers.head(5).to_dict(orient='records')
+            ],
+        },
+        {
+            'title': 'Category Watchlist',
+            'subtitle': 'Categories absorbing spend, shifting mix, or showing coding / ownership concerns.',
+            'empty_message': 'No categories are breaching the current watch thresholds.',
+            'rows': [
+                _li_watch_row(row.get('time_category') or 'Unknown', 'Category', row.get('focus_reason') or 'Category review is warranted.', f"{_li_format_currency(row.get('labor_cost'))} | {_li_format_percent(row.get('share_display_pct'))} on a {str(row.get('share_display_label') or 'mix').lower()} basis", row.get('risk_posture') or 'Watch', row.get('action_label'), row.get('category_scope_url'), row.get('risk_tone') or 'warning')
+                for row in categories.head(5).to_dict(orient='records')
+            ],
+        },
+        {
+            'title': 'Premium Watchlist',
+            'subtitle': 'Departments and workers where premium is consuming an outsized share of labor cost.',
+            'empty_message': 'No premium-heavy departments or workers are standing out under the current filters.',
+            'rows': premium_rows[:5],
+        },
+        {
+            'title': 'Absence Watchlist',
+            'subtitle': 'Departments and workers where absence is creating meaningful cost exposure.',
+            'empty_message': 'No absence-heavy departments or workers are standing out under the current filters.',
+            'rows': absence_rows[:5],
+        },
+        {
+            'title': 'Concentration Watchlist',
+            'subtitle': 'Where labor cost or category ownership is concentrated in too few departments, workers, or categories.',
+            'empty_message': 'No concentration risk is breaching the current watch thresholds.',
+            'rows': concentration_rows[:6],
+        },
+        {
+            'title': 'Unstable Department Watchlist',
+            'subtitle': 'Departments with the least stable recent staffing rhythm.',
+            'empty_message': 'No unstable departments are breaching the current watch thresholds.',
+            'rows': unstable_rows[:5],
+        },
+    ]
+    return sections
+
+
+def _li_build_narratives(analysis: Mapping[str, Any]) -> dict[str, str]:
+    current_summary = analysis['current_summary']
+    overall = analysis['overall']
+    department = analysis.get('review_department') or {}
+    worker = analysis.get('review_worker') or {}
+    category = analysis.get('review_category') or {}
+    total_cost = _li_safe_float(current_summary.get('total_labor_cost')) or 0.0
+    if total_cost <= 0:
+        executive = 'No labor rows matched the active filters.'
+    else:
+        executive = (
+            f"Labor cost is {_li_format_currency(total_cost)} across {_li_format_number(current_summary.get('total_paid_hours'))} paid hours. "
+            f"The current move is {str(overall.get('driver_label') or 'stable').replace('-', ' ')}, "
+            f"with {department.get('department_name', 'the top department')} as the first department to review, "
+            f"{category.get('time_category', 'the top category')} as the first category to review, "
+            f"and {worker.get('employee_name', 'the top worker')} as the first worker to review."
+        )
+    return {
+        'executive': executive,
+        'department': 'The department layer ranks where management attention should start by combining labor size, cost change, premium / absence exposure, and staffing stability.',
+        'composition': 'The category layer shows whether spend is sitting in normal worked time, premium time, absence, or operational-only categories that need coding review.',
+        'workers': 'The worker layer turns labor from a department summary into an assignment decision by exposing concentration, coverage breadth, premium pressure, and absence repetition.',
+        'trend': 'The rhythm layer separates cost, hours, rate, premium, and absence over time so managers can tell whether the problem is scheduling volume, pricing, or mix.',
+        'watchlist': 'The action center is organized around review-first entities, not raw totals, so leaders can move directly into the scoped drill that explains the signal.',
+        'workspace': 'The exploration workspace is the trace-back layer for managers, HR, and finance stakeholders who need the raw labor rows behind any signal.',
+    }
+
+
+def _li_build_analysis(filters: LaborFilters) -> dict[str, Any]:
+    prior_start, prior_end = _prior_window(filters)
+    filter_options = _query_filter_options(filters)
+    current_summary = _query_summary(filters)
+    prior_summary = _query_summary(filters, start=prior_start, end=prior_end)
+    department_daily = _query_department_daily(filters)
+    current_departments = _li_enrich_department_summary(
+        _query_department_summary(filters),
+        _query_department_summary(filters, start=prior_start, end=prior_end),
+        department_daily,
+    )
+    category_mix = _li_enrich_category_summary(
+        _query_category_mix(filters),
+        _query_category_mix(filters, start=prior_start, end=prior_end),
+        _query_department_category_mix(filters),
+    )
+    worker_daily = _li_query_worker_daily(filters)
+    worker_summary = _li_enrich_worker_summary(
+        _query_worker_summary(filters, limit=400),
+        _query_worker_summary(filters, start=prior_start, end=prior_end, limit=2000),
+        worker_daily,
+    )
+    daily_trend = _li_augment_trend(_query_daily_trend(filters))
+    weekday_pattern = _li_augment_weekday_pattern(_query_weekday_pattern(filters))
+    monthly_pattern = _li_augment_trend(_query_monthly_pattern(filters))
+
+    current_departments = _li_add_scope_urls(current_departments, filters, department_col='department_name')
+    category_mix = _li_add_scope_urls(category_mix, filters, category_col='time_category')
+    worker_summary = _li_add_scope_urls(worker_summary, filters, employee_col='employee_code')
+
+    dept_priority = current_departments.sort_values(['priority_score', 'labor_cost'], ascending=[False, False]) if not current_departments.empty else current_departments
+    category_priority = category_mix.sort_values(['priority_score', 'labor_cost'], ascending=[False, False]) if not category_mix.empty else category_mix
+    worker_priority = worker_summary.sort_values(['priority_score', 'labor_cost'], ascending=[False, False]) if not worker_summary.empty else worker_summary
+
+    review_department = dept_priority.head(1).to_dict(orient='records')
+    review_worker = worker_priority.head(1).to_dict(orient='records')
+    review_category = category_priority.head(1).to_dict(orient='records')
+
+    top_department_names = dept_priority.head(5)['department_name'].astype(str).tolist() if not dept_priority.empty else []
+    top_category_names = category_priority.head(5)['time_category'].astype(str).tolist() if not category_priority.empty else []
+    top_worker_codes = worker_priority.head(5)['employee_code'].astype(str).tolist() if not worker_priority.empty else []
+
+    monthly_department_trend = _li_clean_frame(_query_monthly_department_trend(filters, top_department_names))
+    category_daily_trend = _li_augment_trend(_query_category_daily_trend(filters, top_category_names))
+    worker_daily_trend = _li_augment_trend(_query_worker_daily_trend(filters, top_worker_codes))
+
+    category_basis = 'labor_cost' if (_li_safe_float(current_summary.get('total_labor_cost')) or 0.0) > 0 else 'paid_hours'
+    department_shares = _li_share_stats(current_departments, 'labor_cost', top_n=3)
+    worker_top3 = _li_share_stats(worker_summary, 'labor_cost', top_n=3)
+    worker_top5 = _li_share_stats(worker_summary, 'labor_cost', top_n=5)
+    category_top3 = _li_share_stats(category_mix, category_basis, top_n=3)
+    stability_candidates = pd.to_numeric(current_departments.get('cost_volatility', pd.Series(dtype='float64')), errors='coerce').dropna()
+    stability_score = None
+    if len(stability_candidates) >= 2:
+        stability_score = max(0.0, 100.0 * (1.0 - min(float(stability_candidates.mean()), 1.0)))
+
+    overall = {
+        'cost_delta_pct': _li_delta_pct(current_summary.get('total_labor_cost'), prior_summary.get('total_labor_cost')),
+        'hours_delta_pct': _li_delta_pct(current_summary.get('total_paid_hours'), prior_summary.get('total_paid_hours')),
+        'rate_delta_pct': _li_delta_pct(current_summary.get('blended_rate'), prior_summary.get('blended_rate')),
+        'driver_label': _driver_label(
+            _li_delta_pct(current_summary.get('total_labor_cost'), prior_summary.get('total_labor_cost')),
+            _li_delta_pct(current_summary.get('total_paid_hours'), prior_summary.get('total_paid_hours')),
+            _li_delta_pct(current_summary.get('blended_rate'), prior_summary.get('blended_rate')),
+        ),
+        'worker_concentration_top3_share': worker_top3.get('top_n_share_pct'),
+        'worker_concentration_top5_share': worker_top5.get('top_n_share_pct'),
+        'department_concentration_top3_share': department_shares.get('top_n_share_pct'),
+        'category_concentration_top3_share': category_top3.get('top_n_share_pct'),
+        'top_department_share_pct': department_shares.get('top_share_pct'),
+        'top_worker_share_pct': worker_top3.get('top_share_pct'),
+        'stability_score': stability_score,
+        'category_mix_basis': category_basis,
+    }
+
+    department_watchlist = dept_priority.loc[pd.to_numeric(dept_priority.get('priority_score', pd.Series(dtype='float64')), errors='coerce').fillna(0).ge(_LI_WATCH_THRESHOLD)].copy() if not dept_priority.empty else dept_priority
+    worker_watchlist = worker_priority.loc[pd.to_numeric(worker_priority.get('priority_score', pd.Series(dtype='float64')), errors='coerce').fillna(0).ge(_LI_WATCH_THRESHOLD)].copy() if not worker_priority.empty else worker_priority
+    category_watchlist = category_priority.loc[pd.to_numeric(category_priority.get('priority_score', pd.Series(dtype='float64')), errors='coerce').fillna(0).ge(_LI_WATCH_THRESHOLD)].copy() if not category_priority.empty else category_priority
+
+    return {
+        'filters': filters,
+        'prior_start': prior_start,
+        'prior_end': prior_end,
+        'filter_options': filter_options,
+        'current_summary': current_summary,
+        'prior_summary': prior_summary,
+        'current_departments': dept_priority,
+        'category_mix': category_priority,
+        'worker_summary': worker_priority,
+        'department_watchlist': department_watchlist,
+        'worker_watchlist': worker_watchlist,
+        'category_watchlist': category_watchlist,
+        'department_daily': department_daily,
+        'daily_trend': daily_trend,
+        'weekday_pattern': weekday_pattern,
+        'monthly_pattern': monthly_pattern,
+        'monthly_department_trend': monthly_department_trend,
+        'category_daily_trend': category_daily_trend,
+        'worker_daily_trend': worker_daily_trend,
+        'overall': overall,
+        'review_department': review_department[0] if review_department else {},
+        'review_worker': review_worker[0] if review_worker else {},
+        'review_category': review_category[0] if review_category else {},
+    }
+
+
+def _li_build_focus_department(filters: LaborFilters, analysis: Mapping[str, Any], department_name: str | None) -> dict[str, Any] | None:
+    if not department_name:
+        return None
+    frame = analysis['current_departments']
+    match = frame.loc[frame['department_name'] == department_name].copy()
+    if match.empty:
+        return None
+    row = match.iloc[0].to_dict()
+    scoped = replace(filters, departments=(department_name,), page=1, sort_by='labor_cost', sort_dir='desc')
+    prior_start = analysis['prior_start']
+    prior_end = analysis['prior_end']
+    trend_rows = _li_augment_trend(_query_daily_trend(scoped))
+    worker_rows = _li_add_scope_urls(
+        _li_enrich_worker_summary(
+            _query_worker_summary(scoped, limit=20),
+            _query_worker_summary(scoped, start=prior_start, end=prior_end, limit=2000),
+            _li_query_worker_daily(scoped),
+        ),
+        scoped,
+        employee_col='employee_code',
+    ).sort_values(['priority_score', 'labor_cost'], ascending=[False, False])
+    category_rows = _li_add_scope_urls(
+        _li_enrich_category_summary(
+            _query_category_mix(scoped),
+            _query_category_mix(scoped, start=prior_start, end=prior_end),
+            _query_department_category_mix(scoped),
+        ),
+        scoped,
+        category_col='time_category',
+    ).sort_values(['priority_score', 'labor_cost'], ascending=[False, False])
+    worker_watch = worker_rows.loc[pd.to_numeric(worker_rows.get('priority_score', pd.Series(dtype='float64')), errors='coerce').fillna(0).ge(_LI_WATCH_THRESHOLD)].head(8)
+    category_watch = category_rows.loc[pd.to_numeric(category_rows.get('priority_score', pd.Series(dtype='float64')), errors='coerce').fillna(0).ge(_LI_WATCH_THRESHOLD)].head(8)
+    interpretation = (
+        f"{department_name} is currently {str(row.get('driver_label') or 'stable').replace('-', ' ')}. "
+        f"{row.get('focus_reason')} Management should start here before changing worker assignments or schedule coverage."
+    )
+    return {
+        'department_name': department_name,
+        'summary': row,
+        'trend_rows': trend_rows.to_dict(orient='records'),
+        'worker_rows': worker_rows.head(12).to_dict(orient='records'),
+        'category_rows': category_rows.head(10).to_dict(orient='records'),
+        'worker_watch_rows': worker_watch.to_dict(orient='records'),
+        'category_watch_rows': category_watch.to_dict(orient='records'),
+        'interpretation': interpretation,
+        'clear_url': build_url(filters, updates={'department': None}, include_pagination=False),
+        'is_selected': department_name in filters.departments,
+        'reason_note': 'Default department focus selected because it is the highest management priority in the current scope.' if department_name not in filters.departments else 'Department focus is pinned by the active filter.',
+    }
+
+
+def _li_build_focus_category(filters: LaborFilters, analysis: Mapping[str, Any], category_name: str | None) -> dict[str, Any] | None:
+    if not category_name:
+        return None
+    frame = analysis['category_mix']
+    match = frame.loc[frame['time_category'] == category_name].copy()
+    if match.empty:
+        return None
+    row = match.iloc[0].to_dict()
+    scoped = replace(filters, time_categories=(category_name,), page=1, sort_by='labor_cost', sort_dir='desc')
+    prior_start = analysis['prior_start']
+    prior_end = analysis['prior_end']
+    trend_rows = _li_augment_trend(_query_daily_trend(scoped))
+    department_rows = _li_add_scope_urls(_li_enrich_department_summary(_query_department_summary(scoped), _query_department_summary(scoped, start=prior_start, end=prior_end), _query_department_daily(scoped)), scoped, department_col='department_name').sort_values(['priority_score', 'labor_cost'], ascending=[False, False])
+    worker_rows = _li_add_scope_urls(_li_enrich_worker_summary(_query_worker_summary(scoped, limit=20), _query_worker_summary(scoped, start=prior_start, end=prior_end, limit=2000), _li_query_worker_daily(scoped)), scoped, employee_col='employee_code').sort_values(['priority_score', 'labor_cost'], ascending=[False, False])
+    interpretation = (
+        f"{category_name} is classified as {row.get('category_kind', 'active')} and currently sits on a {str(row.get('share_display_label') or 'mix').lower()} basis of {_li_format_percent(row.get('share_display_pct'))}. "
+        f"{row.get('focus_reason')}"
+    )
+    return {
+        'time_category': category_name,
+        'summary': row,
+        'trend_rows': trend_rows.to_dict(orient='records'),
+        'department_rows': department_rows.head(10).to_dict(orient='records'),
+        'worker_rows': worker_rows.head(12).to_dict(orient='records'),
+        'interpretation': interpretation,
+        'clear_url': build_url(filters, updates={'time_category': None}, include_pagination=False),
+        'is_selected': category_name in filters.time_categories,
+        'reason_note': 'Default category focus selected because it is the highest category priority in the current scope.' if category_name not in filters.time_categories else 'Category focus is pinned by the active filter.',
+    }
+
+
+def _li_build_focus_worker(filters: LaborFilters, analysis: Mapping[str, Any], employee_code: str | None) -> dict[str, Any] | None:
+    if not employee_code:
+        return None
+    frame = analysis['worker_summary']
+    match = frame.loc[frame['employee_code'] == employee_code].copy()
+    if match.empty:
+        return None
+    row = match.iloc[0].to_dict()
+    scoped = replace(filters, employees=(employee_code,), page=1, sort_by='labor_cost', sort_dir='desc')
+    prior_start = analysis['prior_start']
+    prior_end = analysis['prior_end']
+    trend_rows = _li_augment_trend(_query_daily_trend(scoped))
+    department_rows = _li_add_scope_urls(_li_enrich_department_summary(_query_department_summary(scoped), _query_department_summary(scoped, start=prior_start, end=prior_end), _query_department_daily(scoped)), scoped, department_col='department_name').sort_values(['priority_score', 'labor_cost'], ascending=[False, False])
+    category_rows = _li_add_scope_urls(_li_enrich_category_summary(_query_category_mix(scoped), _query_category_mix(scoped, start=prior_start, end=prior_end), _query_department_category_mix(scoped)), scoped, category_col='time_category').sort_values(['priority_score', 'labor_cost'], ascending=[False, False])
+    interpretation = (
+        f"{row.get('employee_name', 'This worker')} is {row.get('exposure_profile', 'active')} and carries {_li_format_percent(row.get('labor_cost_share_pct'))} of scoped labor cost. "
+        f"{row.get('focus_reason')}"
+    )
+    return {
+        'employee_code': employee_code,
+        'employee_name': row.get('employee_name'),
+        'summary': row,
+        'trend_rows': trend_rows.to_dict(orient='records'),
+        'department_rows': department_rows.head(10).to_dict(orient='records'),
+        'category_rows': category_rows.head(10).to_dict(orient='records'),
+        'interpretation': interpretation,
+        'clear_url': build_url(filters, updates={'employee': None}, include_pagination=False),
+        'is_selected': employee_code in filters.employees,
+        'reason_note': 'Default worker focus selected because it is the highest worker priority in the current scope.' if employee_code not in filters.employees else 'Worker focus is pinned by the active filter.',
+    }
+
+
+def _li_build_actions(filters: LaborFilters, analysis: Mapping[str, Any]) -> list[dict[str, Any]]:
+    review_department = analysis.get('review_department') or {}
+    review_worker = analysis.get('review_worker') or {}
+    review_category = analysis.get('review_category') or {}
+    actions = []
+    if review_department:
+        actions.append({'title': f"Open {review_department.get('department_name')}", 'detail': review_department.get('focus_reason'), 'scope': 'department', 'value': review_department.get('department_name'), 'url': review_department.get('department_scope_url')})
+    if review_worker:
+        actions.append({'title': f"Review {review_worker.get('employee_name')}", 'detail': review_worker.get('focus_reason'), 'scope': 'employee', 'value': review_worker.get('employee_code'), 'url': review_worker.get('employee_scope_url')})
+    if review_category:
+        actions.append({'title': f"Inspect {review_category.get('time_category')}", 'detail': review_category.get('focus_reason'), 'scope': 'category', 'value': review_category.get('time_category'), 'url': review_category.get('category_scope_url')})
+    actions.append({'title': 'Compare cost vs hours', 'detail': 'Use the operating rhythm section to separate staffing volume from rate or mix pressure.', 'scope': None, 'value': None, 'url': build_url(filters, include_pagination=False)})
+    actions.append({'title': 'Open scoped detail rows', 'detail': 'Use the exploration workspace to trace the underlying labor transactions behind any signal.', 'scope': None, 'value': None, 'url': build_url(filters, include_pagination=False)})
+    return actions[:5]
+
+
+def build_page_payload(args: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    status = labor_store.get_status()
+    filters = resolve_filters(args)
+    payload: dict[str, Any] = {
+        'status': status.__dict__,
+        'filters': _serialize_filters(filters),
+        'filter_options': {'departments': [], 'employees': [], 'time_categories': [], 'statuses': [], 'work_rules': []},
+        'scope': {},
+        'hero': {},
+        'kpis': {},
+        'scorecard_groups': [],
+        'signals': [],
+        'actions': [],
+        'charts': {},
+        'watchlist': {'rows': []},
+        'watchlists': {'departments': [], 'workers': [], 'categories': []},
+        'watchlist_sections': [],
+        'workspace': {'rows': [], 'total_rows': 0, 'page': filters.page, 'page_size': filters.page_size, 'total_pages': 1},
+        'focus': {'department': None, 'category': None, 'worker': None},
+        'messages': [],
+        'has_results': False,
+        'narratives': {},
+        'export_urls': {
+            'snapshot_xlsx': build_export_url(filters, 'snapshot', 'xlsx'),
+            'detail_csv': build_export_url(filters, 'detail', 'csv'),
+            'department_summary_xlsx': build_export_url(filters, 'department-summary', 'xlsx'),
+            'category_summary_xlsx': build_export_url(filters, 'category-summary', 'xlsx'),
+            'employee_summary_xlsx': build_export_url(filters, 'employee-summary', 'xlsx'),
+            'watchlist_csv': build_export_url(filters, 'watchlist', 'csv'),
+        },
+    }
+    if not status.available:
+        payload['messages'].append(status.warning)
+        return payload
+
+    analysis = _cached_analysis(filters)
+    current_summary = analysis['current_summary']
+    prior_summary = analysis['prior_summary']
+    overall = analysis['overall']
+    payload['scope'] = _li_build_scope_summary(filters, analysis['filter_options'], analysis['prior_start'], analysis['prior_end'], current_summary, prior_summary)
+    payload['narratives'] = _li_build_narratives(analysis)
+    payload['signals'] = _li_build_signals(filters, analysis)
+    payload['actions'] = _li_build_actions(filters, analysis)
+    payload['scorecard_groups'] = _li_build_scorecard_groups(analysis)
+    payload['watchlist_sections'] = _li_build_watchlist_sections(analysis)
+    payload['filter_options'] = analysis['filter_options']
+
+    review_department = analysis.get('review_department') or {}
+    review_worker = analysis.get('review_worker') or {}
+    review_category = analysis.get('review_category') or {}
+
+    payload['hero'] = {
+        'title': 'Labor Intelligence',
+        'subtitle': 'Enterprise workforce, labor cost, premium, absence, and staffing decision support from the live Synerion labor feed.',
+        'purpose': 'Use this workspace to understand what changed, where labor pressure sits, which teams or workers need review first, and what managers should inspect next.',
+        'current_window_label': payload['scope'].get('current_window_label'),
+        'prior_window_label': payload['scope'].get('prior_window_label'),
+        'last_refresh_label': _li_refresh_label(status.last_refresh_utc),
+        'last_refresh_utc': status.last_refresh_utc,
+        'top_driver': str(overall.get('driver_label') or 'stable').replace('-', ' ').title(),
+        'top_department': review_department.get('department_name') or _top_label(analysis['current_departments'], 'department_name', 'No department'),
+        'top_category': review_category.get('time_category') or _top_label(analysis['category_mix'], 'time_category', 'No category'),
+        'top_worker': review_worker.get('employee_name') or _top_label(analysis['worker_summary'], 'employee_name', 'No worker'),
+        'executive_narrative': payload['narratives'].get('executive'),
+        'total_labor_cost': current_summary.get('total_labor_cost'),
+        'total_paid_hours': current_summary.get('total_paid_hours'),
+        'active_departments': current_summary.get('active_departments'),
+        'active_employees': current_summary.get('active_employees'),
+        'stability_score': overall.get('stability_score'),
+    }
+
+    kpis = {
+        **current_summary,
+        'labor_trend_vs_prior_pct': overall.get('cost_delta_pct'),
+        'hours_trend_vs_prior_pct': overall.get('hours_delta_pct'),
+        'blended_rate_vs_prior_pct': overall.get('rate_delta_pct'),
+        'prior_window_start': analysis['prior_start'].isoformat(),
+        'prior_window_end': analysis['prior_end'].isoformat(),
+        'worker_concentration_top5_share': overall.get('worker_concentration_top5_share'),
+        'department_concentration_top3_share': overall.get('department_concentration_top3_share'),
+        'top_department_share_pct': overall.get('top_department_share_pct'),
+        'top_worker_share_pct': overall.get('top_worker_share_pct'),
+        'category_concentration_top3_share': overall.get('category_concentration_top3_share'),
+        'stability_score': overall.get('stability_score'),
+    }
+    payload['kpis'] = kpis
+
+    workspace = _query_workspace(filters)
+    workspace_frame = workspace.get('frame')
+    if not isinstance(workspace_frame, pd.DataFrame):
+        workspace_frame = pd.DataFrame()
+    workspace_frame = _li_add_scope_urls(workspace_frame, filters, department_col='department_name', employee_col='employee_code', category_col='time_category')
+    workspace_payload = {key: value for key, value in workspace.items() if key != 'frame'}
+    workspace_payload['rows'] = _li_clean_frame(workspace_frame).to_dict(orient='records') if not workspace_frame.empty else []
+    workspace_payload['scope_note'] = f"Showing row-level labor transactions for {payload['scope'].get('active_scope_label')} from {payload['scope'].get('current_window_label')}."
+    payload['workspace'] = workspace_payload
+
+    department_table = analysis['current_departments'].copy()
+    category_table = analysis['category_mix'].copy()
+    worker_table = analysis['worker_summary'].copy()
+
+    payload['charts'] = {
+        'department_cost': _sort_for_json(department_table, ['labor_cost', 'department_name'], [False, True], limit=12),
+        'department_change': _sort_for_json(department_table.assign(abs_cost_delta_pct=pd.to_numeric(department_table.get('cost_delta_pct'), errors='coerce').abs()), ['abs_cost_delta_pct', 'labor_cost'], [False, False], limit=12) if not department_table.empty else [],
+        'department_risk': _sort_for_json(department_table, ['priority_score', 'labor_cost'], [False, False], limit=12),
+        'department_volatility': _sort_for_json(department_table, ['cost_volatility', 'labor_cost'], [False, False], limit=12),
+        'department_scatter': _sort_for_json(department_table, ['priority_score', 'labor_cost'], [False, False], limit=15),
+        'daily_trend': analysis['daily_trend'].to_dict(orient='records'),
+        'rate_trend': analysis['daily_trend'].to_dict(orient='records'),
+        'weekday_pattern': analysis['weekday_pattern'].to_dict(orient='records'),
+        'monthly_pattern': analysis['monthly_pattern'].to_dict(orient='records'),
+        'monthly_department_trend': analysis['monthly_department_trend'].to_dict(orient='records'),
+        'category_mix': _sort_for_json(category_table, [analysis['overall'].get('category_mix_basis') or 'labor_cost', 'time_category'], [False, True], limit=12),
+        'category_mix_meta': {'value_key': analysis['overall'].get('category_mix_basis') or 'labor_cost', 'label': 'Labor cost mix' if (analysis['overall'].get('category_mix_basis') or 'labor_cost') == 'labor_cost' else 'Operational hours mix'},
+        'category_trend': analysis['category_daily_trend'].to_dict(orient='records'),
+        'worker_cost': _sort_for_json(worker_table, ['labor_cost', 'employee_name'], [False, True], limit=12),
+        'worker_hours': _sort_for_json(worker_table, ['paid_hours', 'employee_name'], [False, True], limit=12),
+        'worker_risk': _sort_for_json(worker_table, ['priority_score', 'labor_cost'], [False, False], limit=12),
+        'worker_daily_trend': analysis['worker_daily_trend'].to_dict(orient='records'),
+    }
+
+    focus_department_name = filters.departments[0] if filters.departments else review_department.get('department_name')
+    focus_category_name = filters.time_categories[0] if filters.time_categories else review_category.get('time_category')
+    focus_worker_code = filters.employees[0] if filters.employees else review_worker.get('employee_code')
+    payload['focus'] = {
+        'department': _cached_focus(
+            'department',
+            filters,
+            focus_department_name,
+            lambda: _li_build_focus_department(_analysis_filters(filters), analysis, focus_department_name),
+        ),
+        'category': _cached_focus(
+            'category',
+            filters,
+            focus_category_name,
+            lambda: _li_build_focus_category(_analysis_filters(filters), analysis, focus_category_name),
+        ),
+        'worker': _cached_focus(
+            'worker',
+            filters,
+            focus_worker_code,
+            lambda: _li_build_focus_worker(_analysis_filters(filters), analysis, focus_worker_code),
+        ),
+    }
+
+    payload['department_table'] = department_table.head(15).to_dict(orient='records')
+    payload['category_table'] = category_table.head(15).to_dict(orient='records')
+    payload['worker_table'] = worker_table.head(20).to_dict(orient='records')
+    payload['watchlist'] = {'rows': analysis['department_watchlist'].head(15).to_dict(orient='records')}
+    payload['watchlists'] = {
+        'departments': analysis['department_watchlist'].head(12).to_dict(orient='records'),
+        'workers': analysis['worker_watchlist'].head(12).to_dict(orient='records'),
+        'categories': analysis['category_watchlist'].head(12).to_dict(orient='records'),
+    }
+    payload['has_results'] = bool(_li_safe_int(current_summary.get('transaction_count')))
+
+    if not payload['has_results']:
+        payload['messages'].append('No labor rows matched the active filters.')
+    elif _li_safe_int(prior_summary.get('transaction_count')) == 0:
+        payload['messages'].append(f"No prior comparable labor rows were available in {payload['scope'].get('prior_window_label')}; delta metrics are shown as n/a where needed.")
+    if (_li_safe_float(current_summary.get('total_labor_cost')) or 0.0) <= 0 and (_li_safe_float(current_summary.get('total_paid_hours')) or 0.0) > 0:
+        payload['messages'].append('The current scope contains paid hours without booked labor cost. Category concentration views fall back to paid hours where needed.')
+    return _li_clean_frame(pd.DataFrame()).to_dict() if False else payload
+
+
+def build_client_payload(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    safe_payload = payload or {}
+    focus = safe_payload.get('focus') if isinstance(safe_payload, Mapping) else {}
+    focus = focus if isinstance(focus, Mapping) else {}
+
+    def _focus_trend(key: str) -> dict[str, Any]:
+        block = focus.get(key) if isinstance(focus, Mapping) else {}
+        block = block if isinstance(block, Mapping) else {}
+        return {'trend_rows': list(block.get('trend_rows') or [])}
+
+    return {
+        'filters': dict(safe_payload.get('filters') or {}),
+        'charts': dict(safe_payload.get('charts') or {}),
+        'focus': {
+            'department': _focus_trend('department'),
+            'category': _focus_trend('category'),
+            'worker': _focus_trend('worker'),
+        },
+    }
+
+
+def build_export_frames(filters: LaborFilters, dataset: str) -> tuple[dict[str, pd.DataFrame], str]:
+    analysis = _cached_analysis(filters)
+    current_summary = analysis['current_summary']
+    prior_summary = analysis['prior_summary']
+    overall = analysis['overall']
+    scope_summary = _li_build_scope_summary(filters, analysis['filter_options'], analysis['prior_start'], analysis['prior_end'], current_summary, prior_summary)
+    signals_df = pd.DataFrame(
+        [
+            {
+                'Signal': signal.get('title'),
+                'What Changed': signal.get('what_changed'),
+                'Why It Matters': signal.get('why_it_matters'),
+                'Inspect Next': signal.get('inspect_next'),
+                'Action': signal.get('action_label'),
+            }
+            for signal in _li_build_signals(filters, analysis)
+        ]
+    )
+    summary_rows = []
+    for group in _li_build_scorecard_groups(analysis):
+        for metric in group.get('metrics', []):
+            summary_rows.append(
+                {
+                    'Group': group.get('title'),
+                    'Metric': metric.get('label'),
+                    'Value': metric.get('value'),
+                    'Format': metric.get('format'),
+                    'Delta': metric.get('delta'),
+                    'Delta Format': metric.get('delta_format'),
+                    'Definition': metric.get('definition'),
+                    'Note': metric.get('note'),
+                }
+            )
+    summary_df = pd.DataFrame(
+        [
+            {'Group': 'Scope', 'Metric': 'Window Start', 'Value': filters.start.isoformat(), 'Format': 'date', 'Delta': None, 'Delta Format': None, 'Definition': 'Current analysis window start date.', 'Note': None},
+            {'Group': 'Scope', 'Metric': 'Window End', 'Value': filters.end.isoformat(), 'Format': 'date', 'Delta': None, 'Delta Format': None, 'Definition': 'Current analysis window end date.', 'Note': None},
+            {'Group': 'Scope', 'Metric': 'Prior Window Start', 'Value': analysis['prior_start'].isoformat(), 'Format': 'date', 'Delta': None, 'Delta Format': None, 'Definition': 'Start of the comparator window.', 'Note': None},
+            {'Group': 'Scope', 'Metric': 'Prior Window End', 'Value': analysis['prior_end'].isoformat(), 'Format': 'date', 'Delta': None, 'Delta Format': None, 'Definition': 'End of the comparator window.', 'Note': None},
+            {'Group': 'Scope', 'Metric': 'Scope Summary', 'Value': scope_summary.get('active_scope_label'), 'Format': 'text', 'Delta': None, 'Delta Format': None, 'Definition': 'Human-readable description of the active filters.', 'Note': scope_summary.get('comparator_note')},
+        ] + summary_rows
+    )
+
+    department_df = _rename_columns(
+        analysis['current_departments'],
+        {
+            'department_name': 'Department',
+            'department_number': 'Department Number',
+            'labor_cost': 'Labor Cost',
+            'paid_hours': 'Paid Hours',
+            'blended_rate': 'Blended Rate',
+            'premium_share_pct': 'Premium Share %',
+            'absence_share_pct': 'Absence Share %',
+            'labor_cost_share_pct': 'Labor Cost Share %',
+            'paid_hours_share_pct': 'Paid Hours Share %',
+            'cost_delta_pct': 'Cost Delta %',
+            'hours_delta_pct': 'Hours Delta %',
+            'rate_delta_pct': 'Rate Delta %',
+            'cost_volatility': 'Cost Volatility',
+            'rate_volatility': 'Rate Volatility',
+            'priority_score': 'Priority Score',
+            'risk_posture': 'Risk Posture',
+            'management_focus': 'Management Focus',
+            'focus_reason': 'Focus Reason',
+            'action_label': 'Action Label',
+        },
+    )
+    category_df = _rename_columns(
+        analysis['category_mix'],
+        {
+            'time_category': 'Time Category',
+            'labor_cost': 'Labor Cost',
+            'paid_hours': 'Paid Hours',
+            'labor_cost_share_pct': 'Labor Cost Share %',
+            'paid_hours_share_pct': 'Paid Hours Share %',
+            'share_display_pct': 'Primary Share %',
+            'share_display_label': 'Primary Share Basis',
+            'cost_delta_pct': 'Cost Delta %',
+            'hours_delta_pct': 'Hours Delta %',
+            'leading_department': 'Leading Department',
+            'leading_department_share_pct': 'Leading Department Share %',
+            'category_class': 'Category Class',
+            'category_kind': 'Category Kind',
+            'priority_score': 'Priority Score',
+            'risk_posture': 'Risk Posture',
+            'management_focus': 'Management Focus',
+            'focus_reason': 'Focus Reason',
+            'activity_note': 'Activity Note',
+            'action_label': 'Action Label',
+        },
+    )
+    worker_df = _rename_columns(
+        analysis['worker_summary'],
+        {
+            'employee_name': 'Employee',
+            'employee_code': 'Employee Code',
+            'labor_cost': 'Labor Cost',
+            'paid_hours': 'Paid Hours',
+            'blended_rate': 'Blended Rate',
+            'premium_share_pct': 'Premium Share %',
+            'absence_share_pct': 'Absence Share %',
+            'labor_cost_share_pct': 'Labor Cost Share %',
+            'department_count': 'Departments Worked',
+            'category_count': 'Categories Used',
+            'cost_delta_pct': 'Cost Delta %',
+            'hours_delta_pct': 'Hours Delta %',
+            'cost_volatility': 'Cost Volatility',
+            'recent_cost_acceleration_pct': 'Recent Cost Acceleration %',
+            'priority_score': 'Priority Score',
+            'risk_posture': 'Risk Posture',
+            'management_focus': 'Management Focus',
+            'focus_reason': 'Focus Reason',
+            'exposure_profile': 'Exposure Profile',
+            'action_label': 'Action Label',
+        },
+    )
+    watchlist_df = _combined_watchlist_frame(analysis['department_watchlist'], analysis['worker_watchlist'], analysis['category_watchlist'])
+    detail_df = _rename_columns(
+        _query_workspace(filters, export_all=True)['frame'],
+        {
+            'labor_date': 'Labor Date',
+            'department_name': 'Department',
+            'employee_name': 'Employee',
+            'employee_code': 'Employee Code',
+            'time_category': 'Time Category',
+            'labor_cost': 'Labor Cost',
+            'paid_hours': 'Paid Hours',
+            'effective_rate': 'Effective Rate',
+            'status': 'Status',
+            'work_rule': 'Work Rule',
+            'is_premium': 'Is Premium',
+            'is_absence': 'Is Absence',
+            'is_memo': 'Is Memo',
+        },
+    )
+
+    if dataset == 'detail':
+        return ({'LaborDetail': detail_df}, 'labor_detail')
+    if dataset == 'department-summary':
+        return ({'DepartmentSummary': department_df}, 'labor_department_summary')
+    if dataset == 'category-summary':
+        return ({'CategorySummary': category_df}, 'labor_category_summary')
+    if dataset == 'employee-summary':
+        return ({'EmployeeSummary': worker_df}, 'labor_employee_summary')
+    if dataset == 'watchlist':
+        return ({'Watchlist': watchlist_df}, 'labor_watchlist')
+    return (
+        {
+            'Summary': summary_df,
+            'DecisionSignals': signals_df,
+            'Departments': department_df,
+            'Workers': worker_df,
+            'Categories': category_df,
+            'Trend': analysis['daily_trend'],
+            'MonthlyPattern': analysis['monthly_pattern'],
+            'DepartmentTrend': analysis['monthly_department_trend'],
+            'Watchlist': watchlist_df,
+            'Detail': detail_df,
+        },
+        'labor_snapshot',
     )

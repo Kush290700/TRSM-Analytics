@@ -17,6 +17,48 @@ from app.returns import suggestions
 from app.returns.models import ReturnApproval, ReturnEvent, ReturnRMA, ReturnRMAItem, ReturnWebhookEvent, get_session
 
 
+@pytest.fixture(autouse=True)
+def _seed_returns_fact_parquet(app, tmp_path, monkeypatch):
+    frame = pd.DataFrame(
+        [
+            {
+                "Date": "2025-01-05",
+                "DateExpected": "2025-01-05",
+                "ProductId": "SKU-1",
+                "ProductName": "Ribeye",
+                "CustomerId": "C-1",
+                "CustomerName": "Chef A",
+                "RegionName": "West",
+                "SupplierName": "Supplier A",
+                "OrderId": "ORD-1",
+                "OrderStatus": "packed",
+                "Revenue": 100.0,
+                "Cost": 60.0,
+                "QuantityShipped": 10,
+                "WeightLb": 30,
+                "UnitOfBillingId": 1,
+                "pack_item_count_sum": 10.0,
+                "pack_weight_lb_sum": 30.0,
+                "pack_count": 1,
+                "Price": 10.0,
+                "CostPrice": 6.0,
+            }
+        ]
+    )
+    parquet_path = tmp_path / "returns_fact.parquet"
+    frame.to_parquet(parquet_path)
+    monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    app.config["PARQUET_PATH"] = str(parquet_path)
+
+    from app.services import fact_store
+
+    fact_store.reset_duckdb_state()
+    fact_store.init_views()
+    app.config["FACT_SCHEMA_STATUS"] = fact_store.validate_fact_schema(strict=False)
+    yield
+    fact_store.reset_duckdb_state()
+
+
 class _Scope:
     def __init__(self, payload):
         self._payload = payload
@@ -334,7 +376,7 @@ def test_returns_role_permission_supersets_are_seeded(app):
         admin = set(list_role_permissions("admin"))
         warehouse = set(list_role_permissions("warehouse"))
 
-    assert {"page.returns.view", "returns.create", "returns.export", "returns.pdf.export"}.issubset(sales)
+    assert {"page.returns.view", "returns.create", "export.returns", "returns.pdf.export"}.issubset(sales)
     assert sales.issubset(manager)
     assert warehouse.issubset(manager)
     assert "returns.approve.mgr" in manager

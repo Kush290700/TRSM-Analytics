@@ -180,3 +180,45 @@ def test_universal_drilldown_go_accepts_products_source_page(app_client):
     assert query["end"] == ["2025-03-31"]
     assert query["regions"] == ["West"]
     assert "drill_context" in query
+
+
+def test_universal_drilldown_salesrep_target_preserves_salesrep_local_query_state(app_client):
+    payload = {
+        "source_page": "salesreps",
+        "source_section": "Trend Intelligence",
+        "source_widget": "Revenue Trend by Rep",
+        "requested_target": "salesrep",
+        "clicked_entity_type": "salesrep",
+        "clicked_entity_id": "R2",
+        "clicked_entity_label": "Bea",
+        "clicked_metric": "Revenue",
+        "clicked_metric_value": 8400,
+        "active_filter_state": {"start": "2025-03-01", "end": "2025-03-31", "regions": ["West"]},
+        "target_query": {
+            "attribution_mode": "historical_rep",
+            "roster_mode": "include_former",
+            "transfer_only": True,
+            "trend_metric": "profit",
+            "trend_grain": "quarterly",
+            "trend_view": "yoy_delta",
+            "top_n": 15,
+        },
+    }
+
+    response = app_client.get("/drilldowns/go", query_string={"context": _encode_context(payload)}, follow_redirects=False)
+    assert response.status_code == 302
+
+    parsed = urlparse(response.headers["Location"])
+    assert parsed.path == "/salesreps/R2"
+    query = parse_qs(parsed.query)
+    assert query["start"] == ["2025-03-01"]
+    assert query["end"] == ["2025-03-31"]
+    assert query["regions"] == ["West"]
+    assert query["attribution_mode"] == ["historical_rep"]
+    assert query["roster_mode"] == ["include_former"]
+    assert query["transfer_only"] == ["1"]
+    assert query["trend_metric"] == ["profit"]
+    assert query["trend_grain"] == ["quarterly"]
+    assert query["trend_view"] == ["yoy_delta"]
+    assert query["top_n"] == ["15"]
+    assert "drill_context" in query

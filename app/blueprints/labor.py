@@ -17,14 +17,15 @@ bp = Blueprint("labor", __name__, url_prefix="/labor")
 @login_required
 def index():
     payload = labor_bundle.build_page_payload(request.args)
-    payload_json = sanitize_for_json(payload)
+    payload_safe = sanitize_for_json(payload)
+    client_payload = sanitize_for_json(labor_bundle.build_client_payload(payload_safe))
     return render_template(
         "labor/index.html",
-        payload=payload,
-        payload_json=payload_json,
-        filters=payload.get("filters") or {},
-        filter_options=payload.get("filter_options") or {},
-        export_urls=payload.get("export_urls") or {},
+        payload=payload_safe,
+        payload_json=client_payload,
+        filters=payload_safe.get("filters") or {},
+        filter_options=payload_safe.get("filter_options") or {},
+        export_urls=payload_safe.get("export_urls") or {},
         hide_global_filters=True,
     )
 

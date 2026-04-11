@@ -32,6 +32,8 @@
   };
 
   let controller = null;
+  let currentRequestSeq = 0;
+  let currentApplyId = null;
 
   const tbody = document.getElementById("supTbody");
   const statusEl = document.getElementById("tableStatus");
@@ -467,8 +469,28 @@
 
   const buildFetchKey = (params) => `${bundleUrl}?${params.toString()}`;
 
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = null;
+    return applyId;
+  };
+
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId && !payload.applyId) payload.applyId = applyId;
+    try {
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(payload);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+    } catch (_err) {
+      // no-op
+    }
+  };
+
   const fetchBundle = async ({ append = false } = {}) => {
-    if (state.loading) return;
     const params = buildParams({ includePage: true });
     const fetchKey = buildFetchKey(params);
     if (state.lastFetchKey === fetchKey) return;
@@ -476,6 +498,7 @@
     state.lastFetchKey = fetchKey;
     state.loading = true;
     setStatus(append ? "Loading more…" : "Loading…");
+    const requestSeq = ++currentRequestSeq;
 
     if (controller) controller.abort();
     controller = new AbortController();
@@ -504,6 +527,7 @@
       const cached = payload?.meta?.cached;
       setStatus(cached ? "Loaded (cached)." : "Loaded.");
     } catch (err) {
+      if (err?.name === "AbortError") return;
       error = err;
       console.error("[suppliers] bundle error", err);
       if (!append) {
@@ -513,23 +537,16 @@
       }
       setStatus("Failed to load data.");
     } finally {
+      if (requestSeq !== currentRequestSeq) return;
       state.loading = false;
       state.lastFetchKey = "";
-      try {
-        window.dispatchEvent(
-          new CustomEvent("globalFilters:applied", {
-            detail: {
-              page: "suppliers",
-              qs: state.filterQs,
-              error: error ? String(error) : null,
-              cached: Boolean(payload?.meta?.cached),
-              duckdb_query_count: payload?.meta?.duckdb_query_count ?? null,
-            },
-          })
-        );
-      } catch (err) {
-        // no-op
-      }
+      dispatchGlobalApplyAck({
+        page: "suppliers",
+        qs: state.filterQs,
+        error: error ? String(error) : null,
+        cached: Boolean(payload?.meta?.cached),
+        duckdb_query_count: payload?.meta?.duckdb_query_count ?? null,
+      });
     }
   };
 
@@ -612,6 +629,7 @@
   };
 
   const onApply = (evt) => {
+    currentApplyId = evt?.detail?.applyId || null;
     const qs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(qs);
   };

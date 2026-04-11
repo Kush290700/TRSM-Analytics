@@ -89,3 +89,26 @@ def test_margin_pct_uses_totals():
 
     assert rows
     assert rows[0]["margin_pct"] == pytest.approx(20.0, abs=0.01)
+
+
+def test_normalize_products_backfills_protein_and_category_dimensions():
+    raw = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-04-01", "2024-04-02"]),
+            "ProductId": ["SKU-1", "SKU-2"],
+            "ProductName": ["Prime Ribeye", "Maple Bacon"],
+            "ProteinType": [None, None],
+            "Protein": ["Beef", "Pork"],
+            "Category": [None, None],
+            "ProductCategory": ["Steak", "Bacon"],
+            "Revenue": [100.0, 200.0],
+            "WeightLb": [20.0, 30.0],
+        }
+    )
+
+    normalized = products_bp.normalize_products_df(raw)
+
+    assert normalized[products_bp.CAN.protein_type].astype(str).tolist() == ["Beef", "Pork"]
+    assert normalized[products_bp.CAN.protein_name].astype(str).tolist() == ["Beef", "Pork"]
+    assert normalized[products_bp.CAN.category].astype(str).tolist() == ["Steak", "Bacon"]
+    assert normalized[products_bp.CAN.product_category].astype(str).tolist() == ["Steak", "Bacon"]

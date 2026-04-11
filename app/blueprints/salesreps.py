@@ -22,6 +22,7 @@ from app.core.rbac import requires_roles, can_view_costs
 from app.core import access_policy
 from app.services.frame import load_canonical_df
 from app.services.filters import apply_filters as apply_filter_params, filters_cache_key, resolve_filters
+from app.services.bundle_builder import to_json_safe
 from app.services.cache import cache_key as versioned_cache_key
 from app.services import analytics_utils as au, bundle_service, filters_service, fact_store, salesreps_bundle
 from app.core.features import legacy_pandas_enabled
@@ -1199,7 +1200,7 @@ def drilldown_bundle_api():
             status_code = 404 if "not found" in message else 400
     except Exception:
         status_code = 200
-    return jsonify(payload), status_code
+    return jsonify(to_json_safe(payload)), status_code
 
 
 @bp.get("/<rep_id>/api/summary")

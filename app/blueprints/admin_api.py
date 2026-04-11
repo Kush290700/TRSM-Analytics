@@ -3,27 +3,34 @@ from __future__ import annotations
 import re
 import secrets
 import os
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
 from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 import json
 from decimal import Decimal
 
 from app.cache import cache
-from ..core.access_policy import require_admin, bump_permissions_version
+from ..core.access_policy import require_admin, bump_permissions_version, permissions_version
 from ..core.rbac import ALLOWED_ROLES as RBAC_ROLES, permission_required
 from ..core.audit import log_audit, log_audit_change
 from ..auth.models import (
     SessionLocal,
     User,
     AuditLog,
+    _coerce_scope_type,
     list_visibility_for_user,
     replace_visibility_for_user,
     UserVisibilitySalesRep,
+    UserRole,
+    UserScopeRule,
+    UserScopeGroup,
+    ScopeGroup,
+    ScopeGroupMember,
     list_user_role_names,
     replace_user_roles,
     list_effective_permission_keys_for_user,
@@ -67,6 +74,8 @@ LIVE_SQL_ALLOWED = (
 
 ALL_SCOPE_TOKEN = "__all__"
 ALL_SCOPE_TOKENS = {ALL_SCOPE_TOKEN, "all", "*"}
+_ADMIN_METADATA_CACHE_TTL = 60 * 10
+_ADMIN_USER_PERMISSIONS_CACHE_TTL = 60
 
 
 @bp.after_request
@@ -98,6 +107,26 @@ def _admin_debug_enabled() -> bool:
     if raw is None:
         raw = os.getenv("ADMIN_DEBUG", "")
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cached_permission_registry() -> list[dict[str, Any]]:
+    cache_key = "admin.permissions.registry.v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = permission_registry()
+    cache.set(cache_key, data, timeout=_ADMIN_METADATA_CACHE_TTL)
+    return data
+
+
+def _cached_permission_editor_schema() -> dict[str, Any]:
+    cache_key = "admin.permissions.editor_schema.v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    data = permission_editor_schema()
+    cache.set(cache_key, data, timeout=_ADMIN_METADATA_CACHE_TTL)
+    return data
 
 
 def _debug_where_clause(query) -> str:
@@ -259,6 +288,148 @@ def _serialize_user(user: User, visibility: Optional[list[str]] = None) -> dict:
     return data
 
 
+def _status_from_user_flags(*, is_active: Any, is_approved: Any) -> str:
+    if bool(is_active) and bool(is_approved):
+        return "active"
+    if not bool(is_active):
+        return "disabled"
+    return "pending"
+
+
+def _row_mapping(row: Any) -> dict[str, Any]:
+    mapping = getattr(row, "_mapping", None)
+    if mapping is not None:
+        return dict(mapping)
+    if isinstance(row, dict):
+        return dict(row)
+    return {}
+
+
+def _batch_role_names(session, user_ids: List[int]) -> Dict[int, List[str]]:
+    if not user_ids:
+        return {}
+    rows = (
+        session.query(UserRole.user_id, Role.name)
+        .join(Role, Role.id == UserRole.role_id)
+        .filter(UserRole.user_id.in_(user_ids))
+        .all()
+    )
+    role_map: Dict[int, set[str]] = {int(user_id): set() for user_id in user_ids}
+    for user_id, role_name in rows:
+        if role_name:
+            role_map.setdefault(int(user_id), set()).add(str(role_name).strip().lower())
+    return {user_id: sorted(values) for user_id, values in role_map.items()}
+
+
+def _batch_scope_rules(session, user_ids: List[int]) -> Dict[int, Dict[str, List[str]]]:
+    if not user_ids:
+        return {}
+    results: Dict[int, Dict[str, set[str]]] = {
+        int(user_id): {"rep": set(), "customer": set(), "region": set(), "supplier": set()}
+        for user_id in user_ids
+    }
+    direct_rows = (
+        session.query(UserScopeRule.user_id, UserScopeRule.scope_type, UserScopeRule.scope_value)
+        .filter(
+            UserScopeRule.user_id.in_(user_ids),
+            UserScopeRule.scope_mode == "allow",
+        )
+        .all()
+    )
+    for user_id, scope_type, scope_value in direct_rows:
+        canonical = _coerce_scope_type(scope_type)
+        value = str(scope_value or "").strip()
+        if canonical and value:
+            results.setdefault(int(user_id), {"rep": set(), "customer": set(), "region": set(), "supplier": set()})
+            results[int(user_id)].setdefault(canonical, set()).add(value)
+
+    group_rows = (
+        session.query(UserScopeGroup.user_id, ScopeGroup.scope_type, ScopeGroupMember.scope_value)
+        .join(ScopeGroup, ScopeGroup.id == UserScopeGroup.group_id)
+        .join(ScopeGroupMember, ScopeGroupMember.group_id == ScopeGroup.id)
+        .filter(UserScopeGroup.user_id.in_(user_ids))
+        .all()
+    )
+    for user_id, scope_type, scope_value in group_rows:
+        canonical = _coerce_scope_type(scope_type)
+        value = str(scope_value or "").strip()
+        if canonical and value:
+            results.setdefault(int(user_id), {"rep": set(), "customer": set(), "region": set(), "supplier": set()})
+            results[int(user_id)].setdefault(canonical, set()).add(value)
+
+    return {
+        user_id: {scope_type: sorted(values) for scope_type, values in scope_map.items()}
+        for user_id, scope_map in results.items()
+    }
+
+
+def _serialize_user_listing_row(
+    row: Any,
+    *,
+    visibility: Optional[list[str]] = None,
+    role_names: Optional[list[str]] = None,
+    scope_rules: Optional[Dict[str, List[str]]] = None,
+) -> dict[str, Any]:
+    payload = _row_mapping(row)
+    user_id = int(payload.get("id") or 0)
+    vis = [str(value).strip() for value in (visibility or []) if str(value).strip()]
+    scope_rules = scope_rules or {"rep": [], "customer": [], "region": [], "supplier": []}
+    roles = [str(role).strip().lower() for role in (role_names or []) if str(role).strip()]
+    if not roles:
+        fallback_role = str(payload.get("role") or "sales").strip().lower()
+        roles = [fallback_role] if fallback_role else ["sales"]
+
+    rep_scope = _normalize_rep_scope_values((scope_rules.get("rep") or []) + vis)
+    customer_scope = sorted({str(v).strip() for v in (scope_rules.get("customer") or []) if str(v).strip()})
+    region_scope = sorted({str(v).strip() for v in (scope_rules.get("region") or []) if str(v).strip()})
+    supplier_scope = sorted({str(v).strip() for v in (scope_rules.get("supplier") or []) if str(v).strip()})
+    has_all_rep_scope = any(str(v).strip().lower() in ALL_SCOPE_TOKENS for v in rep_scope)
+    role = str(payload.get("role") or "").strip().lower()
+    is_admin = ("admin" in roles) or role == "admin"
+    scope_mode = "all" if (is_admin or has_all_rep_scope) else ("list" if (rep_scope or customer_scope or region_scope or supplier_scope) else "none")
+
+    created_at = payload.get("created_at")
+    updated_at = payload.get("updated_at")
+    last_login_at = payload.get("last_login_at")
+    return {
+        "id": user_id,
+        "username": payload.get("username"),
+        "email": payload.get("email"),
+        "first_name": payload.get("first_name"),
+        "last_name": payload.get("last_name"),
+        "full_name": " ".join(
+            [part for part in [str(payload.get("first_name") or "").strip(), str(payload.get("last_name") or "").strip()] if part]
+        )
+        or payload.get("username")
+        or "",
+        "role": payload.get("role"),
+        "roles": roles,
+        "is_active": bool(payload.get("is_active")),
+        "is_approved": bool(payload.get("is_approved")),
+        "status": _status_from_user_flags(is_active=payload.get("is_active"), is_approved=payload.get("is_approved")),
+        "sales_rep_id": payload.get("sales_rep_id"),
+        "erp_user_id": payload.get("erp_user_id"),
+        "region_id": payload.get("region_id"),
+        "sales_visibility": payload.get("sales_visibility"),
+        "created_at": created_at.isoformat() if created_at else None,
+        "last_login_at": last_login_at.isoformat() if last_login_at else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
+        "visibility": vis,
+        "visibility_count": len(vis),
+        "scope": {
+            "scope_mode": scope_mode,
+            "allowed_erp_user_ids": rep_scope,
+            "allowed_customer_ids": customer_scope,
+            "allowed_region_ids": region_scope,
+            "allowed_supplier_ids": supplier_scope,
+            "allowed_count": len(rep_scope),
+            "allowed_customer_count": len(customer_scope),
+            "allowed_region_count": len(region_scope),
+            "allowed_supplier_count": len(supplier_scope),
+        },
+    }
+
+
 def _get_visibility_map(session, user_ids: List[int]) -> Dict[int, List[str]]:
     if not user_ids:
         return {}
@@ -310,7 +481,7 @@ def _user_update_audit_action(before: dict[str, Any], after: dict[str, Any], upd
 
 
 def _access_summary(selected_permissions: set[str], user_state: dict[str, Any] | None = None) -> dict[str, Any]:
-    schema = permission_editor_schema()
+    schema = _cached_permission_editor_schema()
     modules = schema.get("modules") or []
     accessible_modules: list[str] = []
     accessible_drilldowns: list[str] = []
@@ -366,8 +537,8 @@ def _build_user_permissions_payload(serialized: dict[str, Any]) -> dict[str, Any
     return {
         "user": serialized,
         "role_permissions": sorted(role_permissions),
-        "registry": permission_registry(),
-        "editor": permission_editor_schema(),
+        "registry": _cached_permission_registry(),
+        "editor": _cached_permission_editor_schema(),
         "access_source": {
             "role_preset": (serialized.get("role") or (role_names[0] if role_names else "") or "").strip().lower(),
             "role_names": role_names,
@@ -544,7 +715,13 @@ def _search_dimension(scope_type: str, query: str, limit: int, offset: int) -> l
     except Exception:
         return []
 
-    cols = fact_store.list_columns()
+    try:
+        cols = fact_store.list_columns()
+        scope_obj = access_policy.get_current_scope(use_cache=True)
+        scope_where, scope_params = fact_store.build_scope_clause(scope_obj.as_dict(include_allowed=True), cols)
+    except Exception:
+        current_app.logger.debug("admin.dimension_search_unavailable", exc_info=True)
+        return []
     if not cols:
         return []
     id_candidates, label_candidates = _dimension_candidates(scope_type)
@@ -555,8 +732,6 @@ def _search_dimension(scope_type: str, query: str, limit: int, offset: int) -> l
     id_q = fact_store.quote_identifier(id_col)
     label_q = fact_store.quote_identifier(label_col) if label_col else id_q
 
-    scope_obj = access_policy.get_current_scope(use_cache=True)
-    scope_where, scope_params = fact_store.build_scope_clause(scope_obj.as_dict(include_allowed=True), cols)
     where_parts: list[str] = [scope_where or "1=1", f"{id_q} IS NOT NULL"]
     params: list[Any] = list(scope_params or [])
     q = str(query or "").strip().lower()
@@ -600,7 +775,13 @@ def _customer_suggestions_for_reps(rep_ids: list[str], limit: int) -> list[dict[
     except Exception:
         return []
 
-    cols = fact_store.list_columns()
+    try:
+        cols = fact_store.list_columns()
+        scope_obj = access_policy.get_current_scope(use_cache=True)
+        scope_where, scope_params = fact_store.build_scope_clause(scope_obj.as_dict(include_allowed=True), cols)
+    except Exception:
+        current_app.logger.debug("admin.customer_suggest_unavailable", exc_info=True)
+        return []
     if not cols:
         return []
     rep_col = fact_store.choose_column(
@@ -626,8 +807,6 @@ def _customer_suggestions_for_reps(rep_ids: list[str], limit: int) -> list[dict[
         else "COUNT(*)"
     )
 
-    scope_obj = access_policy.get_current_scope(use_cache=True)
-    scope_where, scope_params = fact_store.build_scope_clause(scope_obj.as_dict(include_allowed=True), cols)
     rep_placeholders = ", ".join("?" for _ in normalized_reps)
     where_parts = [
         scope_where or "1=1",
@@ -670,12 +849,15 @@ def _validate_scope_values(scope_map: dict[str, list[str]]) -> Optional[str]:
     except Exception:
         return None
 
-    cols = fact_store.list_columns()
+    try:
+        cols = fact_store.list_columns()
+        scope_obj = access_policy.get_current_scope(use_cache=True)
+        scope_where, scope_params = fact_store.build_scope_clause(scope_obj.as_dict(include_allowed=True), cols)
+    except Exception:
+        current_app.logger.debug("admin.scope_validation_unavailable", exc_info=True)
+        return None
     if not cols:
         return None
-
-    scope_obj = access_policy.get_current_scope(use_cache=True)
-    scope_where, scope_params = fact_store.build_scope_clause(scope_obj.as_dict(include_allowed=True), cols)
     for scope_type, values in (scope_map or {}).items():
         requested = sorted({str(v).strip() for v in values if str(v).strip()})
         if not requested:
@@ -853,6 +1035,7 @@ def list_users():
     except Exception:
         return _error("page and page_size must be integers")
 
+    started = time.perf_counter()
     with SessionLocal() as s:
         base_query = s.query(User)
         if query:
@@ -867,11 +1050,17 @@ def list_users():
             )
         if role_filter:
             base_query = base_query.filter(func.lower(User.role) == role_filter)
+        stats_row = base_query.with_entities(
+            func.count(User.id).label("total"),
+            func.coalesce(func.sum(case((User.is_approved == False, 1), else_=0)), 0).label("pending"),  # noqa: E712
+            func.coalesce(func.sum(case((((User.is_active == True) & (User.is_approved == True)), 1), else_=0)), 0).label("active"),  # noqa: E712
+            func.coalesce(func.sum(case((User.is_active == False, 1), else_=0)), 0).label("disabled"),  # noqa: E712
+        ).one()
         stats = {
-            "total": base_query.count(),
-            "pending": base_query.filter(User.is_approved == False).count(),  # noqa: E712
-            "active": base_query.filter(User.is_active == True, User.is_approved == True).count(),  # noqa: E712
-            "disabled": base_query.filter(User.is_active == False).count(),  # noqa: E712
+            "total": int(getattr(stats_row, "total", 0) or 0),
+            "pending": int(getattr(stats_row, "pending", 0) or 0),
+            "active": int(getattr(stats_row, "active", 0) or 0),
+            "disabled": int(getattr(stats_row, "disabled", 0) or 0),
         }
         q = base_query
         if status_filter == "pending":
@@ -889,7 +1078,7 @@ def list_users():
         elif active_filter in {"false", "0", "no"}:
             q = q.filter(User.is_active == False)  # noqa: E712
 
-        total = q.count()
+        total = int(q.with_entities(func.count(User.id)).scalar() or 0)
         if _admin_debug_enabled():
             current_app.logger.info(
                 "admin.users.list.debug",
@@ -910,19 +1099,81 @@ def list_users():
                     "where_clause": _debug_where_clause(q),
                 },
             )
+        rows_query = q.with_entities(
+            User.id.label("id"),
+            User.username.label("username"),
+            User.email.label("email"),
+            User.first_name.label("first_name"),
+            User.last_name.label("last_name"),
+            User.role.label("role"),
+            User.is_active.label("is_active"),
+            User.is_approved.label("is_approved"),
+            User.sales_rep_id.label("sales_rep_id"),
+            User.erp_user_id.label("erp_user_id"),
+            User.region_id.label("region_id"),
+            User.sales_visibility.label("sales_visibility"),
+            User.created_at.label("created_at"),
+            User.last_login_at.label("last_login_at"),
+            User.updated_at.label("updated_at"),
+        )
         try:
             users = (
-                q.order_by(User.updated_at.desc(), User.id.desc())
+                rows_query.order_by(User.updated_at.desc(), User.id.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
                 .all()
             )
         except Exception:
-            users = q.order_by(User.created_at.desc(), User.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-        visibility = _get_visibility_map(s, [u.id for u in users])
-        data = [_serialize_user(u, visibility.get(u.id, [])) for u in users]
+            users = (
+                rows_query.order_by(User.created_at.desc(), User.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+        user_ids = [int(_row_mapping(row).get("id") or 0) for row in users if int(_row_mapping(row).get("id") or 0) > 0]
+        visibility = _get_visibility_map(s, user_ids)
+        role_names = _batch_role_names(s, user_ids)
+        scope_rules = _batch_scope_rules(s, user_ids)
+        data = [
+            _serialize_user_listing_row(
+                row,
+                visibility=visibility.get(int(_row_mapping(row).get("id") or 0), []),
+                role_names=role_names.get(int(_row_mapping(row).get("id") or 0), []),
+                scope_rules=scope_rules.get(int(_row_mapping(row).get("id") or 0), {}),
+            )
+            for row in users
+        ]
 
-    return jsonify({"users": data, "pagination": {"page": page, "page_size": page_size, "total": total}, "stats": stats})
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    log_method = current_app.logger.info if duration_ms >= 400 else current_app.logger.debug
+    try:
+        log_method(
+            "admin.users.list",
+            extra={
+                "query": query,
+                "role_filter": role_filter,
+                "status_filter": status_filter,
+                "approved_filter": approved_filter,
+                "active_filter": active_filter,
+                "page": page,
+                "page_size": page_size,
+                "returned_rows": len(data),
+                "filtered_total": total,
+                "total_users": stats["total"],
+                "duration_ms": duration_ms,
+            },
+        )
+    except Exception:
+        pass
+
+    return jsonify(
+        {
+            "users": data,
+            "pagination": {"page": page, "page_size": page_size, "total": total},
+            "stats": stats,
+            "meta": {"duration_ms": duration_ms, "list_mode": "batched"},
+        }
+    )
 
 
 def _normalize_role_name(raw: Any) -> str:
@@ -937,7 +1188,7 @@ def _normalize_role_name(raw: Any) -> str:
 def list_permissions_api():
     rows = list_permissions()
     data = [{"key": p.key, "description": p.description} for p in rows]
-    return jsonify({"permissions": data, "registry": permission_registry()})
+    return jsonify({"permissions": data, "registry": _cached_permission_registry()})
 
 
 @bp.get("/roles")
@@ -1099,13 +1350,38 @@ def update_user_permissions_api(user_id: int):
 @require_admin
 @permission_required("admin.users.manage")
 def user_permissions_api(user_id: int):
+    started = time.perf_counter()
+    cached_payload = None
     with SessionLocal() as s:
         user = s.get(User, user_id)
         if not user:
             return _error("User not found", 404)
+        updated_marker = int(user.updated_at.timestamp()) if getattr(user, "updated_at", None) else 0
+        login_marker = int(user.last_login_at.timestamp()) if getattr(user, "last_login_at", None) else 0
+    cache_key = f"admin.user.permissions:{int(user_id)}:{permissions_version()}:{updated_marker}:{login_marker}"
+    cached_payload = cache.get(cache_key)
+    cache_hit = cached_payload is not None
+    if cached_payload is None:
         visibility = list_visibility_for_user(user_id)
         serialized = _serialize_user(user, visibility)
-    return jsonify(_build_user_permissions_payload(serialized))
+        cached_payload = _build_user_permissions_payload(serialized)
+        cache.set(cache_key, cached_payload, timeout=_ADMIN_USER_PERMISSIONS_CACHE_TTL)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    log_method = current_app.logger.info if duration_ms >= 250 else current_app.logger.debug
+    try:
+        log_method(
+            "admin.user.permissions",
+            extra={
+                "user_id": int(user_id),
+                "duration_ms": duration_ms,
+                "cache_hit": cache_hit,
+            },
+        )
+    except Exception:
+        pass
+    payload = dict(cached_payload)
+    payload["meta"] = {"duration_ms": duration_ms}
+    return jsonify(payload)
 
 
 @bp.post("/users")
@@ -1796,6 +2072,7 @@ def erp_users():
 @require_admin
 @permission_required("admin.users.manage")
 def preview_user(user_id: int):
+    started = time.perf_counter()
     with SessionLocal() as s:
         u = s.get(User, user_id)
         if not u:
@@ -1813,65 +2090,103 @@ def preview_user(user_id: int):
     try:
         from app.services import fact_store  # type: ignore
 
+        scope_payload = (summary.get("scope") or {}) if isinstance(summary, dict) else {}
         scope = {
-            "scope_mode": "list" if visibility else "none",
-            "allowed_erp_user_ids": visibility,
+            "scope_mode": scope_payload.get("scope_mode") or ("list" if visibility else "none"),
+            "allowed_erp_user_ids": scope_payload.get("allowed_erp_user_ids") or visibility,
+            "allowed_customer_ids": scope_payload.get("allowed_customer_ids") or [],
+            "allowed_region_ids": scope_payload.get("allowed_region_ids") or [],
+            "allowed_supplier_ids": scope_payload.get("allowed_supplier_ids") or [],
+            "is_admin": bool((summary.get("role") or "").strip().lower() == "admin" or "admin" in (summary.get("roles") or [])),
         }
-        df_90 = fact_store.query_fact(
-            filters=None,
-            scope=scope,
-            columns=["OrderId", "Revenue", "Cost", "ProductName", "CustomerName"],
-            apply_default_window=True,
-            use_cache=True,
+
+        scope_cache_key = json.dumps(
+            {
+                "scope_mode": scope.get("scope_mode"),
+                "allowed_erp_user_ids": scope.get("allowed_erp_user_ids"),
+                "allowed_customer_ids": scope.get("allowed_customer_ids"),
+                "allowed_region_ids": scope.get("allowed_region_ids"),
+                "allowed_supplier_ids": scope.get("allowed_supplier_ids"),
+                "is_admin": scope.get("is_admin"),
+                "dataset_version": fact_store.cache_buster(),
+            },
+            sort_keys=True,
+            default=str,
         )
-
-        def _safe_sum(frame: pd.DataFrame, cols: List[str]) -> float:
-            for c in cols:
-                if c in frame.columns:
-                    return float(pd.to_numeric(frame[c], errors="coerce").fillna(0).sum())
-            return 0.0
-
-        def _top(frame: pd.DataFrame, key_cols: List[str], value_cols: List[str], limit: int = 5):
-            for key in key_cols:
-                if key in frame.columns:
-                    value_col = None
-                    for v in value_cols:
-                        if v in frame.columns:
-                            value_col = v
-                            break
-                    if value_col:
-                        grouped = (
-                            frame.groupby(key)[value_col]
-                            .sum()
-                            .sort_values(ascending=False)
-                            .reset_index()
-                            .head(limit)
-                        )
-                        return grouped[[key, value_col]].to_dict(orient="records")
-            return []
-
-        if isinstance(df_90, pd.DataFrame) and not df_90.empty:
-            metrics["orders_90d"] = int(len(df_90))
-            metrics["revenue_sum"] = _safe_sum(df_90, ["Revenue"])
-            cost_sum = _safe_sum(df_90, ["Cost"])
-            metrics["cost_coverage_pct"] = float(
-                0 if metrics["revenue_sum"] == 0 else min(100.0, max(0.0, (cost_sum / metrics["revenue_sum"]) * 100))
+        metrics_cache_key = f"admin.user.preview.metrics:{int(user_id)}:{scope_cache_key}"
+        cached_metrics = cache.get(metrics_cache_key)
+        if cached_metrics is not None:
+            metrics = cached_metrics
+        elif scope.get("scope_mode") != "none" or scope.get("is_admin"):
+            df_90 = fact_store.query_fact(
+                filters=None,
+                scope=scope,
+                columns=["OrderId", "Revenue", "Cost", "ProductName", "CustomerName"],
+                apply_default_window=True,
+                use_cache=True,
             )
-            metrics["top_products"] = _top(df_90, ["ProductName", "Product", "Sku", "SKU"], ["Revenue"])
-            metrics["top_customers"] = _top(df_90, ["CustomerName", "Customer", "CustomerCode"], ["Revenue"])
 
-        df_full = fact_store.query_fact(
-            filters=None,
-            scope=scope,
-            columns=["OrderId"],
-            apply_default_window=False,
-            use_cache=True,
-        )
-        if isinstance(df_full, pd.DataFrame) and not df_full.empty:
-            metrics["orders_max"] = int(len(df_full))
+            def _safe_sum(frame: pd.DataFrame, cols: List[str]) -> float:
+                for c in cols:
+                    if c in frame.columns:
+                        return float(pd.to_numeric(frame[c], errors="coerce").fillna(0).sum())
+                return 0.0
+
+            def _top(frame: pd.DataFrame, key_cols: List[str], value_cols: List[str], limit: int = 5):
+                for key in key_cols:
+                    if key in frame.columns:
+                        value_col = None
+                        for v in value_cols:
+                            if v in frame.columns:
+                                value_col = v
+                                break
+                        if value_col:
+                            grouped = (
+                                frame.groupby(key)[value_col]
+                                .sum()
+                                .sort_values(ascending=False)
+                                .reset_index()
+                                .head(limit)
+                            )
+                            return grouped[[key, value_col]].to_dict(orient="records")
+                return []
+
+            if isinstance(df_90, pd.DataFrame) and not df_90.empty:
+                metrics["orders_90d"] = int(len(df_90))
+                metrics["revenue_sum"] = _safe_sum(df_90, ["Revenue"])
+                cost_sum = _safe_sum(df_90, ["Cost"])
+                metrics["cost_coverage_pct"] = float(
+                    0 if metrics["revenue_sum"] == 0 else min(100.0, max(0.0, (cost_sum / metrics["revenue_sum"]) * 100))
+                )
+                metrics["top_products"] = _top(df_90, ["ProductName", "Product", "Sku", "SKU"], ["Revenue"])
+                metrics["top_customers"] = _top(df_90, ["CustomerName", "Customer", "CustomerCode"], ["Revenue"])
+
+            df_full = fact_store.query_fact(
+                filters=None,
+                scope=scope,
+                columns=["OrderId"],
+                apply_default_window=False,
+                use_cache=True,
+            )
+            if isinstance(df_full, pd.DataFrame) and not df_full.empty:
+                metrics["orders_max"] = int(len(df_full))
+            cache.set(metrics_cache_key, metrics, timeout=300)
     except Exception:
         current_app.logger.debug("admin.preview.metrics_failed", exc_info=True)
-    return jsonify({"preview": summary, "metrics": metrics})
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    log_method = current_app.logger.info if duration_ms >= 400 else current_app.logger.debug
+    try:
+        log_method(
+            "admin.user.preview",
+            extra={
+                "user_id": int(user_id),
+                "duration_ms": duration_ms,
+                "scope_mode": ((summary.get("scope") or {}).get("scope_mode") if isinstance(summary, dict) else None),
+            },
+        )
+    except Exception:
+        pass
+    return jsonify({"preview": summary, "metrics": metrics, "meta": {"duration_ms": duration_ms}})
 
 @bp.get("/audit/window")
 @login_required

@@ -4,7 +4,7 @@
   background:
     radial-gradient(circle at top right, rgba(11, 89, 143, 0.08), transparent 40%),
     linear-gradient(180deg, #f7f9fc 0%, #ffffff 60%);
-  border: 1px solid #e3e8ef;
+  border: 1px solid var(--color-border-default, #e3e8ef);
 }
 
 .assistant-header {
@@ -21,7 +21,7 @@
   letter-spacing: 0.08em;
   font-weight: 700;
   text-transform: uppercase;
-  color: #5f6c80;
+  color: var(--color-text-muted, #5f6c80);
 }
 
 .assistant-title {
@@ -32,7 +32,7 @@
 
 .assistant-subtitle {
   margin: 0;
-  color: #5f6c80;
+  color: var(--color-text-muted, #5f6c80);
 }
 
 .assistant-header-meta {
@@ -50,7 +50,7 @@
 
 .assistant-side,
 .assistant-chat {
-  border: 1px solid #dfe6f0;
+  border: 1px solid var(--color-border-default, #dfe6f0);
   border-radius: 12px;
   background: #fff;
   padding: 0.9rem;
@@ -64,7 +64,7 @@
 .side-subtitle {
   font-size: 0.88rem;
   margin: 0.95rem 0 0.45rem;
-  color: #4f5d73;
+  color: var(--color-eyebrow-text, #4f5d73);
 }
 
 .prompt-list {
@@ -88,13 +88,13 @@
   margin: 0;
   font-size: 0.79rem;
   font-weight: 700;
-  color: #24344d;
+  color: var(--color-text-primary, #24344d);
 }
 
 .proactive-card-body {
   margin: 0.25rem 0 0;
   font-size: 0.78rem;
-  color: #44566e;
+  color: var(--color-text-secondary, #44566e);
 }
 
 .severity-chip {
@@ -204,7 +204,7 @@
 .chat-role {
   font-size: 0.73rem;
   font-weight: 700;
-  color: #607188;
+  color: var(--color-eyebrow-text, #607188);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 0.3rem;
@@ -240,7 +240,7 @@
 
 .assistant-control > span {
   font-size: 0.74rem;
-  color: #5e7088;
+  color: var(--color-eyebrow-text, #5e7088);
   font-weight: 600;
 }
 
@@ -253,7 +253,7 @@
 
 .assistant-control-toggle > span {
   font-size: 0.78rem;
-  color: #30445f;
+  color: var(--color-text-secondary, #30445f);
 }
 
 .assistant-form-actions {
@@ -285,7 +285,7 @@
 
 .answer-heading {
   font-size: 0.86rem;
-  color: #4f5d73;
+  color: var(--color-eyebrow-text, #4f5d73);
   margin: 0;
 }
 

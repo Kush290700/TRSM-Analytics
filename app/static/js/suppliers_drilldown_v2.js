@@ -13,6 +13,7 @@
   const bundleUrl = meta.dataset.bundleUrl || "/api/suppliers/drilldown/bundle";
   const exportCsvBase = meta.dataset.exportCsvBase || "";
   const exportXlsxBase = meta.dataset.exportXlsxBase || "";
+  const initialPageNotice = (meta.dataset.pageNotice || "").trim();
   const showCosts = (() => {
     try {
       return JSON.parse(meta.dataset.showCosts || "true") !== false;
@@ -40,6 +41,8 @@
     sortBy: "revenue",
     sortDir: "desc",
     search: "",
+    proteinFocus: "",
+    tagFocus: "",
     productsRows: [],
     charts: {},
     loading: false,
@@ -47,7 +50,9 @@
     lastBundleKey: "",
     currentV2: {},
     sectionObserver: null,
+    requestSeq: 0,
   };
+  let currentApplyId = "";
 
   const fmtMoney0 = (v) => (v == null || Number.isNaN(Number(v)) ? "—" : nfMoney0.format(Number(v)));
   const fmtMoney2 = (v) => (v == null || Number.isNaN(Number(v)) ? "—" : nfMoney2.format(Number(v)));
@@ -81,7 +86,9 @@
   };
 
   const productDisplay = (row, variant = "full") => {
-    const full = row?.display_name || row?.product_label || [row?.product_id, row?.product_name].filter(Boolean).join(" — ") || row?.product_id || row?.product_name || "Unknown Product";
+    const sku = row?.sku || row?.product_id || "";
+    const productName = row?.product_name || (sku ? "Unnamed Product" : "");
+    const full = row?.display_name || row?.product_label || [sku, productName].filter(Boolean).join(" — ") || sku || productName || "Unknown Product";
     if (variant === "axis") return row?.display_name_axis || truncate(full, 34);
     if (variant === "short") return row?.display_name_short || truncate(full, 58);
     return full;
@@ -94,8 +101,36 @@
     return `/products/${encodeURIComponent(String(productId))}/drilldown${qs}`;
   };
 
+  const customerHref = (row) => {
+    const customerId = row?.customer_id;
+    if (!customerId) return "";
+    const qs = state.filterQs ? `?${state.filterQs}` : "";
+    return `/customers/drilldown/${encodeURIComponent(String(customerId))}${qs}`;
+  };
+
+  const showPageNotice = (title, message, tone = "warn", showRetry = false) => {
+    const root = document.getElementById("v2PageNotice");
+    const titleEl = document.getElementById("v2PageNoticeTitle");
+    const textEl = document.getElementById("v2PageNoticeText");
+    const retryBtn = document.getElementById("v2RetryButton");
+    if (!root || !titleEl || !textEl) return;
+    root.classList.remove("d-none", "is-warn", "is-risk", "is-accent", "is-good");
+    root.classList.add(`is-${tone || "warn"}`);
+    titleEl.textContent = title || "Supplier detail notice";
+    textEl.textContent = message || "Supplier detail is unavailable right now.";
+    if (retryBtn) retryBtn.classList.toggle("d-none", !showRetry);
+  };
+
+  const hidePageNotice = () => {
+    const root = document.getElementById("v2PageNotice");
+    if (!root) return;
+    root.classList.add("d-none");
+  };
+
   const signalTone = (tag) => {
     const token = String(tag || "").trim().toLowerCase();
+    if (token.includes("cost")) return "warn";
+    if (token.includes("concentration")) return "warn";
     if (token.includes("below target") || token.includes("volatility")) return "warn";
     if (token.includes("outlier") || token.includes("risk")) return "risk";
     if (token.includes("strong") || token.includes("diversified")) return "good";
@@ -105,6 +140,29 @@
   const renderSignalBadges = (tags) => {
     if (!Array.isArray(tags) || !tags.length) return '<span class="text-muted">—</span>';
     return tags.map((tag) => `<span class="supplier-v2-signal is-${signalTone(tag)}">${escapeHtml(tag)}</span>`).join("");
+  };
+  const renderStatusBadge = (label, color) => {
+    const text = String(label || "").trim();
+    if (!text) return '<span class="text-muted">—</span>';
+    const badgeColor = color || "#7a7f87";
+    return `<span class="badge rounded-pill" style="background-color: ${escapeHtml(badgeColor)}; color: #fff;">${escapeHtml(text)}</span>`;
+  };
+  const renderColorMetric = (value, color, formatter) => {
+    if (value == null || Number.isNaN(Number(value))) return "—";
+    const tone = color ? ` style="color: ${escapeHtml(color)}; font-weight: 600;"` : "";
+    return `<span${tone}>${escapeHtml(formatter(value))}</span>`;
+  };
+  const fmtSignedMoney2 = (value) => {
+    if (value == null || Number.isNaN(Number(value))) return "—";
+    const amount = Number(value);
+    const sign = amount > 0 ? "+" : "";
+    return `${sign}${nfMoney2.format(amount)}`;
+  };
+  const fmtSignedPts = (value) => {
+    if (value == null || Number.isNaN(Number(value))) return "—";
+    const amount = Number(value);
+    const sign = amount > 0 ? "+" : "";
+    return `${sign}${nfPct.format(amount)} pts`;
   };
 
   const statusTone = (value) => {
@@ -138,6 +196,17 @@
       return `<div class="supplier-v2-product-cell"><a class="supplier-v2-product-link" href="${href}" title="${escapeHtml(fullLabel)}">${escapeHtml(shortLabel)}</a>${metaHtml}</div>`;
     }
     return `<div class="supplier-v2-product-cell"><span class="fw-semibold" title="${escapeHtml(fullLabel)}">${escapeHtml(shortLabel)}</span>${metaHtml}</div>`;
+  };
+
+  const renderCustomerCell = (row, metaBits = []) => {
+    const label = row?.customer_name || row?.customer_id || "Unknown Customer";
+    const href = customerHref(row);
+    const cleanMetaBits = metaBits.filter((bit) => String(bit || "").trim());
+    const metaHtml = cleanMetaBits.length ? `<div class="supplier-v2-cell-meta">${cleanMetaBits.map((bit) => escapeHtml(bit)).join(" · ")}</div>` : "";
+    if (href) {
+      return `<div class="supplier-v2-product-cell"><a class="supplier-v2-product-link" href="${href}" title="${escapeHtml(label)}">${escapeHtml(label)}</a>${metaHtml}</div>`;
+    }
+    return `<div class="supplier-v2-product-cell"><span class="fw-semibold">${escapeHtml(label)}</span>${metaHtml}</div>`;
   };
 
   const destroyChart = (name) => {
@@ -287,11 +356,14 @@
   };
 
   const renderHeader = (v2) => {
+    const header = (v2 && v2.header) || {};
     const score = (v2 && v2.scorecard) || {};
     const windowMeta = (v2 && v2.window) || {};
 
     setText("v2Title", score.supplier_name || supplierId || "Supplier");
     setChip("badgeSupplierId", `Supplier ID: ${score.supplier_id || supplierId || "—"}`, "accent");
+    setText("v2HeroSubtitle", header.coverage_note || "Executive supplier view for pricing quality, margin trust, customer dependency, and protein concentration under the active scope.");
+    setText("v2HeroNarrative", header.narrative || "Supplier detail narrative will populate after scoped supplier metrics load.");
 
     if (windowMeta.start && windowMeta.end) {
       const priorSummary = windowMeta.prior_start && windowMeta.prior_end
@@ -310,6 +382,8 @@
     setChip("badgeLifecycle", `Lifecycle: ${score.lifecycle || "Stable"}`, statusTone(score.lifecycle || "Stable"));
     setChip("badgeClass", `Class: ${score.classification || "—"}`, statusTone(score.classification || "Watch"));
     setChip("badgeCoverage", `Cost coverage: ${fmtPct(score.cost_coverage_pct)}`, asNum(score.cost_coverage_pct, 0) >= 90 ? "good" : asNum(score.cost_coverage_pct, 0) >= 75 ? "warn" : "risk");
+    setChip("badgeTopProtein", `Top protein: ${score.top_protein || "—"}`, statusTone((score.top_protein_share_pct || 0) >= 65 ? "concentrated" : "diversified"));
+    setChip("badgeTopSku", `Top SKU: ${truncate(score.top_sku || "—", 40)}`, statusTone((score.top_sku_share_pct || 0) >= 20 ? "watch" : "stable"));
     setChip("badgeLastSold", `Last sold: ${score.last_sold || "—"}`, "accent");
 
     setText("heroHealthScore", fmtNum2Safe(score.health_score));
@@ -344,6 +418,17 @@
     }
   };
 
+  const renderOverviewStories = (v2) => {
+    const trend = (v2 && v2.trend) || {};
+    const mix = (v2 && v2.mix) || {};
+    const protein = (v2 && v2.protein) || {};
+    const pricing = (v2 && v2.pricing) || {};
+    const playbook = (v2 && v2.playbook) || {};
+    setText("v2CommercialStory", trend.narrative || "Commercial story will populate after trend diagnostics load.");
+    setText("v2RiskStory", `${mix.narrative || "Concentration diagnostics pending."} ${protein.narrative || ""}`.trim());
+    setText("v2ActionStory", playbook.narrative || pricing.narrative || "Action guidance will populate after the supplier bundle loads.");
+  };
+
   const renderScorecard = (v2) => {
     const score = (v2 && v2.scorecard) || {};
     const trend = (v2 && v2.trend) || {};
@@ -355,6 +440,22 @@
     setText("kpiRevenueDelta", `Δ window: ${fmtMoney0(score.revenue_delta_window)} (${fmtPct(score.revenue_delta_window_pct)})`);
     setText("kpiProfit", showCosts ? fmtMoney0(score.total_profit) : "—");
     setText("kpiMargin", showCosts ? fmtPct(score.gross_margin_pct) : "—");
+    const marginEl = document.getElementById("kpiMargin");
+    if (marginEl) {
+      marginEl.style.color = showCosts && score.status_color ? String(score.status_color) : "";
+    }
+    setText(
+      "kpiMarginMeta",
+      showCosts
+        ? `Target ${fmtPct(score.target_margin_pct)} · Min ${fmtPct(score.minimum_margin_pct)}`
+        : "Gross margin on cost-covered rows"
+    );
+    setText(
+      "kpiMarginStatus",
+      showCosts
+        ? `${score.target_status || "Target context unavailable"} · ${fmtSignedPts(score.target_gap_pct_points)} vs target`
+        : "Margin target context hidden by permissions"
+    );
     setText("kpiOrders", fmtInt(score.orders));
     setText("kpiUnits", fmtInt(score.units));
     setText("kpiWeight", fmtInt(score.weight_lb));
@@ -379,21 +480,26 @@
     setText("kpiHealthLabel", score.health_label || "Watch");
     setTone(document.getElementById("kpiHealthLabel"), statusTone(score.health_label || "Watch"));
     setText("kpiHealthFormula", score.health_formula || "");
+    renderOverviewStories(v2);
   };
 
   const renderNavBadges = (v2) => {
     const score = (v2 && v2.scorecard) || {};
     const trend = (v2 && v2.trend) || {};
     const pricing = (v2 && v2.pricing) || {};
+    const protein = (v2 && v2.protein) || {};
     const opportunities = (v2 && v2.opportunities) || {};
+    const playbook = (v2 && v2.playbook) || {};
     const productsTable = (v2 && v2.products_table) || {};
 
     setText("navOverviewBadge", score.health_label || "—");
     setText("navTrendBadge", `${asArr(trend.labels).length || 0} mo`);
     setText("navMixBadge", fmtInt(score.active_skus));
+    setText("navProteinBadge", fmtInt(asArr(protein.rows).length));
     setText("navPricingBadge", fmtInt(asArr(pricing.outliers).length + asArr(opportunities.margin_at_risk).length));
     setText("navCustomersBadge", fmtInt(score.active_customers));
     setText("navProductsBadge", fmtInt(productsTable.total_rows));
+    setText("navActionsBadge", fmtInt(asArr(playbook.cards).length));
     setText("navExportsBadge", "7");
   };
 
@@ -552,6 +658,174 @@
       });
     } else {
       setChartEmpty("v2TopProductsProfitChart", showCosts ? "No product profit rows for selected filters." : "Cost permission is required to view profit diagnostics.");
+    }
+  };
+
+  const renderProteinSection = (v2) => {
+    destroyChart("proteinRevenue");
+    destroyChart("categoryRevenue");
+    const protein = (v2 && v2.protein) || {};
+    const proteinRows = asArr(protein.rows).slice(0, 12);
+    const categoryRows = asArr(protein.category_rows).slice(0, 12);
+    const proteinNarrative = document.getElementById("v2ProteinNarrative");
+    const categoryNarrative = document.getElementById("v2CategoryNarrative");
+    if (proteinNarrative) proteinNarrative.textContent = protein.narrative || "Protein concentration commentary will populate after the supplier bundle loads.";
+    if (categoryNarrative) categoryNarrative.textContent = protein.category_narrative || "Category breadth commentary will populate after the supplier bundle loads.";
+
+    const focusWrap = document.getElementById("v2ProteinFocusCards");
+    if (focusWrap) {
+      const cards = asArr(protein.focus_cards);
+      focusWrap.innerHTML = cards.length
+        ? cards
+            .map(
+              (card) => `
+            <article class="supplier-v2-focus-card is-${escapeHtml(card.tone || "accent")}">
+              <div class="supplier-v2-focus-label">${escapeHtml(card.title || "Focus")}</div>
+              <div class="supplier-v2-focus-value">${escapeHtml(card.value || "—")}</div>
+              <div class="supplier-v2-focus-meta">${escapeHtml(card.meta || "")}</div>
+            </article>
+          `
+            )
+            .join("")
+        : '<div class="supplier-v2-empty-copy">Protein focus cards will appear once mapped supplier rows are available.</div>';
+    }
+
+    const chipWrap = document.getElementById("v2ProteinFocusChips");
+    if (chipWrap) {
+      const chips = proteinRows.slice(0, 8);
+      const activeProtein = state.proteinFocus;
+      chipWrap.innerHTML = chips.length
+        ? [
+            `<button type="button" class="supplier-v2-chip-filter ${activeProtein ? "" : "is-active"}" data-protein-focus="">All proteins</button>`,
+            ...chips.map(
+              (row) => `<button type="button" class="supplier-v2-chip-filter ${activeProtein === row.protein_family ? "is-active" : ""}" data-protein-focus="${escapeHtml(
+                row.protein_family || ""
+              )}">${escapeHtml(row.protein_family || "Unassigned")} <span>${fmtPct(row.revenue_share_pct)}</span></button>`
+            ),
+          ].join("")
+        : '<div class="supplier-v2-empty-copy">No protein filters are available for the current scope.</div>';
+    }
+
+    const proteinTbody = document.getElementById("v2ProteinRows");
+    if (proteinTbody) {
+      proteinTbody.innerHTML = proteinRows.length
+        ? proteinRows
+            .map(
+              (row) => `
+            <tr>
+              <td><button type="button" class="supplier-v2-table-link" data-protein-focus="${escapeHtml(row.protein_family || "")}">${escapeHtml(row.protein_family || "Unassigned")}</button></td>
+              <td>${escapeHtml(row.lead_category || "—")}</td>
+              <td class="text-end">${fmtMoney0(row.revenue)}</td>
+              <td class="text-end">${fmtPct(row.revenue_share_pct)}</td>
+              <td class="text-end">${fmtPct(row.mix_shift_pp)}</td>
+              <td class="text-end">${showCosts ? fmtPct(row.margin_pct) : "—"}</td>
+            </tr>
+          `
+            )
+            .join("")
+        : '<tr><td colspan="6" class="text-muted text-center">No protein diagnostics in the selected window.</td></tr>';
+    }
+
+    const categoryTbody = document.getElementById("v2CategoryRows");
+    if (categoryTbody) {
+      categoryTbody.innerHTML = categoryRows.length
+        ? categoryRows
+            .map(
+              (row) => `
+            <tr>
+              <td>${escapeHtml(row.product_category || "Unassigned")}</td>
+              <td class="text-end">${fmtMoney0(row.revenue)}</td>
+              <td class="text-end">${fmtPct(row.revenue_share_pct)}</td>
+              <td class="text-end">${fmtPct(row.mix_shift_pp)}</td>
+              <td class="text-end">${showCosts ? fmtPct(row.margin_pct) : "—"}</td>
+              <td class="text-end">${fmtInt(row.sku_count)}</td>
+            </tr>
+          `
+            )
+            .join("")
+        : '<tr><td colspan="6" class="text-muted text-center">No category diagnostics in the selected window.</td></tr>';
+    }
+
+    if (typeof Chart === "undefined") {
+      setChartEmpty("v2ProteinRevenueChart", "Chart library is unavailable.");
+      setChartEmpty("v2CategoryRevenueChart", "Chart library is unavailable.");
+      return;
+    }
+
+    const proteinCanvas = document.getElementById("v2ProteinRevenueChart");
+    if (proteinCanvas && proteinRows.length) {
+      setChartEmpty("v2ProteinRevenueChart", null);
+      state.charts.proteinRevenue = new Chart(proteinCanvas, {
+        type: "bar",
+        data: {
+          labels: proteinRows.map((row) => row.protein_family || "Unassigned"),
+          datasets: [
+            {
+              label: "Revenue",
+              data: proteinRows.map((row) => asNum(row.revenue, 0)),
+              backgroundColor: "#7f1d1d",
+              borderRadius: 8,
+            },
+          ],
+        },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const row = proteinRows[ctx.dataIndex] || {};
+                  return [`Revenue ${fmtMoney0(row.revenue)}`, `Share ${fmtPct(row.revenue_share_pct)}`, `Mix shift ${fmtPct(row.mix_shift_pp)}`];
+                },
+              },
+            },
+          },
+        },
+      });
+    } else {
+      setChartEmpty("v2ProteinRevenueChart", "No protein-family revenue is available for the selected window.");
+    }
+
+    const categoryCanvas = document.getElementById("v2CategoryRevenueChart");
+    if (categoryCanvas && categoryRows.length) {
+      setChartEmpty("v2CategoryRevenueChart", null);
+      state.charts.categoryRevenue = new Chart(categoryCanvas, {
+        type: "bar",
+        data: {
+          labels: categoryRows.map((row) => truncate(row.product_category || "Unassigned", 24)),
+          datasets: [
+            {
+              label: "Revenue",
+              data: categoryRows.map((row) => asNum(row.revenue, 0)),
+              backgroundColor: "#0f766e",
+              borderRadius: 8,
+            },
+          ],
+        },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const item = items?.[0];
+                  return item ? categoryRows[item.dataIndex]?.product_category || "" : "";
+                },
+                label: (ctx) => {
+                  const row = categoryRows[ctx.dataIndex] || {};
+                  return [`Revenue ${fmtMoney0(row.revenue)}`, `Share ${fmtPct(row.revenue_share_pct)}`, `Mix shift ${fmtPct(row.mix_shift_pp)}`];
+                },
+              },
+            },
+          },
+        },
+      });
+    } else {
+      setChartEmpty("v2CategoryRevenueChart", "No category revenue is available for the selected window.");
     }
   };
 
@@ -716,12 +990,13 @@
     const decTbody = document.getElementById("v2DeclinerRows");
     if (topTbody) {
       if (!topRows.length) {
-        topTbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No customer data in current selection.</td></tr>';
+        topTbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No customer data in current selection.</td></tr>';
       } else {
         topTbody.innerHTML = topRows.slice(0, 30).map((r) => `
           <tr>
-            <td>${escapeHtml(r.customer_name || r.customer_id || "")}</td>
+            <td>${renderCustomerCell(r, [r.delta_revenue != null ? `Δ ${fmtMoney0(r.delta_revenue)}` : "", r.last_order_date ? `Last order ${r.last_order_date}` : ""])}</td>
             <td class="text-end">${fmtMoney0(r.revenue)}</td>
+            <td class="text-end">${fmtPct(r.revenue_share_pct)}</td>
             <td class="text-end">${showCosts ? fmtMoney0(r.profit) : "—"}</td>
             <td class="text-end">${showCosts ? fmtPct(r.margin_pct) : "—"}</td>
             <td class="text-end">${fmtInt(r.orders)}</td>
@@ -736,7 +1011,7 @@
       } else {
         decTbody.innerHTML = declineRows.slice(0, 30).map((r) => `
           <tr>
-            <td>${escapeHtml(r.customer_name || r.customer_id || "")}</td>
+            <td>${renderCustomerCell(r, [r.last_order_date ? `Last order ${r.last_order_date}` : ""])}</td>
             <td class="text-end">${fmtMoney0(r.revenue_current)}</td>
             <td class="text-end">${fmtMoney0(r.revenue_prior)}</td>
             <td class="text-end">${fmtMoney0(r.delta_revenue)}</td>
@@ -758,18 +1033,17 @@
 
     const note = document.getElementById("v2CustomerSummaryNote");
     if (note) {
-      if (!topRows.length) {
-        note.textContent = "No customer dependency issues detected for the selected window.";
-      } else if ((summary.decliner_count ?? declineRows.length) > 0) {
-        note.textContent = "Declining customers detected. Review recent service and pricing changes for at-risk accounts.";
-      } else {
-        note.textContent = "Customer base is stable under the current scope.";
-      }
+      note.textContent = customers.narrative || (!topRows.length
+        ? "No customer dependency issues detected for the selected window."
+        : (summary.decliner_count ?? declineRows.length) > 0
+          ? "Declining customers detected. Review recent service and pricing changes for at-risk accounts."
+          : "Customer base is stable under the current scope.");
     }
   };
 
   const renderConcentrationSummary = (v2) => {
     const mix = (v2 && v2.mix) || {};
+    const score = (v2 && v2.scorecard) || {};
     const custConc = mix.customer_concentration || {};
     const skuConc = mix.product_concentration || {};
 
@@ -778,7 +1052,8 @@
       [
         `<li>Customer HHI <strong>${fmtNum2Safe(custConc.hhi)}</strong> · Top 1/5/10 share <strong>${fmtPct(custConc.top1_share)} / ${fmtPct(custConc.top5_share)} / ${fmtPct(custConc.top10_share)}</strong></li>`,
         `<li>SKU HHI <strong>${fmtNum2Safe(skuConc.hhi)}</strong> · Top 1/5/10 share <strong>${fmtPct(skuConc.top1_share)} / ${fmtPct(skuConc.top5_share)} / ${fmtPct(skuConc.top10_share)}</strong></li>`,
-        `<li>SKUs for 80% revenue: <strong>${fmtInt(skuConc.skus_for_80_pct)}</strong></li>`,
+        `<li>80% revenue breadth: <strong>${fmtInt(custConc.customers_for_80_pct)}</strong> customers · <strong>${fmtInt(skuConc.skus_for_80_pct)}</strong> SKUs</li>`,
+        `<li>Top protein <strong>${escapeHtml(score.top_protein || "—")}</strong> carries <strong>${fmtPct(score.top_protein_share_pct)}</strong> of supplier revenue</li>`,
       ].join("")
     );
   };
@@ -794,7 +1069,7 @@
     tbody.innerHTML = rows.map((r) => {
       return `
         <tr>
-          <td>${renderProductCell(r, [r.customers ? `${fmtInt(r.customers)} customers` : "", r.last_sold ? `Last sold ${r.last_sold}` : ""])}</td>
+          <td>${renderProductCell(r, [r.protein_family || "", r.product_category || "", r.last_sold ? `Last sold ${r.last_sold}` : ""])}</td>
           <td class="text-end">${fmtMoney0(r.revenue)}</td>
           <td class="text-end">${showCosts ? fmtPct(r.margin_pct) : "—"}</td>
           <td>${renderSignalBadges(r.tags)}</td>
@@ -822,54 +1097,105 @@
     state.productsRows = allRows;
     const token = (state.search || "").toLowerCase();
     let rows = allRows;
+    if (state.proteinFocus) {
+      rows = rows.filter((r) => String(r.protein_family || "").toLowerCase() === String(state.proteinFocus || "").toLowerCase());
+    }
+    if (state.tagFocus) {
+      rows = rows.filter((r) => Array.isArray(r.tags) && r.tags.some((tag) => String(tag || "").toLowerCase() === String(state.tagFocus || "").toLowerCase()));
+    }
     if (token) {
       rows = rows.filter((r) => {
-        const text = `${r.product_id || ""} ${r.product_name || ""} ${r.display_name || ""}`.toLowerCase();
+        const text = `${r.sku || r.product_id || ""} ${r.product_name || ""} ${r.display_name || ""} ${r.protein_family || ""} ${r.product_category || ""}`.toLowerCase();
         return text.includes(token);
       });
     }
     rows = productSort(rows);
     const tbody = document.getElementById("v2ProductsRows");
     const countEl = document.getElementById("v2ProductResultCount");
+    const filterState = document.getElementById("v2ProductFilterState");
     if (countEl) countEl.textContent = `${fmtInt(rows.length)} products`;
+    if (filterState) {
+      const scopes = [];
+      if (state.proteinFocus) scopes.push(`${state.proteinFocus} protein`);
+      if (state.tagFocus) scopes.push(state.tagFocus);
+      filterState.textContent = scopes.length
+        ? `Focused on ${scopes.join(" · ")} inside the active supplier scope.`
+        : "Showing all visible supplier SKUs in the active filter window.";
+    }
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="12" class="text-muted text-center">No products in current selection.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="19" class="text-muted text-center">No products in current selection.</td></tr>';
       return;
     }
     tbody.innerHTML = rows.slice(0, 500).map((r) => {
       return `
         <tr>
-          <td>${renderProductCell(r, [r.customers ? `${fmtInt(r.customers)} customers` : "", r.revenue_share_pct != null ? `${fmtPct(r.revenue_share_pct)} share` : ""])}</td>
+          <td>${renderProductCell(r, [r.sku ? `SKU ${r.sku}` : "", r.top_customer_name ? `Top customer ${r.top_customer_name}` : "", r.revenue_share_pct != null ? `${fmtPct(r.revenue_share_pct)} share` : ""])}</td>
+          <td>${escapeHtml(r.protein_family || "Unassigned")}</td>
+          <td>${escapeHtml(r.product_category || "Unassigned")}</td>
           <td class="text-end">${fmtMoney0(r.revenue)}</td>
           <td class="text-end">${showCosts ? fmtMoney0(r.profit) : "—"}</td>
-          <td class="text-end">${showCosts ? fmtPct(r.margin_pct) : "—"}</td>
+          <td class="text-end">${showCosts ? renderColorMetric(r.margin_pct, r.status_color, fmtPct) : "—"}</td>
+          <td class="text-end">${showCosts ? fmtPct(r.target_margin_pct) : "—"}</td>
           <td class="text-end">${fmtInt(r.orders)}</td>
           <td class="text-end">${fmtInt(r.units)}</td>
           <td class="text-end">${fmtInt(r.weight_lb)}</td>
           <td class="text-end">${fmtMoney2(r.asp_lb)}</td>
+          <td class="text-end">${showCosts ? fmtMoney2(r.minimum_price_lb) : "—"}</td>
+          <td class="text-end">${showCosts ? fmtMoney2(r.target_price_lb) : "—"}</td>
+          <td class="text-end">${showCosts ? renderColorMetric(r.asp_lb_gap_to_target, r.status_color, fmtSignedMoney2) : "—"}</td>
           <td class="text-end">${fmtPct(r.asp_lb_delta_pct)}</td>
           <td class="text-end">${fmtPct(r.revenue_share_pct)}</td>
           <td>${escapeHtml(r.last_sold || "")}</td>
+          <td>${renderStatusBadge(r.target_status, r.status_color)}</td>
           <td>${renderSignalBadges(r.tags)}</td>
         </tr>
       `;
     }).join("");
   };
 
+  const renderPlaybook = (v2) => {
+    const playbook = (v2 && v2.playbook) || {};
+    const wrap = document.getElementById("v2ActionCards");
+    const summary = document.getElementById("v2ActionSummary");
+    if (summary) summary.textContent = playbook.narrative || "Action guidance will populate after the supplier bundle loads.";
+    if (!wrap) return;
+    const cards = asArr(playbook.cards);
+    if (!cards.length) {
+      wrap.innerHTML = '<div class="supplier-v2-empty-copy">No immediate action lanes are flagged beyond routine supplier monitoring.</div>';
+      return;
+    }
+    wrap.innerHTML = cards
+      .map(
+        (card) => `
+        <article class="supplier-v2-action-card is-${escapeHtml(card.tone || "accent")}" data-action-target="${escapeHtml(card.target || "")}" data-tag-focus="${escapeHtml(card.tag || "")}" data-protein-focus="${escapeHtml(card.protein_family || "")}">
+          <div class="supplier-v2-action-card-head">
+            <div class="supplier-v2-action-card-title">${escapeHtml(card.title || "Action")}</div>
+            <div class="supplier-v2-action-card-exposure">${escapeHtml(card.exposure || "")}</div>
+          </div>
+          <div class="supplier-v2-action-card-body">${escapeHtml(card.body || "")}</div>
+          <div class="supplier-v2-action-card-link">${escapeHtml(card.target === "protein" ? "Focus protein mix" : card.target === "customers" ? "Open customer layer" : "Open related products")}</div>
+        </article>
+      `
+      )
+      .join("");
+  };
+
   const renderInsights = (v2) => {
-    const score = (v2 && v2.scorecard) || {};
+    const header = (v2 && v2.header) || {};
     const mix = (v2 && v2.mix) || {};
     const opportunities = (v2 && v2.opportunities) || {};
     const playbook = (v2 && v2.playbook) || {};
+    const pricing = (v2 && v2.pricing) || {};
+    const customers = (v2 && v2.customers) || {};
 
-    const changed = `Revenue ${fmtMoney0(score.total_revenue)} with window delta ${fmtMoney0(score.revenue_delta_window)} (${fmtPct(score.revenue_delta_window_pct)}).`;
-    const risk = `Customer top-10 share ${fmtPct((mix.customer_concentration || {}).top10_share)}, SKU top-10 share ${fmtPct((mix.product_concentration || {}).top10_share)}, margin-risk SKUs ${fmtInt(asArr(opportunities.margin_at_risk).length)}.`;
+    const changed = header.narrative || "Supplier detail narrative will populate after scoped metrics load.";
+    const risk = `${mix.narrative || "Concentration diagnostics pending."} ${pricing.narrative || ""}`.trim();
 
     const actions = asArr(playbook.actions).filter((x) => String(x || "").trim());
     const actionText = actions.length
       ? actions.slice(0, 2).join(" ")
-      : "Prioritize margin fixes on high-velocity low-margin SKUs and recover declining customers.";
+      : customers.narrative || "Prioritize margin fixes on high-velocity low-margin SKUs and recover declining customers.";
 
     setText("v2InsightChanged", changed);
     setText("v2InsightRisk", risk);
@@ -879,11 +1205,18 @@
   const render = (payload) => {
     const v2 = payload?.supplier_v2 || payload?.v2 || {};
     state.currentV2 = v2 || {};
+    const payloadError = payload?.error?.message || "";
+    if (payloadError) {
+      showPageNotice("Supplier detail notice", payloadError, "warn", true);
+    } else {
+      hidePageNotice();
+    }
     renderHeader(v2);
     renderScorecard(v2);
     renderNavBadges(v2);
     renderTrend(v2);
     renderTopBars(v2);
+    renderProteinSection(v2);
     renderDistributions(v2);
     renderPriceVelocity(v2);
     renderOutliers(v2);
@@ -892,12 +1225,31 @@
     renderConcentrationSummary(v2);
     renderProductDiagnostics(v2);
     renderProducts(v2);
+    renderPlaybook(v2);
     renderInsights(v2);
     bindExportLinks();
     initTooltips();
   };
 
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = "";
+    return applyId;
+  };
+
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId) payload.applyId = applyId;
+    if (typeof window.dispatchGlobalFiltersApplied === "function") {
+      window.dispatchGlobalFiltersApplied(payload);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+  };
+
   const fetchBundle = async () => {
+    const requestSeq = ++state.requestSeq;
     const params = buildBundleParams();
     const bundleKey = params.toString();
     const hasPayload = state.currentV2 && Object.keys(state.currentV2).length > 0;
@@ -913,17 +1265,39 @@
       const requestOptions = { headers: { Accept: "application/json" } };
       if (controller) requestOptions.signal = controller.signal;
       const res = await authFetch(`${bundleUrl}?${bundleKey}`, requestOptions);
-      if (!res.ok) return;
+      if (!res.ok) {
+        let message = `Supplier detail request failed (${res.status})`;
+        try {
+          const text = await res.text();
+          if (text) {
+            try {
+              const parsed = JSON.parse(text);
+              message = parsed?.error?.message || parsed?.message || message;
+            } catch (_err) {
+              message = text.slice(0, 240) || message;
+            }
+          }
+        } catch (_err) {
+          // no-op
+        }
+        showPageNotice("Supplier detail unavailable", message, res.status >= 500 ? "risk" : "warn", true);
+        state.lastBundleKey = "";
+        return;
+      }
       const payload = await res.json();
+      hidePageNotice();
       render(payload || {});
     } catch (err) {
       if (err && err.name === "AbortError") return;
-      // no-op; keep current UI
+      showPageNotice("Supplier detail refresh failed", err?.message || "The supplier detail bundle could not be refreshed.", "risk", true);
+      state.lastBundleKey = "";
     } finally {
+      if (requestSeq !== state.requestSeq) return;
       if (state.activeFetchController === controller) {
         state.activeFetchController = null;
       }
       state.loading = false;
+      dispatchGlobalApplyAck({ qs: state.filterQs });
     }
   };
 
@@ -948,18 +1322,64 @@
         renderProducts(state.currentV2 || {});
       });
     });
+    const retryButton = document.getElementById("v2RetryButton");
+    if (retryButton) {
+      retryButton.addEventListener("click", () => {
+        state.lastBundleKey = "";
+        fetchBundle();
+      });
+    }
+  };
+
+  const bindInteractiveFilters = () => {
+    const root = document.querySelector(".supplier-drilldown-v2");
+    if (!root) return;
+    root.addEventListener("click", (evt) => {
+      const actionTarget = evt.target.closest(".supplier-v2-action-card");
+      if (actionTarget) {
+        const protein = actionTarget.getAttribute("data-protein-focus") || "";
+        const tag = actionTarget.getAttribute("data-tag-focus") || "";
+        const sectionId = actionTarget.getAttribute("data-action-target") || "products";
+        if (protein || tag) evt.preventDefault();
+        state.proteinFocus = protein;
+        state.tagFocus = tag;
+        if (protein || tag) {
+          renderProducts(state.currentV2 || {});
+          renderProteinSection(state.currentV2 || {});
+        }
+        const targetSection = document.getElementById(sectionId === "pricing" ? "sec-products" : `sec-${sectionId}`) || document.getElementById("sec-products");
+        if (targetSection) targetSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      const proteinTarget = evt.target.closest("[data-protein-focus]");
+      if (proteinTarget) {
+        evt.preventDefault();
+        state.proteinFocus = proteinTarget.getAttribute("data-protein-focus") || "";
+        state.tagFocus = "";
+        renderProducts(state.currentV2 || {});
+        renderProteinSection(state.currentV2 || {});
+        return;
+      }
+    });
   };
 
   const applyFilters = (qs) => {
     const normalized = normalizeQs(qs);
-    if (normalized === state.filterQs) return;
+    if (normalized === state.filterQs) {
+      dispatchGlobalApplyAck({ qs: state.filterQs });
+      return;
+    }
     state.filterQs = normalized;
+    state.proteinFocus = "";
+    state.tagFocus = "";
     bindExportLinks();
     state.lastBundleKey = "";
     fetchBundle();
   };
 
   const onGlobalFiltersApply = (evt) => {
+    currentApplyId = String(evt?.detail?.applyId || "");
     const qs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(qs);
   };
@@ -976,8 +1396,12 @@
   window.addEventListener("pagehide", teardown, { once: true });
 
   bindTableControls();
+  bindInteractiveFilters();
   bindSectionNav();
   state.filterQs = normalizeQs(state.filterQs);
+  if (initialPageNotice) {
+    showPageNotice("Supplier detail notice", initialPageNotice, "warn", true);
+  }
   render(initialPayload || {});
   bindExportLinks();
   fetchBundle();

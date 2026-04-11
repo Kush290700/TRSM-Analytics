@@ -202,7 +202,7 @@ def test_assistant_page_loads_when_enabled(assistant_client):
     assert login.status_code == 200
     resp = assistant_client.get("/assistant")
     assert resp.status_code == 200
-    assert b"AMW Enterprise Assistant" in resp.data
+    assert b"TRSM Enterprise Assistant" in resp.data
 
 
 def test_assistant_page_hides_provider_scaffolding_and_limits_debug_toggle_to_admin(assistant_client):
@@ -1269,7 +1269,7 @@ def test_assistant_history_intent_overrides_risk_keyword(assistant_client, monke
     payload = resp.get_json()
     assert payload["question_type"] == "history_analytics"
     sections = [str(item.get("title") or "") for item in ((payload.get("answer") or {}).get("sections") or []) if isinstance(item, dict)]
-    assert "Trend Summary" in sections
+    assert "History Series" in sections
 
 
 def test_assistant_this_month_query_does_not_inject_previous_context(assistant_client, monkeypatch):
@@ -2431,7 +2431,7 @@ def test_assistant_returns_pending_and_workflow_routes_returns_intent(assistant_
     payload = resp.get_json()
     assert payload["question_type"] in {"returns_workflow", "returns_analytics"}
     sections = [str(item.get("title") or "") for item in (((payload.get("answer") or {}).get("sections") or [])) if isinstance(item, dict)]
-    assert any(title in {"Returns Snapshot", "Operational Context"} for title in sections)
+    assert any(title in {"Returns Summary", "Operational Context", "Workflow Help"} for title in sections)
     evidence_titles = {str(item.get("title") or "") for item in (((payload.get("answer") or {}).get("evidence") or [])) if isinstance(item, dict)}
     assert "Pending Returns And Approvals" in evidence_titles or "Returns Workflow Help" in evidence_titles
 
@@ -2568,4 +2568,4 @@ def test_assistant_definition_and_ranking_have_different_section_shapes(assistan
     def_sections = [str(item.get("title") or "") for item in (((def_payload.get("answer") or {}).get("sections") or [])) if isinstance(item, dict)]
     rank_sections = [str(item.get("title") or "") for item in (((rank_payload.get("answer") or {}).get("sections") or [])) if isinstance(item, dict)]
     assert "Definition" in def_sections
-    assert "Ranked Result" in rank_sections
+    assert "Ranked Results" in rank_sections

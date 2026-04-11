@@ -14,6 +14,8 @@
   };
 
   const storageKey = () => `${BASE_STORAGE_KEY}::${namespace}`;
+  const nextApplyId = () =>
+    `filterstate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   const setNamespace = (ns, { reset = false } = {}) => {
     const next = ns && String(ns).trim() ? String(ns).trim() : "default";
@@ -113,6 +115,7 @@
       start: obj.start || obj.start_date || obj.date_start || null,
       end: obj.end || obj.end_date || obj.date_end || null,
       date_preset: obj.date_preset || obj.preset || obj.range_preset || null,
+      date_type: obj.date_type || obj.dateType || null,
       statuses: coerceList(obj.statuses),
       regions: coerceList(obj.regions || obj.region_ids),
       methods: coerceList(obj.methods || obj.shipping_methods || obj.ship_method_ids),
@@ -151,6 +154,7 @@
       "start", "start_date", "date_start",
       "end", "end_date", "date_end",
       "date_preset", "preset", "range_preset",
+      "date_type", "dateType",
       "regions", "region_ids",
       "methods", "shipping_methods", "ship_method_ids",
       "customers", "customer_ids",
@@ -206,6 +210,7 @@
     if (payload.start) params.set("start", payload.start);
     if (payload.end) params.set("end", payload.end);
     if (payload.date_preset) params.set("date_preset", payload.date_preset);
+    if (payload.date_type) params.set("date_type", payload.date_type);
     const appendAll = (key, values) => {
       (values || []).forEach((v) => params.append(key, v));
     };
@@ -227,7 +232,7 @@
     current.forEach((value, key) => {
       if (params.has(key)) return;
       if (/^(_gf)$/.test(key)) return;
-      if (/^(start|end|date_preset|statuses|regions|region_ids|methods|shipping_methods|ship_method_ids|customers|customer_ids|suppliers|supplier_ids|products|product_ids|sales_reps|sales_rep_ids|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|completeMonthsOnly|full_months_only)/.test(key)) return;
+      if (/^(start|end|date_preset|date_type|statuses|regions|region_ids|methods|shipping_methods|ship_method_ids|customers|customer_ids|suppliers|supplier_ids|products|product_ids|sales_reps|sales_rep_ids|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|completeMonthsOnly|full_months_only)/.test(key)) return;
       params.append(key, value);
     });
     return params.toString();
@@ -259,6 +264,7 @@
       start: data.get("start") || data.get("start_date") || data.get("date_start"),
       end: data.get("end") || data.get("end_date") || data.get("date_end"),
       date_preset: data.get("date_preset") || data.get("preset"),
+      date_type: data.get("date_type") || data.get("dateType"),
       statuses: toArray("statuses"),
       regions: toArray("regions"),
       methods: methods.length ? methods : toArray("shipping_methods"),
@@ -295,6 +301,7 @@
     setValue("#fStart", filters.start);
     setValue("#fEnd", filters.end);
     setValue("#fDatePreset", filters.date_preset);
+    setValue("#fDateType", filters.date_type);
     const setMulti = (id, values) => {
       const el = form.querySelector(id);
       if (!el) return;
@@ -337,7 +344,16 @@
     const payload = get();
     writeStorage(payload);
     const qs = toQueryString(payload);
-    const detail = { filters: payload, qs, meta };
+    const detail = {
+      filters: payload,
+      qs,
+      meta,
+      applyId: meta?.applyId || nextApplyId(),
+    };
+    if (typeof window.dispatchGlobalFiltersApply === "function") {
+      window.dispatchGlobalFiltersApply(detail);
+      return detail;
+    }
     try {
       document.dispatchEvent(new CustomEvent("globalFilters:apply", { detail }));
     } catch (err) { /* ignore */ }

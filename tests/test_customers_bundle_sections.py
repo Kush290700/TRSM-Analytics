@@ -211,6 +211,26 @@ def test_customers_bundle_cache_hit_matches_cached_metadata(app_client, seed_cus
     assert second_meta.get("cache_hit") is True
 
 
+def test_customers_bundle_uses_effective_cost_margin_basis(app_client, seed_customers_bundle_sections, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
+
+    resp = app_client.get(
+        "/api/customers/bundle",
+        query_string={"start": "2025-03-01", "end": "2025-03-31", "sections": "overview"},
+    )
+    assert resp.status_code == 200
+
+    payload = resp.get_json() or {}
+    kpis = payload.get("kpis") or {}
+    table = payload.get("table") or {}
+    rows = table.get("rows") or []
+
+    assert kpis.get("margin_pct") == pytest.approx(39.9648, abs=0.01)
+    assert rows
+    assert rows[0].get("cost") is not None
+    assert rows[0].get("profit") is not None
+
+
 def test_customers_drilldown_reports_actual_query_count(app_client, seed_customers_bundle_sections, monkeypatch):
     monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
 
@@ -223,6 +243,23 @@ def test_customers_drilldown_reports_actual_query_count(app_client, seed_custome
     meta = (resp.get_json() or {}).get("meta") or {}
     assert int(meta.get("duckdb_query_count") or 0) > 3
     assert int(meta.get("query_ms") or 0) >= 0
+
+
+def test_customers_drilldown_bundle_includes_protein_intelligence(app_client, seed_customers_bundle_sections, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
+
+    resp = app_client.get(
+        "/api/customers/drilldown/bundle",
+        query_string={"customer_id": "C_RET", "start": "2025-03-01", "end": "2025-03-31"},
+    )
+
+    assert resp.status_code == 200
+    payload = resp.get_json() or {}
+    protein_intelligence = payload.get("protein_intelligence") or {}
+    summary = protein_intelligence.get("summary") or {}
+    assert summary.get("top_family") == "Seafood"
+    assert summary.get("family_count") >= 1
+    assert isinstance(protein_intelligence.get("mix"), list)
 
 
 def test_validate_fact_schema_uses_column_metadata_instead_of_full_fact_read(monkeypatch):

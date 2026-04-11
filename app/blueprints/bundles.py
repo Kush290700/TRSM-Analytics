@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 import json
+import hashlib
 
 from flask import Blueprint, Response, jsonify, request, current_app, g, session
 from flask_login import current_user, login_required
@@ -15,9 +16,22 @@ from app.services import suppliers_bundle as suppliers_bundle_service, filters_s
 from app.services.bundle_builder import payload_size, to_json_safe
 from app.core.exports import dataframes_to_xlsx_response, dataframe_to_csv_response
 from app.core import access_policy
-from app.core.rbac import permission_required
+from app.core.rbac import permission_required, requires_roles
 
 bp = Blueprint("bundles", __name__, url_prefix="/api")
+
+_BUNDLE_ETAG_EXCLUDE_META = {
+    "cache_hit",
+    "cached",
+    "cache_age_seconds",
+    "duckdb_ms",
+    "duckdb_query_count",
+    "payload_bytes",
+    "serialize_ms",
+    "total_ms",
+    "duration_ms",
+    "request_id",
+}
 
 
 def _flag_on(value: object) -> bool:
@@ -34,6 +48,20 @@ def _supplier_drilldown_v2_active() -> bool:
     return _flag_on(suppliers_v2) and _flag_on(drilldown_v2)
 
 
+def _stable_bundle_etag(payload: dict | list) -> str:
+    try:
+        hash_payload = json.loads(json.dumps(payload))
+    except Exception:
+        hash_payload = payload
+    if isinstance(hash_payload, dict):
+        meta = hash_payload.get("meta")
+        if isinstance(meta, dict):
+            for key in _BUNDLE_ETAG_EXCLUDE_META:
+                meta.pop(key, None)
+    raw = json.dumps(hash_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return '"' + hashlib.sha256(raw.encode("utf-8")).hexdigest() + '"'
+
+
 def _bundle(page: str):
     start = time.perf_counter()
     if page.endswith(".drilldown"):
@@ -43,6 +71,23 @@ def _bundle(page: str):
         payload = bundle_service.bundle(page, request.args)
     meta = payload.setdefault("meta", {})
     safe_payload = to_json_safe(payload)
+    etag = _stable_bundle_etag(safe_payload)
+    if request.headers.get("If-None-Match") == etag:
+        resp = Response(status=304)
+        resp.headers["ETag"] = etag
+        resp.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+        resp.headers["Vary"] = "Cookie, Authorization"
+        try:
+            resp.headers["X-Bundle-Cached"] = str(meta.get("cached", False)).lower()
+            if meta.get("dataset_version"):
+                resp.headers["X-Dataset-Version"] = str(meta.get("dataset_version"))
+            if meta.get("cache_key"):
+                resp.headers["X-Bundle-Cache-Key"] = meta.get("cache_key")
+            if meta.get("cache_age_seconds") is not None:
+                resp.headers["X-Bundle-Cache-Age"] = str(meta.get("cache_age_seconds"))
+        except Exception:
+            pass
+        return resp
     ser_start = time.perf_counter()
     body = json.dumps(safe_payload, separators=(",", ":"), ensure_ascii=False)
     serialize_ms = int((time.perf_counter() - ser_start) * 1000)
@@ -67,12 +112,17 @@ def _bundle(page: str):
         status_code = 200
 
     resp = Response(body, status=status_code, mimetype="application/json")
+    resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+    resp.headers["Vary"] = "Cookie, Authorization"
     try:
         resp.headers["X-Bundle-Cached"] = str(meta.get("cached", False)).lower()
         if meta.get("dataset_version"):
             resp.headers["X-Dataset-Version"] = str(meta.get("dataset_version"))
         if meta.get("cache_key"):
             resp.headers["X-Bundle-Cache-Key"] = meta.get("cache_key")
+        if meta.get("cache_age_seconds") is not None:
+            resp.headers["X-Bundle-Cache-Age"] = str(meta.get("cache_age_seconds"))
         resp.headers["X-Payload-Bytes"] = str(payload_bytes)
     except Exception:
         pass
@@ -262,6 +312,20 @@ def suppliers_bundle():
 @login_required
 def salesreps_bundle():
     return _bundle("salesreps")
+
+
+@bp.get("/salesreps/efficiency")
+@login_required
+@requires_roles("admin", "owner", "gm", "manager", "sales")
+def efficiency_api():
+    from app.services import salesreps_bundle
+    from app.services.filters import parse_filters
+    from app.services import filters_service
+
+    filters = parse_filters(request.args)
+    scope = filters_service.scope_from_user(current_user)
+    payload = salesreps_bundle.build_efficiency_payload(filters, scope, request.args)
+    return jsonify(payload)
 
 
 @bp.get("/products/drilldown/bundle")

@@ -5,19 +5,19 @@
 {% block content %}
 <style>
   #overviewPage {
-    --overview-ink: #163252;
-    --overview-ink-soft: #5e6d82;
-    --overview-border: #dce6f3;
-    --overview-border-strong: #cfddee;
-    --overview-surface: rgba(255, 255, 255, 0.96);
-    --overview-surface-muted: #f7faff;
-    --overview-shadow: 0 18px 36px rgba(17, 24, 39, 0.06);
-    border-radius: 1.35rem;
+    --overview-ink: var(--trsm-text-strong);
+    --overview-ink-soft: var(--trsm-text-muted);
+    --overview-border: rgba(29, 42, 67, 0.12);
+    --overview-border-strong: rgba(29, 42, 67, 0.2);
+    --overview-surface: rgba(255, 255, 255, 0.9);
+    --overview-surface-muted: rgba(245, 248, 252, 0.92);
+    --overview-shadow: var(--trsm-shadow-sm);
+    border-radius: 1.5rem;
     padding: 1.1rem 1.1rem 1.5rem;
     background:
-      radial-gradient(1200px 360px at 100% -15%, rgba(32, 201, 151, 0.10), rgba(32, 201, 151, 0)),
-      radial-gradient(900px 280px at 0% 0%, rgba(13, 110, 253, 0.08), rgba(13, 110, 253, 0)),
-      linear-gradient(180deg, #f4f8fd 0%, #ffffff 30%, #f7fbff 100%);
+      radial-gradient(1200px 360px at 100% -15%, rgba(200, 138, 73, 0.12), rgba(200, 138, 73, 0)),
+      radial-gradient(900px 280px at 0% 0%, rgba(47, 124, 255, 0.1), rgba(47, 124, 255, 0)),
+      linear-gradient(180deg, rgba(244, 248, 253, 0.96) 0%, rgba(255, 255, 255, 0.94) 30%, rgba(247, 250, 253, 0.98) 100%);
   }
   #overviewPage.is-loading {
     opacity: 0.82;
@@ -29,14 +29,15 @@
   #overviewPage .hero-main,
   #overviewPage .hero-side {
     border: 1px solid var(--overview-border);
-    border-radius: 1rem;
+    border-radius: 1.15rem;
     background: var(--overview-surface);
     box-shadow: var(--overview-shadow);
+    backdrop-filter: none;
   }
   #overviewPage .panel-header,
   #overviewPage .section-shell-header {
-    border-bottom: 1px solid #e4ebf5;
-    background: linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(255, 255, 255, 0.96));
+    border-bottom: 1px solid rgba(29, 42, 67, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(246, 249, 252, 0.92));
     padding: 1rem 1.1rem;
   }
   #overviewPage .panel-body,
@@ -51,7 +52,7 @@
     font-size: 0.72rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #607084;
+    color: var(--trsm-primary);
     font-weight: 700;
   }
   #overviewPage .panel-title {
@@ -88,15 +89,15 @@
   }
   #overviewPage .hero-copy {
     max-width: 56rem;
-    color: #4f6076;
+    color: #4d617b;
     margin-bottom: 0.65rem;
   }
   #overviewPage .hero-status-blurb {
     border-radius: 0.9rem;
-    background: linear-gradient(135deg, #edf5ff, #f9fcff);
-    border: 1px solid #d9e5f4;
+    background: linear-gradient(135deg, rgba(233, 241, 255, 0.88), rgba(247, 239, 228, 0.62));
+    border: 1px solid rgba(47, 124, 255, 0.12);
     padding: 0.7rem 0.82rem;
-    color: #294567;
+    color: #284663;
     font-size: 0.9rem;
     margin-bottom: 0.8rem;
   }
@@ -122,8 +123,8 @@
     align-items: center;
     gap: 0.42rem;
     border-radius: 999px;
-    border: 1px solid #d9e4f2;
-    background: #f9fbff;
+    border: 1px solid rgba(29, 42, 67, 0.1);
+    background: rgba(255, 255, 255, 0.72);
     color: #294567;
     font-size: 0.79rem;
     padding: 0.38rem 0.7rem;
@@ -146,12 +147,52 @@
     gap: 0.35rem;
     padding: 0.46rem 0.72rem;
     border-radius: 999px;
-    border: 1px solid #d5deeb;
-    background: #fff;
+    border: 1px solid rgba(29, 42, 67, 0.12);
+    background: rgba(255, 255, 255, 0.72);
     color: #294567;
     font-size: 0.82rem;
     font-weight: 600;
     text-decoration: none;
+  }
+  #overviewPage .overview-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.14rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  #overviewPage .overview-status-pill.is-red {
+    color: #991b1b;
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(185, 28, 28, 0.16);
+  }
+  #overviewPage .overview-status-pill.is-orange {
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.16);
+    border-color: rgba(194, 65, 12, 0.18);
+  }
+  #overviewPage .overview-status-pill.is-yellow {
+    color: #8a5b00;
+    background: rgba(250, 204, 21, 0.16);
+    border-color: rgba(202, 138, 4, 0.2);
+  }
+  #overviewPage .overview-status-pill.is-light-green {
+    color: #15803d;
+    background: rgba(134, 239, 172, 0.2);
+    border-color: rgba(34, 197, 94, 0.18);
+  }
+  #overviewPage .overview-status-pill.is-green {
+    color: #027a48;
+    background: rgba(2, 122, 72, 0.08);
+    border-color: rgba(2, 122, 72, 0.16);
+  }
+  #overviewPage .overview-status-pill.is-neutral {
+    color: #475569;
+    background: rgba(148, 163, 184, 0.16);
+    border-color: rgba(100, 116, 139, 0.18);
   }
   #overviewPage .hero-side-header {
     display: flex;
@@ -191,9 +232,9 @@
   #overviewPage .kpi-group-card,
   #overviewPage .trust-card,
   #overviewPage .briefing-card {
-    border: 1px solid #e1e8f2;
+    border: 1px solid rgba(29, 42, 67, 0.1);
     border-radius: 0.92rem;
-    background: #fff;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 249, 252, 0.86));
     min-height: 100%;
   }
   #overviewPage .hero-side-metric,
@@ -766,10 +807,10 @@
   }
   #overviewPage .outlook-shell-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
-      "forecast shape"
-      "forecast pulse";
+      "forecast forecast"
+      "shape pulse";
     gap: 1rem;
     align-items: stretch;
   }
@@ -807,10 +848,10 @@
     min-width: 0;
   }
   #overviewPage #forecastCard .chart-placeholder {
-    min-height: 300px;
+    min-height: 320px;
   }
   #overviewPage #forecastCard .chart-placeholder canvas {
-    height: 300px !important;
+    height: 320px !important;
   }
   #overviewPage #forecastCard .forecast-summary-card {
     margin: 0.85rem 0 0.95rem;
@@ -912,10 +953,53 @@
     }
   }
   #overviewPage #commercialShapeCard .chart-placeholder {
-    min-height: 260px;
+    min-height: 290px;
   }
   #overviewPage #commercialShapeCard .chart-placeholder canvas {
-    height: 260px !important;
+    height: 290px !important;
+  }
+  #overviewPage .focus-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+  }
+  @media (max-width: 991.98px) {
+    #overviewPage .focus-summary-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  #overviewPage .focus-summary-card {
+    border: 1px solid #dfe7f2;
+    border-radius: 0.95rem;
+    background: linear-gradient(180deg, #f8fbff, #ffffff);
+    padding: 0.82rem 0.9rem;
+    min-height: 100%;
+  }
+  #overviewPage .focus-summary-card .focus-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #66778c;
+    font-weight: 700;
+  }
+  #overviewPage .focus-summary-card .focus-title {
+    margin-top: 0.24rem;
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--overview-ink);
+  }
+  #overviewPage .focus-summary-card .focus-value {
+    margin-top: 0.18rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--overview-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  #overviewPage .focus-summary-card .focus-detail {
+    margin-top: 0.18rem;
+    font-size: 0.82rem;
+    color: #5a6c81;
   }
   @media (max-width: 1199.98px) {
     #overviewPage .outlook-shell-grid,
@@ -954,16 +1038,18 @@
     <div class="hero-main">
       <div class="hero-label">Executive command center</div>
       <h1 class="hero-title">Business Performance</h1>
-      <p class="hero-copy">A daily operating narrative for revenue, profit quality, concentration risk, forecast confidence, and the next investigation path worth taking under the active business filters.</p>
+      <p class="hero-copy">An executive operating readout for revenue, profit quality, concentration risk, forecast confidence, and the next investigation path worth taking under the active business filters.</p>
       <div id="businessStatusLine" class="hero-status-blurb">Business status is resolving for the active window.</div>
-      <div class="hero-filter-line">Filters applied: <span id="filterSummaryText">Default (last 3 months)</span></div>
+      <div class="hero-filter-line">Filters applied: <span id="filterSummaryText">Default (Current FY)</span></div>
       <div id="comparisonNoteText" class="hero-period-note">Comparisons follow the active filtered window.</div>
       <div class="context-strip" aria-label="Business context strip">
         <span class="context-chip"><i class="bi bi-calendar-range"></i>Window <strong id="dataWindowChip">Not available</strong></span>
         <span class="context-chip"><i class="bi bi-arrow-left-right"></i>Comparison <strong id="comparisonBasisChip">Prior comparable window</strong></span>
+        <span class="context-chip"><i class="bi bi-hourglass-split"></i>Period mode <strong id="periodModeChip">Filtered window</strong></span>
         <span class="context-chip"><i class="bi bi-funnel"></i>Filters <strong id="filterCountChip">0 active</strong></span>
         <span class="context-chip"><i class="bi bi-diagram-3"></i>Scope <strong id="scopeModeChip">Enterprise</strong></span>
         <span class="context-chip"><i class="bi bi-shield-check"></i>Trust <strong id="heroTrustStatus">Watch</strong></span>
+        <span class="context-chip"><i class="bi bi-calendar-event"></i>Data cutoff <strong id="dataCutoffChip">-</strong></span>
         <span class="context-chip"><i class="bi bi-clock-history"></i>Last refresh <strong id="lastRefreshChip">{{ last_refresh or "unknown" }}</strong></span>
         <a href="#dataHealthSection" id="dataHealthBadgeLink" class="context-chip" role="button" aria-label="Jump to data trust panel">
           <i class="bi bi-arrow-down-right-circle"></i>Open trust center
@@ -995,11 +1081,11 @@
       <div class="hero-side-header">
         <div>
           <div class="hero-label">Operating context</div>
-          <h2>Trust, coverage, and export control</h2>
-          <p>Snapshot, governed refresh context, and data limitations stay visible while the business narrative changes below.</p>
+          <h2>Trust, governed refresh, and export control</h2>
+          <p>Snapshot export, governed refresh timing, and data limitations stay visible while the business narrative changes below.</p>
         </div>
         <button id="downloadSnapshotBtn" class="btn btn-primary btn-sm" type="button" aria-label="Download business performance snapshot">
-          <i class="bi bi-download me-1"></i>Download Snapshot
+          <i class="bi bi-download me-1"></i>Export Snapshot
         </button>
       </div>
 
@@ -1017,14 +1103,14 @@
           <div class="value" id="missingMappingChip">-</div>
         </div>
         <div class="hero-side-metric">
-          <div class="label">Freshness SLA</div>
+          <div class="label">Refresh age</div>
           <div class="value" id="freshnessChip">-</div>
         </div>
       </div>
 
       <ul class="hero-side-list">
         <li><span>Commercial story</span><strong>Executive-first</strong></li>
-        <li><span>Route contract</span><strong>Filter + export parity</strong></li>
+        <li><span>Route contract</span><strong>Filter + drill parity</strong></li>
         <li><span>Sensitive metrics</span><strong>Mask-aware</strong></li>
         <li><span>Remediation path</span><a href="#dataHealthSection" class="action-inline-link">Open trust center</a></li>
       </ul>
@@ -1273,8 +1359,8 @@
     <section class="overview-section-shell" id="moversRiskSection">
       <div class="section-shell-header">
         <div class="panel-eyebrow">Commercial movement and risk</div>
-        <h2 class="panel-title">Movers monitor and risk control center</h2>
-        <div class="section-shell-copy">Track gainers and decliners on the left while concentration and margin watchlists prioritize issues on the right.</div>
+        <h2 class="panel-title">Top customers and SKU risk control center</h2>
+        <div class="section-shell-copy">Keep the highest-signal customer movement and SKU margin exposure in one workspace, with secondary product and region movement still available when needed.</div>
       </div>
       <div class="section-shell-body">
         <div class="section-shell-grid section-shell-grid-wide">
@@ -1382,5 +1468,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/overview.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/overview.js', v=(version or 'overview-nowcast-20260328')) }}" defer></script>
 {% endblock %}

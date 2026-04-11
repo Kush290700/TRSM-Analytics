@@ -455,7 +455,8 @@
     const freq = state.trendFreq;
     const metric = state.trendMetric;
     const block = trend?.[freq] || trend?.monthly || trend;
-    const labels = Array.isArray(block?.months) ? block.months.map((x) => String(x)) : [];
+    const rawLabels = Array.isArray(block?.labels) && block.labels.length ? block.labels : block?.months;
+    const labels = Array.isArray(rawLabels) ? rawLabels.map((x) => String(x)) : [];
     const metricSeries = Array.isArray(block?.[metric]) ? block[metric] : [];
 
     if (!els.trendChart || !window.Chart) {

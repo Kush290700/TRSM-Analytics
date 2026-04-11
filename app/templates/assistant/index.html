@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}AMW Assistant{% endblock %}
+{% block title %}TRSM Enterprise Assistant{% endblock %}
 
 {% block head_extras %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/assistant.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/assistant.css', v='20260325-theme-refine') }}">
 {% endblock %}
 
 {% block content %}
@@ -18,9 +18,9 @@
          data-initial-context='{{ assistant_context|tojson }}'>
   <header class="assistant-header">
     <div>
-      <p class="assistant-kicker">Business Intelligence Copilot</p>
-      <h1 class="assistant-title">AMW Enterprise Assistant</h1>
-      <p class="assistant-subtitle">Scoped business answers for leadership, operations, sales, procurement, and returns workflows.</p>
+      <p class="assistant-kicker">TRSM Intelligence Copilot</p>
+      <h1 class="assistant-title">TRSM Enterprise Assistant</h1>
+      <p class="assistant-subtitle">Scoped business answers for leadership, operations, sales, procurement, product, and returns workflows.</p>
     </div>
     <div class="assistant-header-meta">
       <span class="chip" id="assistantPageChip">Page: {{ assistant_context.page or 'overview' }}</span>

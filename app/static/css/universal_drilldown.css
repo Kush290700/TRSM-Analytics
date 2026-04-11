@@ -1,43 +1,22 @@
-.udrill-banner {
-  border: 1px solid rgba(20, 61, 84, 0.12);
-  background: linear-gradient(180deg, rgba(246, 249, 252, 0.96), rgba(238, 244, 249, 0.98));
-  border-radius: 16px;
-  padding: 0.9rem 1rem;
+/* 
+  Universal Drilldown Infrastructure 
+  Project-wide styling for data-drilldown-payload components. 
+*/
+
+:root {
+  --color-drill-primary: #1f5f9a;
+  --color-drill-subtle: #eff6ff;
+  --color-drill-border: rgba(31, 95, 154, 0.12);
+  --color-text-main: #1e293b;
+  --color-text-muted: #64748b;
 }
 
-.udrill-banner__title {
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #4d6070;
-}
-
-.udrill-banner__path {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #17313d;
-}
-
-.udrill-chip-row,
-.udw-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.udrill-chip,
-.udw-chip {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0.28rem 0.7rem;
-  background: rgba(23, 49, 61, 0.08);
-  color: #17313d;
-  font-size: 0.8rem;
-}
-
+/* 
+  Interactive indicator for elements with drilldown data. 
+  Used by universal_drilldown.js 
+*/
 [data-drilldown-payload] {
+  transition: background-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
   position: relative;
 }
 
@@ -51,16 +30,9 @@
   box-shadow: 0 0 0 2px rgba(44, 111, 134, 0.18);
 }
 
+/* Global Drill Tag Removal — replaced with cursor and subtle hover background in salesreps_v2.css */
 [data-drilldown-payload].is-drillable::after {
-  content: "Drill";
-  position: absolute;
-  top: 0.55rem;
-  right: 0.65rem;
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(23, 49, 61, 0.55);
-  pointer-events: none;
+  display: none !important;
 }
 
 .udw-page {
@@ -68,50 +40,75 @@
 }
 
 .udw-eyebrow,
-.udw-card-label,
-.udw-detail-label {
-  font-size: 0.74rem;
-  letter-spacing: 0.08em;
+.udw-section-kicker {
+  font-size: 0.7rem;
+  font-weight: 700;
   text-transform: uppercase;
-  color: #5e6f7b;
-  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-drill-primary);
+  opacity: 0.85;
 }
 
-.udw-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.85rem;
+.udw-headline {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--color-text-main);
 }
 
-.udw-card-value,
-.udw-detail-value {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #17313d;
-  margin-top: 0.2rem;
+.udw-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--color-drill-subtle);
+  color: var(--color-drill-primary);
+  border: 1px solid var(--color-drill-border);
 }
 
-.udw-card-detail {
-  color: #60717d;
+.udw-card {
+  border-radius: 0.85rem;
+  border: 1px solid var(--color-drill-border);
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+}
+
+.udw-table th {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  border-top: none;
+  background: #f8fafc;
+}
+
+.udw-table td {
   font-size: 0.88rem;
-  margin-top: 0.2rem;
+  color: var(--color-text-main);
+  padding: 0.75rem 0.5rem;
 }
 
-.udw-table-wrap {
-  max-height: 34rem;
+.udw-metric {
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  font-weight: 600;
 }
 
-.udw-empty {
-  border: 1px dashed rgba(23, 49, 61, 0.18);
-  background: rgba(245, 248, 251, 0.82);
-  color: #5b6b77;
-  border-radius: 14px;
-  padding: 1.2rem;
-  text-align: center;
+.udw-chart-shell {
+  min-height: 300px;
+  position: relative;
 }
 
-@media (max-width: 767.98px) {
-  [data-drilldown-payload].is-drillable::after {
-    display: none;
-  }
+.udw-chart-shell--loading::after {
+  content: "Loading...";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  z-index: 10;
 }

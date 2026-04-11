@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ensureLoggedIn } from './helpers/auth';
 
 /**
  * Smoke test for the Products intelligence page.
@@ -7,6 +8,7 @@ import { test, expect } from '@playwright/test';
  */
 test.describe('Products page', () => {
   test('renders KPIs, charts, velocity, and recommendations', async ({ page }) => {
+    await ensureLoggedIn(page);
     // Navigate to products page
     await page.goto('/products');
 

@@ -183,6 +183,10 @@ class Config:
     DATA_DIR: str = os.getenv("DATA_DIR", _DEFAULT_DATA_DIR.as_posix())
     CACHE_DIR: str = os.getenv("CACHE_DIR", _DEFAULT_DATA_DIR.as_posix())
     PARQUET_PATH: str = os.getenv("PARQUET_PATH", _DEFAULT_PARQUET_PATH)
+    CUSTOMER_REP_HISTORY_PATH: str = (os.getenv("CUSTOMER_REP_HISTORY_PATH", "") or "").strip()
+    TERRITORY_REP_HISTORY_PATH: str = (os.getenv("TERRITORY_REP_HISTORY_PATH", "") or "").strip()
+    CUSTOMER_TERRITORY_HISTORY_PATH: str = (os.getenv("CUSTOMER_TERRITORY_HISTORY_PATH", "") or "").strip()
+    SALESREP_SUCCESSION_PATH: str = (os.getenv("SALESREP_SUCCESSION_PATH", "") or "").strip()
     PRODUCTS_PARQUET_PATH: str = (
         os.getenv("PRODUCTS_PARQUET_PATH")
         or os.getenv("PRODUCTS_SALES_PARQUET")

@@ -78,7 +78,7 @@ def test_drilldown_page_renders(client, app_with_products):
     response = client.get("/products/SKU-001/drilldown")
     assert response.status_code == 200
     assert b"SKU-001" in response.data
-    assert b"Snapshot" in response.data
+    assert (b"Snapshot" in response.data) or (b"Product Intelligence Workspace" in response.data)
     assert b"Monthly Revenue" in response.data
 
 
@@ -188,8 +188,14 @@ def test_drilldown_empty_analytics_graceful(client, app, tmp_path, monkeypatch):
 
     monkeypatch.setenv("PRODUCTS_SALES_PARQUET", str(parquet_path))
     app.config["PRODUCTS_SALES_PARQUET"] = str(parquet_path)
+    monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    app.config["PARQUET_PATH"] = str(parquet_path)
     app.config["LOGIN_DISABLED"] = True
     app.config["AUTHZ_DISABLED"] = True
+    from app.services import fact_store
+    fact_store.reset_duckdb_state()
+    fact_store.init_views()
+    app.config["FACT_SCHEMA_STATUS"] = fact_store.validate_fact_schema(strict=False)
 
     # Should return 404 for any product (empty data)
     client = app.test_client()

@@ -20,6 +20,10 @@
     return Number.isFinite(num) ? num : null;
   }
 
+  function normalizeToken(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
   function readPayload() {
     const el = byId("customerWorkspaceData");
     if (!el) return null;
@@ -447,22 +451,31 @@
     });
   }
 
-  function plotTopMix(data, mode) {
+  function plotTopMix(data, mode, state) {
     const el = byId("ciwTopMixChart");
     if (!el) return;
     const meta = readMeta();
-    const state = getChartState(data, "top_mix");
-    if (state.status === "empty") {
-      renderEmpty(el, state.reason || "No product mix is available for the selected customer.");
+    const chartState = getChartState(data, "top_mix");
+    if (chartState.status === "empty") {
+      renderEmpty(el, chartState.reason || "No product mix is available for the selected customer.");
       return;
     }
+    const proteinFocus = normalizeToken(state?.proteinFocus);
     const rows = asArray(data?.topMixRows || data?.productRows)
       .filter(function (row) {
         return row && typeof row === "object";
       })
+      .filter(function (row) {
+        return !proteinFocus || normalizeToken(row?.protein_family) === proteinFocus;
+      })
       .slice();
     if (!rows.length) {
-      renderEmpty(el, state.reason || "No product mix is available for the selected customer.");
+      renderEmpty(
+        el,
+        proteinFocus
+          ? "No product mix matches the selected protein family in the current filter window."
+          : chartState.reason || "No product mix is available for the selected customer."
+      );
       return;
     }
     const selected = mode || "revenue";
@@ -483,7 +496,7 @@
           ? "No weight-bearing product mix is available in the current filter window."
           : selected === "profit"
           ? "No profit-bearing product mix is available in the current filter window."
-          : state.reason || "No product mix is available for the selected customer."
+          : chartState.reason || "No product mix is available for the selected customer."
       );
       return;
     }
@@ -508,7 +521,7 @@
         plot_bgcolor: "rgba(0,0,0,0)",
       },
       { displayModeBar: false, responsive: true },
-      state.reason || "No product mix is available for the selected customer."
+      chartState.reason || "No product mix is available for the selected customer."
     );
     attachPlotDrilldown(el, function (point) {
       const productId = point?.customdata || point?.y;
@@ -533,9 +546,113 @@
     });
   }
 
-  function wireProductTable() {
+  function applyProteinFocus(state) {
+    const focus = normalizeToken(state?.proteinFocus);
+    const targets = Array.from(document.querySelectorAll("[data-family-focus-target]"));
+    targets.forEach(function (el) {
+      const token = normalizeToken(el.getAttribute("data-family-focus-target"));
+      const show = !focus || token === focus;
+      el.style.display = show ? "" : "none";
+    });
+    const chips = Array.from(document.querySelectorAll("[data-protein-focus]"));
+    chips.forEach(function (chip) {
+      chip.classList.toggle("is-active", normalizeToken(chip.dataset.proteinFocus) === focus);
+    });
+  }
+
+  function applyActionLaneFocus(state) {
+    const lane = normalizeToken(state?.actionLane);
+    const targets = Array.from(document.querySelectorAll("[data-action-lane-target]"));
+    targets.forEach(function (el) {
+      const token = normalizeToken(el.getAttribute("data-action-lane-target"));
+      const show = !lane || token === lane;
+      el.style.display = show ? "" : "none";
+    });
+    const chips = Array.from(document.querySelectorAll("[data-action-lane]"));
+    chips.forEach(function (chip) {
+      chip.classList.toggle("is-active", normalizeToken(chip.dataset.actionLane) === lane);
+    });
+  }
+
+  function updateExportLinks(state) {
+    const links = Array.from(document.querySelectorAll("[data-export-link]"));
+    if (!links.length || typeof window === "undefined") return;
+    const negativeOnly = Boolean(byId("ciwNegativeOnly")?.checked);
+    const belowTargetOnly = Boolean(byId("ciwBelowTargetOnly")?.checked);
+    links.forEach(function (link) {
+      const currentHref = link.getAttribute("href");
+      if (!currentHref) return;
+      if (!link.dataset.baseHref) link.dataset.baseHref = currentHref;
+      let url;
+      try {
+        url = new URL(link.dataset.baseHref, window.location.origin);
+      } catch (_err) {
+        return;
+      }
+      if (state?.proteinFocus) {
+        url.searchParams.set("protein_focus", state.proteinFocusLabel || state.proteinFocus);
+      } else {
+        url.searchParams.delete("protein_focus");
+      }
+      if (state?.actionLane) {
+        url.searchParams.set("action_lane", state.actionLane);
+      } else {
+        url.searchParams.delete("action_lane");
+      }
+      if (negativeOnly) {
+        url.searchParams.set("negative_only", "1");
+      } else {
+        url.searchParams.delete("negative_only");
+      }
+      if (belowTargetOnly) {
+        url.searchParams.set("below_target_only", "1");
+      } else {
+        url.searchParams.delete("below_target_only");
+      }
+      link.setAttribute("href", `${url.pathname}${url.search}${url.hash}`);
+    });
+  }
+
+  function wireProteinFocus(state, onChange) {
+    const chips = Array.from(document.querySelectorAll("[data-protein-focus]"));
+    if (!chips.length) return;
+    const apply = function () {
+      applyProteinFocus(state);
+      if (typeof onChange === "function") onChange();
+    };
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        state.proteinFocus = normalizeToken(chip.dataset.proteinFocus);
+        state.proteinFocusLabel = String(chip.dataset.proteinFocus || "").trim();
+        apply();
+      });
+    });
+    apply();
+  }
+
+  function wireActionLaneFocus(state, onChange) {
+    const chips = Array.from(document.querySelectorAll("[data-action-lane]"));
+    if (!chips.length) return;
+    const apply = function () {
+      applyActionLaneFocus(state);
+      if (typeof onChange === "function") onChange();
+    };
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        state.actionLane = normalizeToken(chip.dataset.actionLane);
+        apply();
+      });
+    });
+    apply();
+  }
+
+  function wireProductTable(state, onChange) {
     const table = byId("ciwProductTable");
-    if (!table) return;
+    if (!table) {
+      return function () {
+        if (typeof onChange === "function") onChange();
+      };
+    }
     const rows = Array.from(table.querySelectorAll("tbody tr"));
     const search = byId("ciwProductSearch");
     const negativeOnly = byId("ciwNegativeOnly");
@@ -545,26 +662,49 @@
       const query = String(search?.value || "").trim().toLowerCase();
       const onlyNegative = Boolean(negativeOnly?.checked);
       const onlyBelow = Boolean(belowTargetOnly?.checked);
+      const proteinFocus = normalizeToken(state?.proteinFocus);
       let visible = 0;
       rows.forEach((row) => {
         const name = String(row.getAttribute("data-product") || "");
+        const protein = normalizeToken(row.getAttribute("data-protein"));
         const isNegative = row.getAttribute("data-negative") === "1";
         const isBelow = row.getAttribute("data-below-target") === "1";
-        const show = (!query || name.includes(query)) && (!onlyNegative || isNegative) && (!onlyBelow || isBelow);
+        const show = (!query || name.includes(query)) && (!proteinFocus || protein === proteinFocus) && (!onlyNegative || isNegative) && (!onlyBelow || isBelow);
         row.style.display = show ? "" : "none";
         if (show) visible += 1;
       });
-      if (count) count.textContent = `${visible} rows`;
+      if (count) {
+        const focusLabel = String(state?.proteinFocusLabel || "").trim();
+        count.textContent = focusLabel ? `${visible} rows · ${focusLabel}` : `${visible} rows`;
+      }
+      if (typeof onChange === "function") onChange();
     };
-    [search, negativeOnly, belowTargetOnly].forEach((el) => el && el.addEventListener("input", apply));
+    [search, negativeOnly, belowTargetOnly].forEach(function (el) {
+      if (!el) return;
+      el.addEventListener("input", apply);
+      el.addEventListener("change", apply);
+    });
     apply();
+    return apply;
   }
 
   document.addEventListener("DOMContentLoaded", function () {
     const data = readPayload();
+    const workspaceState = { proteinFocus: "", proteinFocusLabel: "", actionLane: "" };
+    const mixMode = byId("ciwMixMode");
+    const redrawTopMix = function () {
+      if (!data) return;
+      plotTopMix(data, mixMode?.value || (data.showCosts ? "profit" : "revenue"), workspaceState);
+    };
     if (!data) {
       renderWorkspaceFallback("Chart data is unavailable for this customer.");
-      wireProductTable();
+      const syncExports = function () {
+        updateExportLinks(workspaceState);
+      };
+      const applyProductTable = wireProductTable(workspaceState, syncExports);
+      wireProteinFocus(workspaceState, applyProductTable);
+      wireActionLaneFocus(workspaceState, syncExports);
+      syncExports();
       return;
     }
     afterFirstPaint(function () {
@@ -572,13 +712,25 @@
       plotWeightValue(data);
       plotWeekday(data);
       plotSeasonality(data);
-      plotTopMix(data, data.showCosts ? "profit" : "revenue");
-      wireProductTable();
-      const mixMode = byId("ciwMixMode");
+      redrawTopMix();
+      const syncExports = function () {
+        updateExportLinks(workspaceState);
+      };
+      const applyProductTable = wireProductTable(workspaceState, syncExports);
+      wireProteinFocus(workspaceState, function () {
+        applyProductTable();
+        redrawTopMix();
+        syncExports();
+      });
+      wireActionLaneFocus(workspaceState, syncExports);
+      syncExports();
       if (mixMode) {
         mixMode.addEventListener("change", function (event) {
-          plotTopMix(data, event?.target?.value || "revenue");
+          plotTopMix(data, event?.target?.value || "revenue", workspaceState);
         });
+      }
+      if (window.universalDrilldown && typeof window.universalDrilldown.enhanceAll === "function") {
+        window.universalDrilldown.enhanceAll();
       }
     });
   });

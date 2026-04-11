@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytest
 
+from app.core.exceptions import DatasetNotBuiltError
+
 
 def _sample_df():
     base = datetime(2022, 1, 1)
@@ -93,8 +95,32 @@ def test_filters_container_renders_on_pages(authed_client, path):
     assert 'id="filterPanelMethods"' in html
     assert 'id="fProducts"' in html
     assert 'id="fStatuses"' in html
+    assert 'id="fDateType"' in html
     assert 'id="clearDimensionFiltersBtn"' in html
     assert 'id="updateSavedViewBtn"' in html
     assert 'id="savedViewsSection"' in html
     assert 'id="filtersNoticeBanner"' in html
+    assert 'id="filtersBootstrapData"' in html
+    assert 'data-range="current_fy"' in html
+    assert 'data-range="previous_fy"' in html
+    assert 'data-range="current_fq"' in html
+    assert 'data-range="previous_fq"' in html
+    assert 'data-range="current_fm"' in html
+    assert 'data-range="previous_fm"' in html
+    assert 'data-range="fytd_comparison"' in html
+    assert 'data-range="all"' in html
     assert "Private saved views" in html
+
+
+def test_customers_page_keeps_filters_shell_when_bundle_is_unavailable(authed_client, monkeypatch):
+    monkeypatch.setattr(
+        "app.blueprints.customers.bundle_service.bundle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DatasetNotBuiltError("fact view unavailable")),
+    )
+
+    resp = authed_client.get("/customers/", follow_redirects=True)
+    html = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert 'id="GlobalFilters"' in html
+    assert 'id="filtersDimensionGrid"' in html

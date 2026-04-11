@@ -971,3 +971,49 @@
     justify-content: space-between;
   }
 }
+
+/* ============================================
+   TRSM 2026 product drilldown alignment
+   ============================================ */
+
+.theme-trsm-future .product-drilldown-v2 {
+  --pdv2-ink: var(--trsm-text-strong);
+  --pdv2-muted: var(--trsm-text-muted);
+  --pdv2-border: rgba(29, 42, 67, 0.12);
+  --pdv2-border-strong: rgba(29, 42, 67, 0.2);
+  --pdv2-surface: rgba(255, 255, 255, 0.9);
+  --pdv2-surface-soft: rgba(245, 248, 252, 0.9);
+  --pdv2-surface-muted: rgba(235, 241, 249, 0.92);
+  --pdv2-accent: var(--trsm-intel);
+  --pdv2-accent-soft: rgba(47, 124, 255, 0.12);
+  --pdv2-positive: var(--trsm-success);
+  --pdv2-positive-soft: rgba(30, 157, 114, 0.12);
+  --pdv2-warning: var(--trsm-warning);
+  --pdv2-warning-soft: rgba(208, 139, 35, 0.14);
+  --pdv2-danger: var(--trsm-danger);
+  --pdv2-danger-soft: rgba(204, 90, 98, 0.12);
+  --pdv2-shadow: var(--trsm-shadow-sm);
+}
+
+.theme-trsm-future .product-drilldown-v2 .card,
+.theme-trsm-future .product-v2-summary-card,
+.theme-trsm-future .product-v2-stat-tile {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 249, 252, 0.88));
+  box-shadow: var(--pdv2-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.theme-trsm-future .product-v2-hero {
+  background:
+    radial-gradient(circle at top right, rgba(47, 124, 255, 0.16), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(200, 138, 73, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 248, 252, 0.9));
+}
+
+.theme-trsm-future .product-v2-eyebrow {
+  color: var(--trsm-primary);
+}
+
+.theme-trsm-future .product-v2-hero-display-label {
+  color: #41526c;
+}

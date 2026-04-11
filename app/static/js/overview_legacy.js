@@ -21,6 +21,7 @@
   let requestSeq = 0;
   let lastAppliedQs = null;
   let bootstrapped = false;
+  let currentApplyId = null;
 
   const fmtCurrency0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const fmtCurrency1 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 1 });
@@ -1206,6 +1207,27 @@
     document.body.classList.toggle("loading", loading);
   };
 
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = null;
+    return applyId;
+  };
+
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId && !payload.applyId) payload.applyId = applyId;
+    try {
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(payload);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+    } catch (_err) {
+      /* ignore */
+    }
+  };
+
   const load = async (qsOverride) => {
     if (typeof Chart === "undefined") {
       setBanner("Chart.js failed to load. Check /static/vendor/chartjs/chart.umd.min.js.", "danger");
@@ -1242,11 +1264,7 @@
     } finally {
       if (version !== requestSeq) return;
       setLoading(false);
-      window.dispatchEvent(
-        new CustomEvent("globalFilters:applied", {
-          detail: { qs: lastAppliedQs, requestId: state.payload?.meta?.request_id },
-        })
-      );
+      dispatchGlobalApplyAck({ qs: lastAppliedQs, requestId: state.payload?.meta?.request_id });
     }
   };
 
@@ -1266,6 +1284,7 @@
   };
 
   const onApply = (evt) => {
+    currentApplyId = evt?.detail?.applyId || null;
     const qs = sanitizeOverviewQs(evt?.detail?.qs || "");
     load(qs);
   };

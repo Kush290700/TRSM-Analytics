@@ -181,6 +181,9 @@ Serve Flask via Gunicorn behind Nginx.
    sudo systemctl reload nginx
 
 The config proxies requests to `http://127.0.0.1:8000` and serves static files from `/opt/amw_analytics/app/static/`.
+After any production rsync/copy into `/opt/amw_analytics`, re-apply nginx static ACLs so `/static/*` does not start returning `403`:
+  sudo bash scripts/fix_static_acls.sh /opt/amw_analytics
+  bash scripts/check_static_assets.sh http://127.0.0.1
 
 Systemd Service
 ---------------

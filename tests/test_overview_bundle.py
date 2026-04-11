@@ -2,6 +2,7 @@ import time
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from app.blueprints import overview as overview_bp
 from app.services import fact_store
@@ -108,6 +109,10 @@ def _bundle_payload() -> dict:
         },
         "meta": {
             "has_data": True,
+            "last_refresh": "2026-03-27T12:45:00",
+            "data_cutoff": "2026-03-27",
+            "refresh_age_days": 1,
+            "refresh_age_hours": 18,
             "window": {
                 "start": "2025-01-01",
                 "end": "2025-01-31",
@@ -115,6 +120,8 @@ def _bundle_payload() -> dict:
                 "prior_label": "Prior comparable window",
                 "prior_window_label": "Dec 1, 2024 to Dec 31, 2024",
                 "delta_short_label": "Prior window",
+                "method_label": "Completed months",
+                "period_status_label": "Completed period",
                 "note": "Current filtered window Jan 1, 2025 to Jan 31, 2025 is compared with Dec 1, 2024 to Dec 31, 2024 using the same number of days.",
             },
             "cache_hit": False,
@@ -254,6 +261,10 @@ def test_overview_bundle_endpoint_real_bundle_regression(app_client, tmp_path, m
         assert "kpis" in payload and isinstance(payload.get("kpis"), dict)
         assert payload.get("drivers", {}).get("mom") is not None
         assert payload.get("top_movers", {}).get("customer") is not None
+        ops_mix = ((payload.get("operations") or {}).get("mix") or {}).get("protein") or []
+        assert ops_mix
+        assert {row.get("label") for row in ops_mix if isinstance(row, dict)}.issuperset({"Beef", "Pork"})
+        assert (payload.get("kpis") or {}).get("margin_pct") == pytest.approx(32.3393, abs=0.05)
     finally:
         fact_store.reset_duckdb_state()
 
@@ -268,6 +279,7 @@ def test_overview_page_renders_driver_decomposition_block(client, app):
     assert 'id="overviewPage"' in html
     assert "Executive KPI command center" in html
     assert "Trend workspace and commercial drivers" in html
+    assert "Operational mix" in html
     assert 'data-overview-v2="1"' in html
     assert 'data-overview-v3="1"' in html
 
@@ -298,6 +310,8 @@ def test_overview_page_renders_v3_when_flag_on(client, app):
     assert 'id="trendExportBtn"' in html
     assert 'id="filterCountChip"' in html
     assert 'id="comparisonBasisChip"' in html
+    assert 'id="periodModeChip"' in html
+    assert 'id="dataCutoffChip"' in html
     assert 'id="commandWindowNote"' in html
     assert 'id="heroPriorWindowChip"' in html
     assert 'id="healthRevenueState"' in html
@@ -398,6 +412,61 @@ def test_overview_snapshot_export_concentration_uses_both_concentration_sheets(m
     assert resp.status_code == 200
     assert captured["sheets"] == ["Metadata", "Concentration_Customers", "Concentration_Products"]
     assert "business_performance_concentration" in captured["filename"]
+
+
+def test_refresh_meta_uses_manifest_refresh_and_cutoff(monkeypatch):
+    monkeypatch.setattr(ov2, "_manifest_meta", lambda: ("dataset-v1", "2026-03-27T08:15:00Z"))
+    monkeypatch.setattr(ov2, "manifest_max_date", lambda: "2026-03-27")
+
+    meta = ov2._refresh_meta()
+
+    assert meta["version"] == "dataset-v1"
+    assert meta["last_refresh"].startswith("2026-03-27T08:15:00")
+    assert meta["data_cutoff"] == "2026-03-27"
+    assert meta["refresh_age_hours"] is None or meta["refresh_age_hours"] >= 0
+
+
+def test_snapshot_sheets_include_governed_refresh_metadata(monkeypatch):
+    monkeypatch.setattr(
+        ov2,
+        "build_overview_bundle",
+        lambda *args, **kwargs: {
+            "meta": {
+                "version": "dataset-v1",
+                "last_refresh": "2026-03-27T08:15:00",
+                "data_cutoff": "2026-03-27",
+                "refresh_age_hours": 12,
+                "window": {"start": "2026-03-01", "end": "2026-03-27"},
+            },
+            "health": {
+                "rows": 10,
+                "cost_missing_pct": 0.0,
+                "cost_coverage_pct": 100.0,
+                "packs_coverage_pct": 100.0,
+                "has_packs_orderlines": 10,
+                "total_orderlines": 10,
+                "product_mapping_missing": 0,
+                "freshness_sla_days": 0,
+                "freshness_sla_hours": 12,
+                "governed_refresh_at": "2026-03-27T08:15:00",
+                "data_cutoff": "2026-03-27",
+            },
+            "kpis": {"revenue": 1000.0},
+        },
+    )
+    monkeypatch.setattr(ov2, "build_detail_tables", lambda *args, **kwargs: {})
+
+    sheets = ov2.build_snapshot_sheets(FilterParams())
+
+    metadata = sheets["Metadata"]
+    health = sheets["Data_Health"]
+    metadata_map = dict(zip(metadata["field"], metadata["value"]))
+    health_map = dict(zip(health["metric"], health["value"]))
+
+    assert metadata_map["data_cutoff"] == "2026-03-27"
+    assert metadata_map["refresh_age_hours"] == 12
+    assert health_map["freshness_sla_hours"] == 12
+    assert health_map["governed_refresh_at"] == "2026-03-27T08:15:00"
 
 
 def test_overview_drilldown_json_shape(monkeypatch, client):

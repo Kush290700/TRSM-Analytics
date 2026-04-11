@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -11,7 +12,9 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 
 import duckdb
 import pandas as pd
-from flask import current_app, has_app_context
+from flask import current_app, g, has_app_context, has_request_context
+
+from app.core.cache_manager import TTLValueCache
 
 
 logger = logging.getLogger(__name__)
@@ -22,6 +25,8 @@ _duck_conn_lock = threading.RLock()
 _duck_conn_local = threading.local()
 _manifest_state: dict[str, Any] = {"checked_at": 0.0, "mtime": None, "version": None}
 _MANIFEST_TTL_SECONDS = 2.0
+_QUERY_CACHE = TTLValueCache(maxsize=int(os.getenv("LABOR_QUERY_CACHE_MAXSIZE", "128")))
+_QUERY_CACHE_TTL_SECONDS = max(15, int(os.getenv("LABOR_QUERY_CACHE_TTL", "90")))
 
 
 class LaborDatasetNotBuiltError(RuntimeError):
@@ -136,6 +141,30 @@ def get_dataset_version(dataset_path: Optional[Path] = None) -> str:
     )
     state.update({"checked_at": now, "mtime": mtime, "version": str(version)})
     return str(version)
+
+
+def _request_query_cache_bucket() -> dict[str, pd.DataFrame] | None:
+    if not has_request_context():
+        return None
+    try:
+        bucket = getattr(g, "_labor_request_cache", None)
+        if isinstance(bucket, dict):
+            return bucket
+        bucket = {}
+        g._labor_request_cache = bucket
+        return bucket
+    except Exception:
+        return None
+
+
+def _query_cache_key(sql: str, params: Sequence[Any] | None = None) -> str:
+    payload = {
+        "sql": sql,
+        "params": list(params or []),
+        "version": get_dataset_version(),
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _pick(columns: set[str], *candidates: str) -> str | None:
@@ -612,8 +641,27 @@ def reset_duckdb_state() -> None:
 
 
 def query_df(sql: str, params: Sequence[Any] | None = None) -> pd.DataFrame:
-    conn = get_conn()
-    return conn.execute(sql, list(params or [])).fetchdf()
+    sql_params = list(params or [])
+    cache_key = _query_cache_key(sql, sql_params)
+    request_cache = _request_query_cache_bucket()
+    if request_cache is not None:
+        cached_request = request_cache.get(cache_key)
+        if isinstance(cached_request, pd.DataFrame):
+            return cached_request.copy()
+    cached = _QUERY_CACHE.get(cache_key)
+    if isinstance(cached, pd.DataFrame):
+        if request_cache is not None:
+            request_cache[cache_key] = cached.copy()
+        return cached.copy()
+
+    def _build() -> pd.DataFrame:
+        conn = get_conn()
+        return conn.execute(sql, sql_params).fetchdf()
+
+    frame, _ = _QUERY_CACHE.get_or_compute(cache_key, _QUERY_CACHE_TTL_SECONDS, _build)
+    if request_cache is not None:
+        request_cache[cache_key] = frame.copy()
+    return frame.copy()
 
 
 def query_scalar(sql: str, params: Sequence[Any] | None = None) -> Any:

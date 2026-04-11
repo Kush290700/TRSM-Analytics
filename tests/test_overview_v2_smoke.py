@@ -27,13 +27,16 @@ def _disable_cache(monkeypatch):
     monkeypatch.setattr(ov2, "_store_cache", lambda *args, **kwargs: None)
 
 
-def test_default_filter_window_uses_recent_months(app):
+def test_default_filter_window_uses_current_fy(app):
     with app.test_request_context():
         params = parse_filters({})
     assert params.start is not None
     assert params.end is not None
     assert params.start.year >= 2019
-    assert (params.end - params.start).days < 120
+    assert params.preset == "current_fy"
+    assert params.date_type == "fiscal"
+    assert str(params.start.month) == "10"
+    assert str(params.start.day) == "1"
 
 
 def test_summary_handles_cost(app, monkeypatch):
@@ -80,3 +83,26 @@ def test_summary_empty_frame(app, monkeypatch):
     with app.test_request_context():
         payload = ov2.build_summary(FilterParams())
     assert payload["meta"]["has_data"] is False
+
+
+def test_build_trend_uses_fiscal_month_labels(monkeypatch):
+    monthly = pd.DataFrame(
+        {
+            "revenue": [1000.0, 1200.0],
+            "qty": [10.0, 12.0],
+            "asp": [100.0, 100.0],
+        },
+        index=pd.period_range("2025-10", periods=2, freq="M"),
+    )
+    monkeypatch.setattr(
+        ov2,
+        "get_bundle_context",
+        lambda _filters: {
+            "payload": {"meta": {"window": {"date_type": "fiscal", "trend_bucket_label": "Fiscal Month"}}},
+            "monthly": monthly,
+            "cache_hit": False,
+        },
+    )
+    payload = ov2.build_trend(FilterParams(preset="current_fy", date_type="fiscal"), exclude_partial=False)
+    assert payload["labels"] == ["FM1", "FM2"]
+    assert payload["meta"]["date_type"] == "fiscal"

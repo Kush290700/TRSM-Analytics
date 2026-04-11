@@ -21,10 +21,12 @@ from fact_checkpoints import log_fact_checkpoint
 
 from app.cache import cache
 from app.services import analytics_utils as au
+from app.services import margin_rules
 from app.services import overview_metrics as om
 from app.services.filters import (
     FilterParams,
     apply_filters as apply_filter_params,
+    fiscal_month_label,
     filters_cache_key,
 )
 from data.store import (
@@ -40,7 +42,7 @@ CACHE_TTL = 60_180
 
 BUNDLE_CACHE_TTL = CACHE_TTL
 BUNDLE_SCHEMA_VERSION = "overview_bundle_v1"
-_BUNDLE_REV = "2026-03-06-v3"
+_BUNDLE_REV = "2026-03-28-v4"
 _DRIVER_DECOMP_REV = "2026-02-23-v2"
 _DRIVER_DECOMP_TOLERANCE = 0.01
 _DRIVER_DECOMP_TOP_N = 5
@@ -95,6 +97,73 @@ def _manifest_meta() -> Tuple[str, Optional[str]]:
         or manifest.get("refreshed_at")
     )
     return version, last_refresh
+
+
+def _coerce_manifest_timestamp(value: Any) -> Optional[pd.Timestamp]:
+    if value is None:
+        return None
+    try:
+        ts = pd.Timestamp(value)
+    except Exception:
+        return None
+    if getattr(ts, "tzinfo", None) is not None:
+        try:
+            ts = ts.tz_convert(None)
+        except Exception:
+            ts = ts.tz_localize(None)
+    return ts
+
+
+def _refresh_meta() -> Dict[str, Any]:
+    version, last_refresh = _manifest_meta()
+    refresh_ts = _coerce_manifest_timestamp(last_refresh)
+    cutoff_ts = _coerce_manifest_timestamp(manifest_max_date())
+    now_ts = pd.Timestamp.utcnow().tz_localize(None)
+    refresh_age_hours: Optional[int] = None
+    refresh_age_days: Optional[int] = None
+    if refresh_ts is not None:
+        age_seconds = max(0.0, float((now_ts - refresh_ts).total_seconds()))
+        refresh_age_hours = int(age_seconds // 3600)
+        refresh_age_days = int(age_seconds // 86400)
+    return {
+        "version": version,
+        "last_refresh": refresh_ts.isoformat() if refresh_ts is not None else (str(last_refresh) if last_refresh else None),
+        "data_cutoff": cutoff_ts.date().isoformat() if cutoff_ts is not None else None,
+        "refresh_age_hours": refresh_age_hours,
+        "refresh_age_days": refresh_age_days,
+    }
+
+
+def _window_method_label(window_contract: om.WindowContract) -> str:
+    mapping = {
+        "month_to_date_vs_prior_month_same_day": "Month-to-date",
+        "completed_months_vs_prior_completed_months": "Completed months",
+        "selected_window_vs_prior_matched_days": "Matched days",
+        "fiscal_year_to_date_vs_prior_fiscal_year_to_date": "Fiscal year-to-date",
+        "fiscal_year_vs_prior_fiscal_year": "Fiscal year",
+        "fiscal_quarter_to_date_vs_prior_fiscal_quarter_same_day": "Fiscal quarter-to-date",
+    }
+    return mapping.get(str(window_contract.method or "").strip(), "Filtered window")
+
+
+def _trend_labels_from_index(index: pd.Index, *, date_type: str | None = None) -> list[str]:
+    labels: list[str] = []
+    is_fiscal = str(date_type or "").strip().lower() == "fiscal"
+    for raw in list(index):
+        fallback = str(raw)
+        if not is_fiscal:
+            labels.append(fallback)
+            continue
+        try:
+            if isinstance(raw, pd.Period):
+                stamp = raw.to_timestamp()
+            else:
+                stamp = pd.Timestamp(raw)
+        except Exception:
+            labels.append(fallback)
+            continue
+        labels.append(fiscal_month_label(stamp) or fallback)
+    return labels
 
 
 def _date_bounds(df: pd.DataFrame, date_col: Optional[str]) -> Dict[str, Any]:
@@ -407,6 +476,19 @@ def _col_expr(col: Optional[str], cast: str, default: str) -> str:
     if not col:
         return f"{default}::{cast}"
     return f"CAST({_quote_identifier(col)} AS {cast})"
+
+
+def _coalesce_numeric_expr(cols: set[str], candidates: list[str], default: str) -> str:
+    expressions: list[str] = []
+    seen: set[str] = set()
+    for cand in candidates:
+        if not cand or cand not in cols or cand in seen:
+            continue
+        seen.add(cand)
+        expressions.append(f"CAST({_quote_identifier(cand)} AS DOUBLE)")
+    if not expressions:
+        return default
+    return f"COALESCE({', '.join(expressions + [default])})"
 
 
 def _to_list(val: Any) -> List[Any]:
@@ -863,6 +945,7 @@ def _compute_driver_decomposition_v2(
     primary_delta_label = str(window_contract.delta_short_label or "Primary comparison")
     primary_compare_label = str(window_contract.prior_label or "Prior comparable window")
     primary_detail_label = primary_delta_label if primary_delta_label not in {"Prior window", "Current window"} else "Primary comparison"
+    effective_cost_expr = margin_rules.sql_effective_cost_expr("cost_raw", None, "qty", fallback="NULL::DOUBLE")
     sql = f"""
         WITH scoped_base AS (
             SELECT
@@ -879,7 +962,7 @@ def _compute_driver_decomposition_v2(
             SELECT
                 order_date,
                 revenue,
-                COALESCE(cost_raw, 0.0) AS cost,
+                ({effective_cost_expr}) AS cost,
                 cost_raw,
                 qty,
                 COALESCE(NULLIF(product_id, ''), NULLIF(product_name, ''), 'Unknown') AS sku_key,
@@ -1069,6 +1152,7 @@ def _compute_window_comparison_context(
 ) -> Dict[str, Any]:
     preprior_end = window_contract.prior_month_start - timedelta(days=1)
     preprior_start = preprior_end - timedelta(days=max(1, window_contract.current_days) - 1)
+    effective_cost_expr = margin_rules.sql_effective_cost_expr("cost_raw", "weight", "qty", fallback="NULL::DOUBLE")
     sql = f"""
         WITH scoped_base AS (
             SELECT
@@ -1089,7 +1173,7 @@ def _compute_window_comparison_context(
             SELECT
                 order_date,
                 revenue,
-                COALESCE(cost_raw, 0.0) AS cost,
+                ({effective_cost_expr}) AS cost,
                 cost_raw,
                 qty,
                 weight,
@@ -1432,19 +1516,24 @@ def _compute_window_margin_risk(
     date_expr: str,
     revenue_expr: str,
     cost_raw_expr: str,
+    qty_expr: str,
+    weight_expr: str,
     product_id_expr: str,
     product_name_expr: str,
     supplier_expr: str,
     protein_expr: str,
     window_contract: om.WindowContract,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
+    effective_cost_expr = margin_rules.sql_effective_cost_expr("cost_raw", "weight", "qty", fallback="NULL::DOUBLE")
     sql = f"""
         WITH scoped AS (
             SELECT
                 {date_expr} AS order_date,
                 {revenue_expr} AS revenue,
                 {cost_raw_expr} AS cost_raw,
-                COALESCE({cost_raw_expr}, 0.0) AS cost,
+                {qty_expr} AS qty,
+                {weight_expr} AS weight,
+                ({effective_cost_expr}) AS cost,
                 {product_id_expr} AS product_id,
                 {product_name_expr} AS product_name,
                 {supplier_expr} AS supplier,
@@ -1459,7 +1548,9 @@ def _compute_window_margin_risk(
                 COALESCE(NULLIF(supplier, ''), 'Unknown') AS supplier,
                 COALESCE(NULLIF(protein, ''), 'Unknown') AS protein,
                 SUM(CASE WHEN cost_raw IS NOT NULL THEN revenue ELSE 0 END) AS revenue_with_cost,
-                SUM(CASE WHEN cost_raw IS NOT NULL THEN cost ELSE 0 END) AS cost
+                SUM(CASE WHEN cost_raw IS NOT NULL THEN cost ELSE 0 END) AS cost,
+                SUM(CASE WHEN cost_raw IS NOT NULL THEN qty ELSE 0 END) AS qty,
+                SUM(CASE WHEN cost_raw IS NOT NULL THEN weight ELSE 0 END) AS weight
             FROM scoped
             WHERE order_date >= CAST(? AS DATE) AND order_date < CAST(? AS DATE)
             GROUP BY 1, 2, 3, 4
@@ -1481,6 +1572,8 @@ def _compute_window_margin_risk(
                 c.protein,
                 c.revenue_with_cost AS revenue,
                 c.cost,
+                c.qty,
+                c.weight,
                 p.revenue_with_cost_prev AS revenue_prev,
                 p.cost_prev
             FROM current_rollup c
@@ -1503,26 +1596,16 @@ def _compute_window_margin_risk(
             protein,
             revenue,
             revenue_share,
+            cost,
             margin_pct,
             margin_prev,
+            qty,
+            weight AS weight_lb,
             CASE WHEN margin_prev IS NOT NULL THEN margin_pct - margin_prev ELSE NULL END AS margin_delta,
-            (revenue - cost) AS profit,
-            CASE
-                WHEN margin_pct < 0 THEN 'negative_margin'
-                WHEN margin_prev IS NOT NULL AND margin_pct - margin_prev < -5 THEN 'margin_drop'
-                WHEN margin_pct < 5 THEN 'low_margin'
-                ELSE NULL
-            END AS risk
+            (revenue - cost) AS profit
         FROM scored
-        WHERE
-            margin_pct IS NOT NULL
-            AND (
-                margin_pct < 0
-                OR (margin_prev IS NOT NULL AND margin_pct - margin_prev < -5)
-                OR margin_pct < 5
-            )
-        ORDER BY CASE WHEN (revenue - cost) < 0 THEN (revenue - cost) ELSE 0 END ASC, revenue DESC
-        LIMIT 25
+        WHERE margin_pct IS NOT NULL
+        ORDER BY revenue DESC, entity_id
     """
     params = list(where_params)
     params.extend(
@@ -1535,14 +1618,54 @@ def _compute_window_margin_risk(
     )
     frame = _exec_df(sql, params, "overview_margin_risk_windowed", conn)
     if frame.empty:
-        return []
+        return {"rows": [], "minimum_margin_pct": None, "target_margin_pct": None}
+    frame["effective_cost_basis"] = pd.to_numeric(frame.get("cost"), errors="coerce")
+    frame = margin_rules.annotate_margin_frame(
+        frame,
+        protein_col="protein",
+        category_col="protein",
+        revenue_col="revenue",
+        cost_col="cost",
+        profit_col="profit",
+        margin_col="margin_pct",
+    )
+    weighted_minimum_margin_pct = margin_rules.weighted_minimum_margin_pct(frame.to_dict(orient="records"))
+    weighted_target_margin_pct = margin_rules.weighted_target_margin_pct(frame.to_dict(orient="records"))
+    frame["profit_impact"] = pd.to_numeric(frame.get("profit"), errors="coerce")
+    frame["profit_lost_vs_target"] = pd.to_numeric(frame.get("profit_uplift_to_target"), errors="coerce")
+    frame["risk"] = np.select(
+        [
+            frame["status_key"].isin(["red", "orange"]),
+            frame["status_key"].eq("yellow"),
+            pd.to_numeric(frame.get("margin_delta"), errors="coerce") < -5.0,
+        ],
+        [
+            "below_minimum",
+            "below_target",
+            "margin_drop",
+        ],
+        default="",
+    )
+    frame = frame[
+        frame["risk"].astype("string").fillna("").str.len() > 0
+    ].copy()
+    if frame.empty:
+        return {
+            "rows": [],
+            "minimum_margin_pct": weighted_minimum_margin_pct,
+            "target_margin_pct": weighted_target_margin_pct,
+        }
     out = []
-    for rec in frame.to_dict(orient="records"):
+    for rec in frame.sort_values(["profit_lost_vs_target", "revenue"], ascending=[False, False]).to_dict(orient="records"):
         row = dict(rec)
         row["profit_impact"] = _clean_optional_float(row.get("profit"))
         out.append(row)
     out.sort(key=lambda rec: float(rec.get("profit_impact") or 0.0))
-    return out
+    return {
+        "rows": out,
+        "minimum_margin_pct": weighted_minimum_margin_pct,
+        "target_margin_pct": weighted_target_margin_pct,
+    }
 
 
 def _build_health_issues(
@@ -1658,11 +1781,7 @@ def _compute_bundle_context(
 
     date_col = _safe_col(cols, "Date", "ShipDate", "OrderDate")
     revenue_col = _safe_col(cols, "Revenue", "TotalRevenue", "Sales")
-    cost_col = _safe_col(cols, "Cost", "CostPrice", "TotalCost")
-    qty_candidates = ["QuantityShipped", "QuantityOrdered", "Qty", "Units", "ItemCount", "pack_item_count_sum"]
-    qty_available = [c for c in qty_candidates if c in cols]
-    qty_col = qty_available[0] if qty_available else None
-    weight_col = _safe_col(cols, "WeightLb", "Weight", "pack_weight_lb_sum")
+    cost_candidates = ["Cost", "CostPrice", "TotalCost"]
     order_col = _safe_col(cols, "OrderId", "OrderID")
     customer_id_col = _safe_col(cols, "CustomerId", "CustomerID")
     customer_name_col = _safe_col(cols, "CustomerName", "Customer")
@@ -1671,19 +1790,20 @@ def _compute_bundle_context(
     region_col = _safe_col(cols, "RegionName", "Region")
     ship_col = _safe_col(cols, "ShippingMethodName", "ShippingMethodLabel", "ShipMethod_Name")
     supplier_col = _safe_col(cols, "SupplierName", "SupplierId")
-    protein_col = _safe_col(cols, "ProteinType", "Category", "ProductCategory", "Protein")
+    protein_col = _safe_col(cols, "Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
     pack_item_col = _safe_col(cols, "pack_item_count_sum")
     pack_weight_col = _safe_col(cols, "pack_weight_lb_sum")
+    cost_available = any(c in cols for c in cost_candidates)
 
     date_expr = _col_expr(date_col, "DATE", "NULL")
     revenue_expr = _col_expr(revenue_col, "DOUBLE", "0")
-    cost_raw_expr = _col_expr(cost_col, "DOUBLE", "NULL")
-    if qty_available:
-        qty_casts = ", ".join(f"CAST({_quote_identifier(c)} AS DOUBLE)" for c in qty_available)
-        qty_expr = f"COALESCE({qty_casts}, 0::DOUBLE)"
-    else:
-        qty_expr = "0::DOUBLE"
-    weight_expr = _col_expr(weight_col, "DOUBLE", "0")
+    cost_raw_expr = _coalesce_numeric_expr(cols, cost_candidates, "NULL::DOUBLE")
+    qty_expr = _coalesce_numeric_expr(
+        cols,
+        ["QuantityShipped", "ShippedItems", "QuantityOrdered", "Qty", "Quantity", "Units", "ItemCount", "pack_item_count_sum"],
+        "0::DOUBLE",
+    )
+    weight_expr = _coalesce_numeric_expr(cols, ["WeightLb", "Weight", "ShippedLb", "pack_weight_lb_sum"], "0::DOUBLE")
     order_expr = _col_expr(order_col, "VARCHAR", "NULL")
     customer_id_expr = _col_expr(customer_id_col, "VARCHAR", "NULL")
     customer_name_expr = _col_expr(customer_name_col, "VARCHAR", "NULL")
@@ -1695,6 +1815,7 @@ def _compute_bundle_context(
     protein_expr = _col_expr(protein_col, "VARCHAR", "NULL")
     pack_item_expr = _col_expr(pack_item_col, "DOUBLE", "NULL")
     pack_weight_expr = _col_expr(pack_weight_col, "DOUBLE", "NULL")
+    effective_cost_expr = margin_rules.sql_effective_cost_expr("cost_raw", "weight", "qty", fallback="NULL::DOUBLE")
 
     sql = f"""
         WITH scoped_base AS (
@@ -1722,7 +1843,7 @@ def _compute_bundle_context(
             SELECT
                 order_date,
                 revenue,
-                COALESCE(cost_raw, 0.0) AS cost,
+                ({effective_cost_expr}) AS cost,
                 cost_raw,
                 qty,
                 weight,
@@ -1869,38 +1990,41 @@ def _compute_bundle_context(
         customer_rollup AS (
             SELECT
                 COALESCE(NULLIF(customer_name, ''), customer_id, 'Unknown') AS label,
+                COALESCE(NULLIF(customer_id, ''), NULLIF(customer_name, ''), 'Unknown') AS entity_id,
                 SUM(revenue) AS revenue
             FROM current_window
-            GROUP BY 1
+            GROUP BY 1, 2
         ),
         product_rollup AS (
             SELECT
                 COALESCE(NULLIF(product_name, ''), product_id, 'Unknown') AS label,
+                COALESCE(NULLIF(product_id, ''), NULLIF(product_name, ''), 'Unknown') AS entity_id,
                 SUM(revenue) AS revenue
             FROM current_window
-            GROUP BY 1
+            GROUP BY 1, 2
         ),
         region_rollup AS (
             SELECT
                 COALESCE(NULLIF(region, ''), 'Unknown') AS label,
+                COALESCE(NULLIF(region, ''), 'Unknown') AS entity_id,
                 SUM(revenue) AS revenue
             FROM current_window
-            GROUP BY 1
+            GROUP BY 1, 2
         ),
         customer_mix AS (
-            SELECT label, revenue
+            SELECT label, entity_id, revenue
             FROM customer_rollup
             ORDER BY revenue DESC
             LIMIT 10
         ),
         product_mix AS (
-            SELECT label, revenue
+            SELECT label, entity_id, revenue
             FROM product_rollup
             ORDER BY revenue DESC
             LIMIT 10
         ),
         region_mix AS (
-            SELECT label, revenue
+            SELECT label, entity_id, revenue
             FROM region_rollup
             ORDER BY revenue DESC
             LIMIT 10
@@ -1908,6 +2032,7 @@ def _compute_bundle_context(
         customer_pareto AS (
             SELECT
                 label,
+                entity_id,
                 revenue,
                 CASE WHEN SUM(revenue) OVER () > 0 THEN SUM(revenue) OVER (ORDER BY revenue DESC ROWS UNBOUNDED PRECEDING) / SUM(revenue) OVER () * 100 ELSE 0 END AS cum_pct
             FROM customer_rollup
@@ -1917,6 +2042,7 @@ def _compute_bundle_context(
         product_pareto AS (
             SELECT
                 label,
+                entity_id,
                 revenue,
                 CASE WHEN SUM(revenue) OVER () > 0 THEN SUM(revenue) OVER (ORDER BY revenue DESC ROWS UNBOUNDED PRECEDING) / SUM(revenue) OVER () * 100 ELSE 0 END AS cum_pct
             FROM product_rollup
@@ -1926,6 +2052,7 @@ def _compute_bundle_context(
         region_pareto AS (
             SELECT
                 label,
+                entity_id,
                 revenue,
                 CASE WHEN SUM(revenue) OVER () > 0 THEN SUM(revenue) OVER (ORDER BY revenue DESC ROWS UNBOUNDED PRECEDING) / SUM(revenue) OVER () * 100 ELSE 0 END AS cum_pct
             FROM region_rollup
@@ -2076,26 +2203,42 @@ def _compute_bundle_context(
                 SUM(CASE WHEN product_id IS NULL OR product_name IS NULL THEN 1 ELSE 0 END) AS product_missing
             FROM current_window
         ),
+        customer_conc_ranked AS (
+            SELECT
+                label,
+                entity_id,
+                revenue,
+                ROW_NUMBER() OVER (ORDER BY revenue DESC) AS rn,
+                SUM(revenue) OVER () AS total_rev
+            FROM customer_rollup
+        ),
         customer_conc AS (
             SELECT
                 CASE WHEN total_rev > 0 THEN SUM((revenue / total_rev) * (revenue / total_rev)) OVER () * 10000 ELSE NULL END AS hhi,
-                CASE WHEN total_rev > 0 THEN MAX(revenue / total_rev) OVER () * 100 ELSE NULL END AS top1_share,
+                CASE WHEN total_rev > 0 THEN MAX(CASE WHEN rn = 1 THEN revenue / total_rev ELSE NULL END) OVER () * 100 ELSE NULL END AS top1_share,
+                MAX(CASE WHEN rn = 1 THEN label ELSE NULL END) OVER () AS top1_label,
+                MAX(CASE WHEN rn = 1 THEN entity_id ELSE NULL END) OVER () AS top1_entity_id,
                 CASE WHEN total_rev > 0 THEN SUM(CASE WHEN rn <= 5 THEN revenue / total_rev ELSE 0 END) OVER () * 100 ELSE NULL END AS top5_share
-            FROM (
-                SELECT revenue, ROW_NUMBER() OVER (ORDER BY revenue DESC) AS rn, SUM(revenue) OVER () AS total_rev
-                FROM customer_rollup
-            )
+            FROM customer_conc_ranked
             LIMIT 1
+        ),
+        product_conc_ranked AS (
+            SELECT
+                label,
+                entity_id,
+                revenue,
+                ROW_NUMBER() OVER (ORDER BY revenue DESC) AS rn,
+                SUM(revenue) OVER () AS total_rev
+            FROM product_rollup
         ),
         product_conc AS (
             SELECT
                 CASE WHEN total_rev > 0 THEN SUM((revenue / total_rev) * (revenue / total_rev)) OVER () * 10000 ELSE NULL END AS hhi,
-                CASE WHEN total_rev > 0 THEN MAX(revenue / total_rev) OVER () * 100 ELSE NULL END AS top1_share,
+                CASE WHEN total_rev > 0 THEN MAX(CASE WHEN rn = 1 THEN revenue / total_rev ELSE NULL END) OVER () * 100 ELSE NULL END AS top1_share,
+                MAX(CASE WHEN rn = 1 THEN label ELSE NULL END) OVER () AS top1_label,
+                MAX(CASE WHEN rn = 1 THEN entity_id ELSE NULL END) OVER () AS top1_entity_id,
                 CASE WHEN total_rev > 0 THEN SUM(CASE WHEN rn <= 5 THEN revenue / total_rev ELSE 0 END) OVER () * 100 ELSE NULL END AS top5_share
-            FROM (
-                SELECT revenue, ROW_NUMBER() OVER (ORDER BY revenue DESC) AS rn, SUM(revenue) OVER () AS total_rev
-                FROM product_rollup
-            )
+            FROM product_conc_ranked
             LIMIT 1
         ),
         customer_curr AS (
@@ -2174,6 +2317,22 @@ def _compute_bundle_context(
             ORDER BY revenue DESC
             LIMIT 10
         ),
+        protein_ops_mix AS (
+            SELECT
+                COALESCE(NULLIF(protein, ''), 'Unknown') AS label,
+                SUM(revenue) AS revenue
+            FROM current_window
+            GROUP BY 1
+        ),
+        protein_ops_ranked AS (
+            SELECT
+                label,
+                revenue,
+                CASE WHEN SUM(revenue) OVER () > 0 THEN revenue / SUM(revenue) OVER () * 100 ELSE 0 END AS share
+            FROM protein_ops_mix
+            ORDER BY revenue DESC
+            LIMIT 10
+        ),
         weekday_dist AS (
             SELECT
                 CASE strftime('%w', order_date)
@@ -2225,65 +2384,16 @@ def _compute_bundle_context(
                 SUM(CASE WHEN margin_pct > 50 THEN 1 ELSE 0 END) AS above_fifty,
                 COUNT(*) AS count
             FROM customer_margin_pct
-        ),
-        product_margin AS (
-            SELECT
-                label,
-                entity_id,
-                supplier,
-                protein,
-                SUM(CASE WHEN month = (SELECT curr_month FROM periods) THEN revenue_with_cost ELSE 0 END) AS revenue,
-                SUM(CASE WHEN month = (SELECT curr_month FROM periods) THEN cost ELSE 0 END) AS cost,
-                SUM(CASE WHEN month = (SELECT prev_month FROM periods) THEN revenue_with_cost ELSE 0 END) AS revenue_prev,
-                SUM(CASE WHEN month = (SELECT prev_month FROM periods) THEN cost ELSE 0 END) AS cost_prev
-            FROM product_monthly
-            GROUP BY 1,2,3,4
-        ),
-        product_margin_risk AS (
-            SELECT
-                label,
-                entity_id,
-                supplier,
-                protein,
-                revenue,
-                revenue_prev,
-                cost,
-                cost_prev,
-                CASE WHEN revenue > 0 THEN (revenue - cost) / revenue * 100 ELSE NULL END AS margin_pct,
-                CASE WHEN revenue_prev > 0 THEN (revenue_prev - cost_prev) / revenue_prev * 100 ELSE NULL END AS margin_prev,
-                CASE WHEN SUM(revenue) OVER () > 0 THEN revenue / SUM(revenue) OVER () * 100 ELSE 0 END AS revenue_share,
-                (revenue - cost) AS profit
-            FROM product_margin
-            WHERE revenue > 0
-        ),
-        product_margin_flag AS (
-            SELECT
-                *,
-                CASE
-                    WHEN margin_pct IS NULL THEN NULL
-                    WHEN margin_pct < 0 THEN 'negative_margin'
-                    WHEN margin_prev IS NOT NULL AND margin_pct - margin_prev < -5 THEN 'margin_drop'
-                    WHEN margin_pct < 5 THEN 'low_margin'
-                    ELSE NULL
-                END AS risk_flag,
-                CASE WHEN margin_prev IS NOT NULL THEN margin_pct - margin_prev ELSE NULL END AS margin_delta
-            FROM product_margin_risk
-        ),
-        product_margin_top AS (
-            SELECT * FROM product_margin_flag
-            WHERE risk_flag IS NOT NULL
-            ORDER BY CASE WHEN profit < 0 THEN profit ELSE 0 END ASC, revenue_share DESC
-            LIMIT 10
         )
         SELECT
             totals.*,
             (SELECT list(struct_pack(month:=month, revenue:=revenue, cost:=cost, qty:=qty, weight:=weight, orders:=orders, customers:=customers)) FROM (SELECT * FROM monthly ORDER BY month)) AS monthly,
-            (SELECT list(struct_pack(label:=label, value:=revenue)) FROM customer_mix) AS mix_customer,
-            (SELECT list(struct_pack(label:=label, value:=revenue)) FROM product_mix) AS mix_product,
-            (SELECT list(struct_pack(label:=label, value:=revenue)) FROM region_mix) AS mix_region,
-            (SELECT list(struct_pack(label:=label, value:=revenue, cum_pct:=cum_pct)) FROM customer_pareto) AS pareto_customer,
-            (SELECT list(struct_pack(label:=label, value:=revenue, cum_pct:=cum_pct)) FROM product_pareto) AS pareto_product,
-            (SELECT list(struct_pack(label:=label, value:=revenue, cum_pct:=cum_pct)) FROM region_pareto) AS pareto_region,
+            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, value:=revenue)) FROM customer_mix) AS mix_customer,
+            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, value:=revenue)) FROM product_mix) AS mix_product,
+            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, value:=revenue)) FROM region_mix) AS mix_region,
+            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, value:=revenue, cum_pct:=cum_pct)) FROM customer_pareto) AS pareto_customer,
+            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, value:=revenue, cum_pct:=cum_pct)) FROM product_pareto) AS pareto_product,
+            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, value:=revenue, cum_pct:=cum_pct)) FROM region_pareto) AS pareto_region,
             (SELECT list(struct_pack(label:=label, entity_id:=entity_id, current:=current, previous:=previous, delta:=delta, delta_pct:=delta_pct, qty_current:=qty_current, qty_previous:=qty_previous, qty_delta:=qty_delta, asp_current:=asp_current, asp_previous:=asp_previous, asp_delta:=asp_delta)) FROM customer_gainers) AS movers_customer_gainers,
             (SELECT list(struct_pack(label:=label, entity_id:=entity_id, current:=current, previous:=previous, delta:=delta, delta_pct:=delta_pct, qty_current:=qty_current, qty_previous:=qty_previous, qty_delta:=qty_delta, asp_current:=asp_current, asp_previous:=asp_previous, asp_delta:=asp_delta)) FROM customer_decliners) AS movers_customer_decliners,
             (SELECT list(struct_pack(label:=label, entity_id:=entity_id, current:=current, previous:=previous, delta:=delta, delta_pct:=delta_pct, qty_current:=qty_current, qty_previous:=qty_previous, qty_delta:=qty_delta, asp_current:=asp_current, asp_previous:=asp_previous, asp_delta:=asp_delta)) FROM product_gainers) AS movers_product_gainers,
@@ -2294,13 +2404,13 @@ def _compute_bundle_context(
             health.cost_missing AS health_cost_missing,
             health.pack_missing AS health_pack_missing,
             health.product_missing AS health_product_missing,
-            (SELECT struct_pack(hhi:=hhi, top1_share:=top1_share, top5_share:=top5_share) FROM customer_conc) AS conc_customer,
-            (SELECT struct_pack(hhi:=hhi, top1_share:=top1_share, top5_share:=top5_share) FROM product_conc) AS conc_product,
+            (SELECT struct_pack(hhi:=hhi, top1_share:=top1_share, top1_label:=top1_label, top1_entity_id:=top1_entity_id, top5_share:=top5_share) FROM customer_conc) AS conc_customer,
+            (SELECT struct_pack(hhi:=hhi, top1_share:=top1_share, top1_label:=top1_label, top1_entity_id:=top1_entity_id, top5_share:=top5_share) FROM product_conc) AS conc_product,
             (SELECT struct_pack(p10:=p10, p50:=p50, p90:=p90, below_zero:=below_zero, above_fifty:=above_fifty, count:=count) FROM margin_stats) AS margin_stats,
-            (SELECT list(struct_pack(label:=label, entity_id:=entity_id, supplier:=supplier, protein:=protein, revenue:=revenue, revenue_share:=revenue_share, margin_pct:=margin_pct, margin_prev:=margin_prev, margin_delta:=margin_delta, risk:=risk_flag, profit:=profit)) FROM product_margin_top) AS margin_risk,
             (SELECT list(struct_pack(label:=label, revenue:=revenue, share:=share)) FROM region_ops_mix) AS ops_region_mix,
             (SELECT list(struct_pack(label:=label, revenue:=revenue, share:=share)) FROM method_ops_ranked) AS ops_method_mix,
             (SELECT list(struct_pack(label:=label, revenue:=revenue, share:=share)) FROM supplier_ops_ranked) AS ops_supplier_mix,
+            (SELECT list(struct_pack(label:=label, revenue:=revenue, share:=share)) FROM protein_ops_ranked) AS ops_protein_mix,
             (SELECT list(struct_pack(weekday:=weekday, revenue:=revenue, share:=share)) FROM weekday_ranked) AS weekday_mix,
             customer_stats.customers_current AS customers_current,
             customer_stats.customers_prev AS customers_prev,
@@ -2420,19 +2530,29 @@ def _compute_bundle_context(
     deltas = _comparison_deltas(current_window_metrics, prior_window_metrics, yoy_window_metrics)
 
     weekly_sql = f"""
-        WITH scoped AS (
+        WITH scoped_base AS (
             SELECT
                 {date_expr} AS order_date,
                 {revenue_expr} AS revenue,
-                COALESCE({cost_raw_expr}, 0.0) AS cost,
-                {qty_expr} AS qty
+                {cost_raw_expr} AS cost_raw,
+                {qty_expr} AS qty,
+                {weight_expr} AS weight
             FROM fact
             WHERE {where_sql}
+        ),
+        scoped AS (
+            SELECT
+                order_date,
+                revenue,
+                ({effective_cost_expr}) AS cost,
+                cost_raw,
+                qty
+            FROM scoped_base
         )
         SELECT
             DATE_TRUNC('week', order_date)::DATE AS week_start,
             SUM(revenue) AS revenue,
-            SUM(cost) AS cost,
+            SUM(CASE WHEN cost_raw IS NOT NULL THEN cost ELSE 0 END) AS cost,
             SUM(qty) AS qty
         FROM scoped
         WHERE order_date >= CAST(? AS DATE) AND order_date < CAST(? AS DATE)
@@ -2459,8 +2579,12 @@ def _compute_bundle_context(
         )
         weekly_df["margin_pct"] = au.safe_div(weekly_df["profit"], pd.to_numeric(weekly_df["revenue"], errors="coerce").replace(0, pd.NA)) * 100
 
+    monthly_labels = _trend_labels_from_index(monthly_df.index, date_type=window_contract.date_type)
     trend = {
         "months": [str(idx) for idx in monthly_df.index],
+        "labels": monthly_labels,
+        "period_type": window_contract.date_type,
+        "bucket_label": window_contract.trend_bucket_label,
         "revenue": [float(v) if pd.notna(v) else None for v in _series_from_monthly("revenue")],
         "units": [float(v) if pd.notna(v) else None for v in _series_from_monthly("qty")],
         "asp": [float(v) if pd.notna(v) else None for v in _series_from_monthly("asp")],
@@ -2469,6 +2593,9 @@ def _compute_bundle_context(
         "cost": [float(v) if pd.notna(v) else None for v in _series_from_monthly("cost")],
         "monthly": {
             "months": [str(idx) for idx in monthly_df.index],
+            "labels": monthly_labels,
+            "period_type": window_contract.date_type,
+            "bucket_label": window_contract.trend_bucket_label,
             "revenue": [float(v) if pd.notna(v) else None for v in _series_from_monthly("revenue")],
             "units": [float(v) if pd.notna(v) else None for v in _series_from_monthly("qty")],
             "asp": [float(v) if pd.notna(v) else None for v in _series_from_monthly("asp")],
@@ -2495,9 +2622,10 @@ def _compute_bundle_context(
 
     def _pareto_from_list(rows: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
         labels = [str(r.get("label") or "Unknown") for r in rows]
+        entity_ids = [str(r.get("entity_id") or r.get("label") or "Unknown") for r in rows]
         values = [_clean_float(r.get("value")) for r in rows]
         cum = [_clean_float(r.get("cum_pct")) for r in rows]
-        return {"labels": labels, "values": values, "cum_pct": cum}
+        return {"labels": labels, "entity_ids": entity_ids, "values": values, "cum_pct": cum}
 
     pareto = {
         "customer": _pareto_from_list(_struct_list(row.get("pareto_customer"))),
@@ -2528,11 +2656,7 @@ def _compute_bundle_context(
     cost_coverage_pct = round(100 - cost_missing_pct, 2) if cost_missing_pct is not None else None
     has_packs = max(0, rows_total - pack_missing)
     packs_coverage_pct = round((has_packs / rows_total) * 100, 2) if rows_total else None
-    freshness_days = None
-    try:
-        freshness_days = int((pd.Timestamp.utcnow().tz_localize(None).normalize() - pd.Timestamp(window_contract.current_end)).days)
-    except Exception:
-        freshness_days = None
+    refresh_meta = _refresh_meta()
     health = {
         "rows": rows_total,
         "cost_missing_pct": cost_missing_pct,
@@ -2543,10 +2667,14 @@ def _compute_bundle_context(
         "has_packs_orderlines": has_packs,
         "missing_packs_orderlines": pack_missing,
         "product_mapping_missing": product_missing,
-        "freshness_sla_days": freshness_days,
+        "freshness_sla_days": refresh_meta.get("refresh_age_days"),
+        "freshness_sla_hours": refresh_meta.get("refresh_age_hours"),
+        "freshness_basis": "governed_refresh",
+        "governed_refresh_at": refresh_meta.get("last_refresh"),
+        "data_cutoff": refresh_meta.get("data_cutoff"),
         "defaulted_window": defaulted_flag,
         "include_current_month": include_current_month,
-        "cost_available": bool(cost_col),
+        "cost_available": cost_available,
         "comparison_note": window_contract.note,
         "issues": [],
     }
@@ -2564,6 +2692,7 @@ def _compute_bundle_context(
             "region": _struct_list(row.get("ops_region_mix")),
             "method": _struct_list(row.get("ops_method_mix")),
             "supplier": _struct_list(row.get("ops_supplier_mix")),
+            "protein": _struct_list(row.get("ops_protein_mix")),
         },
         "weekday": _struct_list(row.get("weekday_mix")),
     }
@@ -2577,21 +2706,26 @@ def _compute_bundle_context(
         block["risk_label"] = om.hhi_risk_label(block.get("hhi"))
         concentration[key] = block
 
+    margin_risk_payload = _compute_window_margin_risk(
+        conn,
+        where_sql=where_sql,
+        where_params=where_params,
+        date_expr=date_expr,
+        revenue_expr=revenue_expr,
+        cost_raw_expr=cost_raw_expr,
+        qty_expr=qty_expr,
+        weight_expr=weight_expr,
+        product_id_expr=product_id_expr,
+        product_name_expr=product_name_expr,
+        supplier_expr=supplier_expr,
+        protein_expr=protein_expr,
+        window_contract=window_contract,
+    )
     profitability = {
         "margin_pct": row.get("margin_stats") or {},
-        "margin_risk": _compute_window_margin_risk(
-            conn,
-            where_sql=where_sql,
-            where_params=where_params,
-            date_expr=date_expr,
-            revenue_expr=revenue_expr,
-            cost_raw_expr=cost_raw_expr,
-            product_id_expr=product_id_expr,
-            product_name_expr=product_name_expr,
-            supplier_expr=supplier_expr,
-            protein_expr=protein_expr,
-            window_contract=window_contract,
-        ),
+        "margin_risk": margin_risk_payload.get("rows") or [],
+        "minimum_margin_pct": _clean_optional_float(margin_risk_payload.get("minimum_margin_pct")),
+        "target_margin_pct": _clean_optional_float(margin_risk_payload.get("target_margin_pct")),
     }
     for item in profitability["margin_risk"]:
         margin_val = _clean_optional_float(item.get("margin_pct"))
@@ -2605,8 +2739,8 @@ def _compute_bundle_context(
         profitability["margin_risk"],
         key=lambda rec: float(rec.get("profit_impact") or 0.0),
     )
-    profitability["coverage"] = {"cost_pct": cost_coverage_pct, "cost_available": bool(cost_col)}
-    cost_ok = bool(cost_col) and (cost_coverage_pct is None or cost_coverage_pct >= 80)
+    profitability["coverage"] = {"cost_pct": cost_coverage_pct, "cost_available": cost_available}
+    cost_ok = cost_available and (cost_coverage_pct is None or cost_coverage_pct >= 80)
     if not cost_ok:
         profitability["margin_risk"] = []
         profitability["message"] = "Insufficient cost coverage for detailed margin risk."
@@ -2616,7 +2750,7 @@ def _compute_bundle_context(
         "enabled": False,
         "schema_version": "legacy",
         "metric_default": "revenue",
-        "coverage": {"cost_pct": cost_coverage_pct, "cost_available": bool(cost_col)},
+        "coverage": {"cost_pct": cost_coverage_pct, "cost_available": cost_available},
         "mom": row.get("drivers_mom") or {},
         "yoy": row.get("drivers_yoy") or {},
     }
@@ -2633,7 +2767,7 @@ def _compute_bundle_context(
                 product_id_expr=product_id_expr,
                 product_name_expr=product_name_expr,
                 window_contract=window_contract,
-                cost_available=bool(cost_col),
+                cost_available=cost_available,
                 cost_coverage_pct=cost_coverage_pct,
             )
         except Exception:
@@ -2666,13 +2800,8 @@ def _compute_bundle_context(
         "sales_reps": filters_payload.get("sales_reps") or [],
     }
 
-    try:
-        from app.services import fact_store  # type: ignore
-
-        version = manifest_version() or fact_store.cache_buster()
-    except Exception:
-        version = manifest_version() or "0"
-    last_refresh = manifest_max_date()
+    version = str(refresh_meta.get("version") or "0")
+    last_refresh = refresh_meta.get("last_refresh")
     window_days = None
     if start_iso and end_iso:
         try:
@@ -2686,6 +2815,9 @@ def _compute_bundle_context(
             "end": end_iso,
             "days": window_days,
             "rows": rows_total,
+            "method_label": _window_method_label(window_contract),
+            "period_status": "incomplete" if bool(window_contract.terminal_period_incomplete) else "complete",
+            "period_status_label": "Incomplete period" if bool(window_contract.terminal_period_incomplete) else "Completed period",
         }
     )
     primary_delta_label = str(window_contract.delta_short_label or "Prior window")
@@ -2694,6 +2826,16 @@ def _compute_bundle_context(
 
     def _callouts() -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
+        if window_contract.terminal_period_incomplete:
+            items.append(
+                {
+                    "title": "Period context",
+                    "value": window_contract.current_short_label,
+                    "value_fmt": "text",
+                    "detail": window_contract.note,
+                    "severity": "info",
+                }
+            )
         rev_mom = deltas.get("revenue", {}).get("mom_pct")
         if rev_mom is not None:
             items.append(
@@ -2797,6 +2939,10 @@ def _compute_bundle_context(
     mix_effect = _clean_optional_float(((drivers.get("mom") or {}).get("revenue") or {}).get("mix_effect"))
 
     narrative: List[str] = []
+    if window_contract.terminal_period_incomplete:
+        narrative.append(
+            f"Current period is still open through {window_contract.current_window_label}; comparisons are aligned to {window_contract.prior_window_label} to avoid distorted partial-period reads."
+        )
     if revenue_mom_delta is not None:
         direction = "up" if revenue_mom_delta >= 0 else "down"
         pct_text = "n/a" if revenue_mom_delta_pct is None else f"{revenue_mom_delta_pct:+.1f}%"
@@ -2889,6 +3035,8 @@ def _compute_bundle_context(
         watchouts.append(f"Packs coverage is {packs_coverage_pct:.1f}% and may distort weighted metrics.")
     if product_missing:
         watchouts.append(f"{int(product_missing)} rows still have missing product mapping.")
+    if window_contract.terminal_period_incomplete:
+        watchouts.append(window_contract.note)
 
     recommended_actions: List[Dict[str, Any]] = []
     if cost_coverage_pct is not None and cost_coverage_pct < 90:
@@ -3126,6 +3274,9 @@ def _compute_bundle_context(
             "filter_labels": filters_labels,
             "window": window,
             "last_refresh": last_refresh,
+            "data_cutoff": refresh_meta.get("data_cutoff"),
+            "refresh_age_days": refresh_meta.get("refresh_age_days"),
+            "refresh_age_hours": refresh_meta.get("refresh_age_hours"),
             "version": version,
             "has_data": bool(rows_total),
             "cache_hit": False,
@@ -3293,6 +3444,9 @@ def build_trend(filters: FilterParams, months: int = 12, exclude_partial: bool =
             work = work.iloc[:-1]
     if months and months > 0 and not work.empty:
         work = work.tail(months)
+    window_meta = (((ctx.get("payload") or {}).get("meta") or {}).get("window") or {}) if isinstance(ctx.get("payload"), dict) else {}
+    date_type = window_meta.get("date_type") if isinstance(window_meta, dict) else None
+    labels = _trend_labels_from_index(work.index, date_type=date_type) if not work.empty else []
 
     def _vals(col: str) -> List[Any]:
         if col not in work.columns:
@@ -3301,10 +3455,16 @@ def build_trend(filters: FilterParams, months: int = 12, exclude_partial: bool =
 
     payload = {
         "months": [str(idx) for idx in work.index] if not work.empty else [],
+        "labels": labels,
         "revenue": _vals("revenue"),
         "qty": _vals("qty"),
         "asp": _vals("asp"),
-        "meta": {"has_data": bool(len(work)), "cache_hit": bool(ctx.get("cache_hit"))},
+        "meta": {
+            "has_data": bool(len(work)),
+            "cache_hit": bool(ctx.get("cache_hit")),
+            "date_type": date_type,
+            "bucket_label": window_meta.get("trend_bucket_label") if isinstance(window_meta, dict) else None,
+        },
     }
     return payload
 
@@ -3377,6 +3537,9 @@ def build_alerts(filters: FilterParams) -> Dict[str, Any]:
     summary = build_summary(filters)
     kpis = summary.get("kpis", {})
     margin_pct = kpis.get("margin_pct")
+    profitability = payload.get("profitability", {}) if isinstance(payload.get("profitability"), dict) else {}
+    minimum_margin_pct = profitability.get("minimum_margin_pct")
+    target_margin_pct = profitability.get("target_margin_pct")
     momentum = summary.get("deltas", {}).get("rolling_3m_pct")
 
     top_customers = build_top(filters, metric="customer", limit=1).get("rows", [])
@@ -3385,8 +3548,18 @@ def build_alerts(filters: FilterParams) -> Dict[str, Any]:
         if top_share > 35:
             alerts.append({"severity": "warning", "title": "Concentration risk", "detail": f"Top customer is {top_share:.1f}% of revenue"})
 
-    if margin_pct is not None and margin_pct < 12:
-        alerts.append({"severity": "danger", "title": "Margin pressure", "detail": f"Margin at {margin_pct:.1f}% is below target"})
+    margin_status = margin_rules.classify_margin_status(margin_pct, minimum_margin_pct, target_margin_pct)
+    if margin_pct is not None:
+        if margin_status.get("status_key") in {"red", "orange"}:
+            detail = f"Margin at {margin_pct:.1f}% is below minimum guardrail"
+            if minimum_margin_pct is not None:
+                detail = f"Margin at {margin_pct:.1f}% is below the {minimum_margin_pct:.1f}% minimum guardrail"
+            alerts.append({"severity": "danger", "title": "Margin pressure", "detail": detail})
+        elif margin_status.get("status_key") == "yellow":
+            detail = f"Margin at {margin_pct:.1f}% is between minimum and target"
+            if target_margin_pct is not None:
+                detail = f"Margin at {margin_pct:.1f}% is still below the {target_margin_pct:.1f}% target"
+            alerts.append({"severity": "warning", "title": "Margin below target", "detail": detail})
     if momentum is not None and momentum < -5:
         alerts.append({"severity": "warning", "title": "Momentum decline", "detail": f"Revenue trending {momentum:.1f}% vs prior 3 months"})
 
@@ -3420,7 +3593,6 @@ def build_health(filters: FilterParams) -> Dict[str, Any]:
 
 _DETAIL_SCHEMA_REV = "overview_detail_tables_v2"
 _DETAIL_MIN_DENOM = 500.0
-_MARGIN_TARGET_PCT = 27.0
 _DETAIL_COLUMNS = [
     "Date",
     "ShipDate",
@@ -3453,6 +3625,7 @@ _DETAIL_COLUMNS = [
     "SupplierName",
     "SupplierId",
     "ProteinType",
+    "ProteinName",
     "Category",
     "ProductCategory",
     "Protein",
@@ -3554,7 +3727,7 @@ def _prepare_detail_frame(
     product_name_col = _pick_col(raw, "ProductName")
     region_col = _pick_col(raw, "RegionName", "Region")
     supplier_col = _pick_col(raw, "SupplierName", "SupplierId")
-    protein_col = _pick_col(raw, "ProteinType", "Category", "ProductCategory", "Protein")
+    protein_col = _pick_col(raw, "Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
 
     if not date_col or not revenue_col:
         return pd.DataFrame(), window_contract
@@ -3769,7 +3942,10 @@ def _build_margin_risk_table(current: pd.DataFrame, prior: pd.DataFrame) -> pd.D
         "margin_pct",
         "margin_prev",
         "margin_delta",
+        "minimum_margin_pct",
         "target_margin_pct",
+        "target_status",
+        "status_key",
         "profit_lost_vs_target",
         "risk",
     ]
@@ -3839,17 +4015,27 @@ def _build_margin_risk_table(current: pd.DataFrame, prior: pd.DataFrame) -> pd.D
     out["margin_delta"] = out["margin_pct"] - out["margin_prev"]
     total_revenue = float(out["revenue_with_cost"].sum() or 0.0)
     out["revenue_share"] = np.where(total_revenue > 0, (out["revenue_with_cost"] / total_revenue) * 100.0, 0.0)
-    out["target_margin_pct"] = _MARGIN_TARGET_PCT
-    target_profit = out["revenue_with_cost"] * (_MARGIN_TARGET_PCT / 100.0)
-    out["profit_lost_vs_target"] = (target_profit - out["profit"]).clip(lower=0.0)
+    out["effective_cost_basis"] = pd.to_numeric(out.get("cost"), errors="coerce")
+    out = margin_rules.annotate_margin_frame(
+        out,
+        protein_col="protein",
+        category_col="protein",
+        revenue_col="revenue_with_cost",
+        profit_col="profit",
+        margin_col="margin_pct",
+        cost_col="cost",
+    )
+    out["minimum_margin_pct"] = pd.to_numeric(out.get("minimum_margin_pct"), errors="coerce")
+    out["target_margin_pct"] = pd.to_numeric(out.get("target_margin_pct"), errors="coerce")
+    out["profit_lost_vs_target"] = pd.to_numeric(out.get("profit_uplift_to_target"), errors="coerce").fillna(0.0)
     out["risk"] = np.select(
         [
-            out["margin_pct"] < 0,
-            out["margin_pct"] < _MARGIN_TARGET_PCT,
+            out["status_key"].isin(["red", "orange"]),
+            out["status_key"].eq("yellow"),
             out["margin_delta"] < -5,
         ],
         [
-            "negative_margin",
+            "below_minimum",
             "below_target",
             "margin_drop",
         ],
@@ -3967,6 +4153,8 @@ def build_snapshot_sheets(
         {"field": "generated_at_utc", "value": pd.Timestamp.utcnow().isoformat()},
         {"field": "dataset_version", "value": meta.get("version")},
         {"field": "last_refresh", "value": meta.get("last_refresh")},
+        {"field": "data_cutoff", "value": meta.get("data_cutoff")},
+        {"field": "refresh_age_hours", "value": meta.get("refresh_age_hours")},
         {"field": "window_start", "value": ((meta.get("window") or {}).get("start"))},
         {"field": "window_end", "value": ((meta.get("window") or {}).get("end"))},
         {"field": "include_current_month", "value": bool(meta.get("include_current_month", include_current_month))},
@@ -3992,6 +4180,9 @@ def build_snapshot_sheets(
             {"metric": "packs_total_orderlines", "value": health.get("total_orderlines")},
             {"metric": "product_mapping_missing", "value": health.get("product_mapping_missing")},
             {"metric": "freshness_sla_days", "value": health.get("freshness_sla_days")},
+            {"metric": "freshness_sla_hours", "value": health.get("freshness_sla_hours")},
+            {"metric": "governed_refresh_at", "value": health.get("governed_refresh_at")},
+            {"metric": "data_cutoff", "value": health.get("data_cutoff")},
         ],
         columns=["metric", "value"],
     )

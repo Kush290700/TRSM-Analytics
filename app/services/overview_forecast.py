@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import math
 import time
@@ -23,8 +23,8 @@ FORECAST_TIMEOUT_SECONDS = 6
 ALLOWED_METRICS = {"revenue", "profit", "margin"}
 MARGIN_BOUNDS = (-100.0, 100.0)
 MAX_HISTORY_MONTHS = 144
-MODEL_VERSION = "2026-03-19-forecast-1"
-MODEL_VERSION_V2 = "2026-03-19-forecast-1"
+MODEL_VERSION = "2026-03-28-forecast-6"
+MODEL_VERSION_V2 = "2026-03-28-forecast-6"
 OUTLIER_METHOD = "hampel"
 OUTLIER_WINDOW = 3
 OUTLIER_N_SIGMA = 3.0
@@ -34,6 +34,12 @@ RECENT_SHORT_WINDOW = 24
 RECENT_MEDIUM_WINDOW = 36
 RECENT_TREND_WINDOW = 18
 MAX_CANDIDATE_WINDOWS = 6
+NOWCAST_LOOKBACK_MONTHS = 24
+NOWCAST_MAX_EVAL_MONTHS = 12
+NOWCAST_MIN_CANDIDATES = 2
+NOWCAST_TOP_CANDIDATES = 3
+NOWCAST_MIN_SHARE = 0.05
+NOWCAST_MAX_SHARE = 0.98
 
 _forecast_lock: Lock = Lock()
 _forecast_locks: Dict[str, Lock] = {}
@@ -338,7 +344,7 @@ def monthly_series(filters: FilterParams, *, include_partial_current: bool = Tru
             monthly = pd.DataFrame()
 
     if monthly.empty:
-        ctx = ov2.get_bundle_context(filters)
+        ctx = ov2.get_bundle_context(filters, include_current_month=bool(include_partial_current), defaulted_window=False)
         monthly = ctx.get("monthly")
         if not isinstance(monthly, pd.DataFrame) or monthly.empty:
             return pd.DataFrame(), ctx
@@ -631,51 +637,164 @@ def _build_weekly_history(filters: FilterParams, metric: str, *, include_current
     return series.astype("float64"), {"bundle_meta": bundle.get("meta") or {}}
 
 
-def _build_monthly_history(filters: FilterParams, metric: str, *, include_current: bool) -> Tuple[pd.Series, Dict[str, Any]]:
+def _build_monthly_history(filters: FilterParams, metric: str, *, include_current: bool) -> Tuple[pd.Series, pd.Series, Dict[str, Any]]:
     monthly, ctx = monthly_series(filters, include_partial_current=True)
     if not isinstance(monthly, pd.DataFrame) or monthly.empty:
-        return pd.Series(dtype="float64"), {"bundle_ctx": ctx, "partial_period": {"detected": False}}
+        return pd.Series(dtype="float64"), pd.Series(dtype="float64"), {"bundle_ctx": ctx, "partial_period": {"detected": False}}
 
     work = _regularize_monthly_frame(monthly)
     partial_meta = _terminal_month_meta(filters, work)
-    if partial_meta.get("detected") and not include_current and len(work.index) > 1:
-        work = work.iloc[:-1]
+    nowcast_payload: Dict[str, Any] = {}
+    closed_work = work.copy()
+    if partial_meta.get("detected") and len(closed_work.index) > 1:
+        closed_work = closed_work.iloc[:-1]
+
+    if partial_meta.get("detected") and include_current:
+        nowcast_payload = _current_month_nowcast(filters, work)
+        if nowcast_payload.get("applied"):
+            period = pd.Period(str(nowcast_payload.get("period")), freq="M")
+            if period in work.index:
+                work.loc[period, "revenue"] = float(nowcast_payload.get("estimated_month_end_revenue") or work.loc[period, "revenue"])
+                work.loc[period, "cost"] = float(nowcast_payload.get("estimated_month_end_cost") or work.loc[period, "cost"])
+                work.loc[period, "profit"] = float(nowcast_payload.get("estimated_month_end_profit") or work.loc[period, "profit"])
+                work.loc[period, "margin_pct"] = _bound_value("margin", nowcast_payload.get("estimated_month_end_margin_pct"))
+            partial_meta["included"] = True
+            partial_meta["excluded"] = False
+            partial_meta["nowcast_applied"] = True
+            basis = str(nowcast_payload.get("current_month_basis") or "").strip().lower()
+            if basis == "validation_weighted_pacing_ensemble":
+                partial_meta["note"] = (
+                    f"Replaced incomplete month {partial_meta.get('period')} through {partial_meta.get('effective_end')} "
+                    "with a backtested month-end nowcast for training."
+                )
+            else:
+                partial_meta["note"] = (
+                    f"Replaced incomplete month {partial_meta.get('period')} through {partial_meta.get('effective_end')} "
+                    "with a protected month-end pace nowcast for training."
+                )
+        else:
+            work = closed_work.copy()
+            partial_meta["included"] = False
+            partial_meta["excluded"] = True
+            partial_meta["nowcast_applied"] = False
+            partial_meta["note"] = (
+                f"Excluded incomplete month {partial_meta.get('period')} from training because a stable month-end nowcast was unavailable."
+            )
+    elif partial_meta.get("detected") and not include_current:
+        work = closed_work.copy()
         partial_meta["included"] = False
         partial_meta["excluded"] = True
+        partial_meta["nowcast_applied"] = False
         partial_meta["note"] = (
             f"Excluded incomplete month {partial_meta.get('period')} from training through "
             f"{partial_meta.get('effective_end')}."
         )
-    elif partial_meta.get("detected"):
-        partial_meta["included"] = True
-        partial_meta["excluded"] = False
-        partial_meta["note"] = (
-            f"Included incomplete month {partial_meta.get('period')} through {partial_meta.get('effective_end')} in training."
-        )
     else:
         partial_meta["included"] = False
         partial_meta["excluded"] = False
+        partial_meta["nowcast_applied"] = False
         partial_meta["note"] = "Training uses completed months only."
 
+    display_metric_series = _series_for_metric(closed_work if partial_meta.get("detected") else work, metric)
     metric_series = _series_for_metric(work, metric)
     imputed_points = 0
     if metric == "margin":
+        display_metric_series, display_imputed_points = _fill_margin_gaps(display_metric_series)
         metric_series, imputed_points = _fill_margin_gaps(metric_series)
+        imputed_points = max(int(imputed_points), int(display_imputed_points))
     else:
+        display_metric_series = pd.to_numeric(display_metric_series, errors="coerce").fillna(0.0)
         metric_series = pd.to_numeric(metric_series, errors="coerce").fillna(0.0)
 
+    display_metric_series = display_metric_series.dropna()
     metric_series = metric_series.dropna()
+    if isinstance(display_metric_series.index, pd.PeriodIndex):
+        display_metric_series.index = display_metric_series.index.to_timestamp().normalize()
     if isinstance(metric_series.index, pd.PeriodIndex):
         metric_series.index = metric_series.index.to_timestamp().normalize()
+    display_metric_series = display_metric_series.sort_index().astype("float64").tail(MAX_HISTORY_MONTHS)
     metric_series = metric_series.sort_index().astype("float64").tail(MAX_HISTORY_MONTHS)
+    display_metric_series, history_basis = _select_monthly_training_history(display_metric_series)
+    metric_series = display_metric_series.copy()
+    if partial_meta.get("nowcast_applied") and nowcast_payload.get("applied"):
+        nowcast_view = _metric_nowcast_view(nowcast_payload, metric)
+        terminal_estimate = nowcast_view.get("estimated_month_end")
+        period_token = str(nowcast_payload.get("period") or "")
+        period_ts = _coerce_timestamp(f"{period_token}-01") if len(period_token) == 7 else _coerce_timestamp(period_token)
+        if period_ts is not None and terminal_estimate is not None:
+            metric_series.loc[period_ts.normalize()] = float(terminal_estimate)
+            metric_series = metric_series.sort_index()
     meta = {
         "bundle_ctx": ctx,
         "partial_period": partial_meta,
-        "history_start": metric_series.index.min().date().isoformat() if len(metric_series.index) else None,
-        "history_end": metric_series.index.max().date().isoformat() if len(metric_series.index) else None,
+        "history_start": display_metric_series.index.min().date().isoformat() if len(display_metric_series.index) else None,
+        "history_end": display_metric_series.index.max().date().isoformat() if len(display_metric_series.index) else None,
         "imputed_points": int(imputed_points),
+        "history_basis": history_basis,
+        "nowcast": _metric_nowcast_view(nowcast_payload, metric) if nowcast_payload.get("applied") else {"applied": False},
     }
-    return metric_series, meta
+    return display_metric_series, metric_series, meta
+
+
+def _select_monthly_training_history(series: pd.Series) -> Tuple[pd.Series, Dict[str, Any]]:
+    values = pd.to_numeric(series, errors="coerce").dropna().astype("float64")
+    if values.empty:
+        return values, {
+            "label": "No training history",
+            "mode": "empty",
+            "reason": "No comparable history was available under the active filters.",
+            "available_points": 0,
+            "selected_points": 0,
+            "available_start": None,
+            "available_end": None,
+            "selected_start": None,
+            "selected_end": None,
+            "excluded_points": 0,
+            "non_zero_share_pct": 0.0,
+        }
+
+    available_points = int(len(values))
+    non_zero_share = float(((values.fillna(0.0).abs() > 0).sum() / available_points) * 100.0) if available_points else 0.0
+    selected_points = available_points
+    label = "All available history"
+    mode = "full"
+    reason = "Available history is limited, so the forecast used the full comparable series."
+
+    if available_points >= 36:
+        selected_points = 36
+        label = "Last 36 complete months"
+        mode = "recent_36_default"
+        reason = "Preferred the most recent 36 complete months to keep model selection aligned with the current business run-rate."
+        if non_zero_share < 55.0 and available_points >= 24:
+            selected_points = 24
+            label = "Last 24 months (sparse-adapted)"
+            mode = "recent_24_sparse"
+            reason = "Active-filter history is sparse, so training tightened to the most recent 24 months with usable signal."
+    elif available_points >= 24:
+        selected_points = 24
+        label = "Last 24 complete months"
+        mode = "recent_24_default"
+        reason = "Used the most recent 24 complete months because a full 36-month basis was not available."
+    elif available_points >= 18:
+        selected_points = 18
+        label = "Last 18 complete months"
+        mode = "recent_18_default"
+        reason = "Used the most recent 18 complete months because the filtered slice is shorter than a two-year baseline."
+
+    selected = values.tail(selected_points)
+    return selected, {
+        "label": label,
+        "mode": mode,
+        "reason": reason,
+        "available_points": available_points,
+        "selected_points": int(len(selected)),
+        "available_start": values.index.min().date().isoformat() if len(values.index) else None,
+        "available_end": values.index.max().date().isoformat() if len(values.index) else None,
+        "selected_start": selected.index.min().date().isoformat() if len(selected.index) else None,
+        "selected_end": selected.index.max().date().isoformat() if len(selected.index) else None,
+        "excluded_points": max(0, available_points - int(len(selected))),
+        "non_zero_share_pct": round(non_zero_share, 1),
+    }
 
 
 def _coerce_timestamp(value: Any) -> pd.Timestamp | None:
@@ -710,6 +829,818 @@ def _effective_window_end(filters: FilterParams) -> pd.Timestamp | None:
     if data_end is not None:
         return data_end
     return _coerce_timestamp(pd.Timestamp.utcnow())
+
+
+def _replace_filters(filters: FilterParams, **changes: Any) -> FilterParams:
+    try:
+        return replace(filters, **changes)
+    except Exception:
+        payload = {
+            "start": getattr(filters, "start", None),
+            "end": getattr(filters, "end", None),
+            "statuses": tuple(getattr(filters, "statuses", ()) or ()),
+            "regions": tuple(getattr(filters, "regions", ()) or ()),
+            "methods": tuple(getattr(filters, "methods", ()) or ()),
+            "customers": tuple(getattr(filters, "customers", ()) or ()),
+            "suppliers": tuple(getattr(filters, "suppliers", ()) or ()),
+            "products": tuple(getattr(filters, "products", ()) or ()),
+            "sales_reps": tuple(getattr(filters, "sales_reps", ()) or ()),
+            "preset": getattr(filters, "preset", None),
+            "protein_min": getattr(filters, "protein_min", None),
+            "protein_max": getattr(filters, "protein_max", None),
+            "protein_name_like": getattr(filters, "protein_name_like", None),
+            "complete_months_only": getattr(filters, "complete_months_only", False),
+        }
+        payload.update(changes)
+        return FilterParams(**payload)
+
+
+def _expanded_forecast_filters(filters: FilterParams, *, months_back: int = NOWCAST_LOOKBACK_MONTHS) -> FilterParams:
+    effective_end = _effective_window_end(filters) or _coerce_timestamp(pd.Timestamp.utcnow())
+    if effective_end is None:
+        return _replace_filters(filters, complete_months_only=False)
+    lookback_start = (effective_end.replace(day=1) - pd.DateOffset(months=max(1, int(months_back)) - 1)).normalize()
+    base_start = _coerce_timestamp(getattr(filters, "start", None))
+    if base_start is not None:
+        start = min(base_start.normalize(), lookback_start)
+    else:
+        start = lookback_start
+    return _replace_filters(filters, start=start, end=effective_end.normalize(), complete_months_only=False)
+
+
+def _daily_frame_from_source(df: pd.DataFrame, colmap: Dict[str, Optional[str]]) -> pd.DataFrame:
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame()
+
+    date_col = colmap.get("date")
+    if not date_col or date_col not in df.columns:
+        return pd.DataFrame()
+
+    revenue_col = colmap.get("revenue")
+    cost_col = colmap.get("cost")
+    qty_col = colmap.get("qty")
+
+    work = pd.DataFrame()
+    work["date"] = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
+    work = work.dropna(subset=["date"])
+    if work.empty:
+        return pd.DataFrame()
+
+    if revenue_col and revenue_col in df.columns:
+        work["revenue"] = pd.to_numeric(df[revenue_col], errors="coerce").fillna(0.0)
+    else:
+        work["revenue"] = 0.0
+    if cost_col and cost_col in df.columns:
+        work["cost"] = pd.to_numeric(df[cost_col], errors="coerce").fillna(0.0)
+    else:
+        work["cost"] = 0.0
+    if qty_col and qty_col in df.columns:
+        work["qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(0.0)
+    else:
+        work["qty"] = 0.0
+
+    daily = work.groupby("date")[["revenue", "cost", "qty"]].sum().sort_index()
+    if daily.empty:
+        return pd.DataFrame()
+    daily["date"] = pd.to_datetime(daily.index, errors="coerce").normalize()
+    daily["period"] = daily["date"].dt.to_period("M")
+    daily["profit"] = daily["revenue"] - daily["cost"]
+    daily["margin_pct"] = au.safe_div(daily["profit"], daily["revenue"].replace(0, pd.NA)) * 100
+    daily["margin_pct"] = daily["margin_pct"].replace([np.inf, -np.inf], np.nan).clip(lower=MARGIN_BOUNDS[0], upper=MARGIN_BOUNDS[1])
+    return daily
+
+
+def _daily_fact_frame(filters: FilterParams) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    expanded_filters = _expanded_forecast_filters(filters)
+    if current_app and current_app.config.get("TESTING"):
+        try:
+            frame_ctx = ov2.get_filtered_frame(current_user, expanded_filters)
+            if frame_ctx is not None:
+                df = getattr(frame_ctx, "df", None)
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    colmap = getattr(frame_ctx, "colmap", {}) or au.column_map(df)
+                    daily = _daily_frame_from_source(df, colmap)
+                    if not daily.empty:
+                        return daily, {
+                            "source": "testing_frame_ctx",
+                            "rows": int(len(df.index)),
+                            "version": getattr(frame_ctx, "version", None),
+                        }
+        except RuntimeError:
+            pass
+        except Exception:
+            current_app.logger.debug("overview_forecast.daily_frame.testing_failed", exc_info=True)
+
+    try:
+        from app.services import fact_store  # type: ignore
+
+        df = fact_store.query_fact(filters=expanded_filters, use_cache=True)
+        colmap = au.column_map(df)
+        daily = _daily_frame_from_source(df, colmap)
+        return daily, {
+            "source": "fact_store",
+            "rows": int(len(df.index)) if isinstance(df, pd.DataFrame) else 0,
+            "filters": _filters_payload(expanded_filters),
+        }
+    except Exception:
+        current_app.logger.debug("overview_forecast.daily_frame.query_failed", exc_info=True)
+        return pd.DataFrame(), {"source": "fact_store_failed"}
+
+
+def _calendar_cutoff_date(period: pd.Period, day_of_month: int) -> pd.Timestamp:
+    start = period.to_timestamp().normalize()
+    month_end = _month_end_timestamp(start) or start
+    target_day = max(1, min(int(day_of_month), int(month_end.day)))
+    return (start + pd.Timedelta(days=target_day - 1)).normalize()
+
+
+def _business_day_cutoff_date(period: pd.Period, business_day_number: int) -> pd.Timestamp:
+    start = period.to_timestamp().normalize()
+    month_end = _month_end_timestamp(start) or start
+    bdays = pd.bdate_range(start, month_end)
+    if len(bdays) == 0:
+        return month_end
+    idx = max(0, min(len(bdays), max(1, int(business_day_number))) - 1)
+    return pd.Timestamp(bdays[idx]).normalize()
+
+
+def _series_total_for_period(monthly: pd.DataFrame, period: pd.Period, column: str) -> float | None:
+    if not isinstance(monthly, pd.DataFrame) or monthly.empty or period not in monthly.index or column not in monthly.columns:
+        return None
+    try:
+        value = monthly.at[period, column]
+    except Exception:
+        return None
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _partial_total_for_period(daily: pd.DataFrame, period: pd.Period, cutoff_date: pd.Timestamp, column: str) -> float | None:
+    if not isinstance(daily, pd.DataFrame) or daily.empty or column not in daily.columns:
+        return None
+    mask = (daily["period"] == period) & (daily["date"] <= pd.Timestamp(cutoff_date).normalize())
+    if not mask.any():
+        return 0.0
+    try:
+        return float(pd.to_numeric(daily.loc[mask, column], errors="coerce").fillna(0.0).sum())
+    except Exception:
+        return None
+
+
+def _candidate_metric_summary(actuals: List[float], preds: List[float]) -> Dict[str, Any]:
+    if not actuals or not preds:
+        return {"smape": None, "wape": None, "bias_pct": None, "n": 0}
+    actual_arr = np.asarray(actuals, dtype=float)
+    pred_arr = np.asarray(preds, dtype=float)
+    denom = np.abs(actual_arr) + np.abs(pred_arr)
+    smape = float(np.mean(2.0 * np.abs(actual_arr - pred_arr) / np.where(denom == 0, 1.0, denom)) * 100.0) if np.any(denom) else None
+    total_actual = float(np.sum(np.abs(actual_arr)))
+    wape = float(np.sum(np.abs(actual_arr - pred_arr)) / total_actual * 100.0) if total_actual > 0 else None
+    bias_pct = float(np.sum(pred_arr - actual_arr) / total_actual * 100.0) if total_actual > 0 else None
+    return {"smape": smape, "wape": wape, "bias_pct": bias_pct, "n": int(len(actual_arr))}
+
+
+def _estimate_from_share(current_partial: float | None, share: float | None) -> float | None:
+    if current_partial is None or share is None or not np.isfinite(current_partial) or not np.isfinite(share):
+        return None
+    bounded_share = max(NOWCAST_MIN_SHARE, min(NOWCAST_MAX_SHARE, float(share)))
+    if bounded_share <= 0:
+        return None
+    return float(current_partial / bounded_share)
+
+
+def _recent_periods_before(monthly: pd.DataFrame, period: pd.Period, limit: int) -> List[pd.Period]:
+    if not isinstance(monthly, pd.DataFrame) or monthly.empty:
+        return []
+    periods = [idx for idx in monthly.index if isinstance(idx, pd.Period) and idx < period]
+    return periods[-max(0, int(limit)) :]
+
+
+def _share_for_period(
+    daily: pd.DataFrame,
+    monthly: pd.DataFrame,
+    period: pd.Period,
+    *,
+    column: str,
+    cutoff_date: pd.Timestamp,
+) -> float | None:
+    full_total = _series_total_for_period(monthly, period, column)
+    if full_total is None or not np.isfinite(full_total) or full_total <= 0:
+        return None
+    partial_total = _partial_total_for_period(daily, period, cutoff_date, column)
+    if partial_total is None or not np.isfinite(partial_total) or partial_total < 0:
+        return None
+    share = float(partial_total / full_total)
+    return max(NOWCAST_MIN_SHARE, min(NOWCAST_MAX_SHARE, share))
+
+
+def _avg_recent_share(
+    daily: pd.DataFrame,
+    monthly: pd.DataFrame,
+    periods: Sequence[pd.Period],
+    *,
+    column: str,
+    calendar_day: int | None = None,
+    business_day_number: int | None = None,
+) -> float | None:
+    shares: List[float] = []
+    for period in periods:
+        if calendar_day is not None:
+            cutoff_date = _calendar_cutoff_date(period, calendar_day)
+        elif business_day_number is not None:
+            cutoff_date = _business_day_cutoff_date(period, business_day_number)
+        else:
+            continue
+        share = _share_for_period(daily, monthly, period, column=column, cutoff_date=cutoff_date)
+        if share is not None and np.isfinite(share):
+            shares.append(float(share))
+    if not shares:
+        return None
+    return float(np.median(np.asarray(shares, dtype=float)))
+
+
+def _nowcast_candidate_estimate(
+    daily: pd.DataFrame,
+    monthly: pd.DataFrame,
+    target_period: pd.Period,
+    *,
+    column: str,
+    current_partial: float,
+    calendar_day: int,
+    business_day_number: int,
+    candidate_name: str,
+) -> float | None:
+    if not np.isfinite(current_partial) or current_partial < 0:
+        return None
+    if candidate_name == "prior_month_same_day":
+        ref_period = target_period - 1
+        ref_cutoff = _calendar_cutoff_date(ref_period, calendar_day)
+        ref_full = _series_total_for_period(monthly, ref_period, column)
+        ref_partial = _partial_total_for_period(daily, ref_period, ref_cutoff, column)
+        if ref_full is None or ref_partial is None or ref_full <= 0 or ref_partial <= 0:
+            return None
+        return float(ref_full * (current_partial / ref_partial))
+    if candidate_name == "prior_year_same_day":
+        ref_period = target_period - 12
+        ref_cutoff = _calendar_cutoff_date(ref_period, calendar_day)
+        ref_full = _series_total_for_period(monthly, ref_period, column)
+        ref_partial = _partial_total_for_period(daily, ref_period, ref_cutoff, column)
+        if ref_full is None or ref_partial is None or ref_full <= 0 or ref_partial <= 0:
+            return None
+        return float(ref_full * (current_partial / ref_partial))
+    if candidate_name == "recent3_calendar_curve":
+        share = _avg_recent_share(
+            daily,
+            monthly,
+            _recent_periods_before(monthly, target_period, 3),
+            column=column,
+            calendar_day=calendar_day,
+        )
+        return _estimate_from_share(current_partial, share)
+    if candidate_name == "recent6_calendar_curve":
+        share = _avg_recent_share(
+            daily,
+            monthly,
+            _recent_periods_before(monthly, target_period, 6),
+            column=column,
+            calendar_day=calendar_day,
+        )
+        return _estimate_from_share(current_partial, share)
+    if candidate_name == "recent6_business_curve":
+        share = _avg_recent_share(
+            daily,
+            monthly,
+            _recent_periods_before(monthly, target_period, 6),
+            column=column,
+            business_day_number=business_day_number,
+        )
+        return _estimate_from_share(current_partial, share)
+    if candidate_name == "blended_recent_curve":
+        cal_share = _avg_recent_share(
+            daily,
+            monthly,
+            _recent_periods_before(monthly, target_period, 6),
+            column=column,
+            calendar_day=calendar_day,
+        )
+        biz_share = _avg_recent_share(
+            daily,
+            monthly,
+            _recent_periods_before(monthly, target_period, 6),
+            column=column,
+            business_day_number=business_day_number,
+        )
+        shares = [share for share in (cal_share, biz_share) if share is not None]
+        if not shares:
+            return None
+        if len(shares) == 1:
+            return _estimate_from_share(current_partial, shares[0])
+        blended_share = (0.6 * float(cal_share or 0.0)) + (0.4 * float(biz_share or 0.0))
+        return _estimate_from_share(current_partial, blended_share)
+    return None
+
+
+def _nowcast_candidates() -> Tuple[str, ...]:
+    return (
+        "prior_month_same_day",
+        "prior_year_same_day",
+        "recent3_calendar_curve",
+        "recent6_calendar_curve",
+        "recent6_business_curve",
+        "blended_recent_curve",
+    )
+
+
+def _candidate_display_name(name: str) -> str:
+    mapping = {
+        "prior_month_same_day": "Prior Month Pace",
+        "prior_year_same_day": "Prior Year Pace",
+        "recent3_calendar_curve": "Recent 3M Day-Curve",
+        "recent6_calendar_curve": "Recent 6M Day-Curve",
+        "recent6_business_curve": "Recent 6M Business-Day Curve",
+        "blended_recent_curve": "Blended Recent Pace",
+    }
+    return mapping.get(name, name)
+
+
+def _current_month_growth_regime(
+    *,
+    estimated_revenue: float,
+    monthly: pd.DataFrame,
+    pace_vs_prior_month: float | None,
+    pace_vs_prior_year: float | None,
+    stability_score: float,
+) -> str:
+    recent_full = pd.to_numeric(monthly.get("revenue", pd.Series(dtype=float)), errors="coerce").dropna().astype("float64")
+    if recent_full.empty:
+        return "stable"
+    recent_baseline = float(recent_full.tail(min(3, len(recent_full))).mean() or 0.0)
+    revenue_growth = ((estimated_revenue - recent_baseline) / max(abs(recent_baseline), 1e-6)) if recent_baseline else 0.0
+    if stability_score < 50 and abs(revenue_growth) >= 0.08:
+        return "volatile"
+    if revenue_growth >= 0.08 and (pace_vs_prior_month or 1.0) >= 1.04:
+        return "accelerating"
+    if revenue_growth <= -0.06 and (pace_vs_prior_month or 1.0) <= 0.97:
+        return "decelerating"
+    if pace_vs_prior_year is not None and abs(float(pace_vs_prior_year) - 1.0) >= 0.12 and stability_score < 60:
+        return "volatile"
+    return "stable"
+
+
+def _uncertainty_level(uncertainty_pct: float) -> str:
+    if uncertainty_pct <= 10:
+        return "low"
+    if uncertainty_pct <= 18:
+        return "medium"
+    return "high"
+
+
+def _fallback_monthly_nowcast(
+    monthly: pd.DataFrame,
+    target_period: pd.Period,
+    *,
+    effective_end: pd.Timestamp,
+    source: str,
+    reason: str | None = None,
+) -> Dict[str, Any]:
+    if not isinstance(monthly, pd.DataFrame) or monthly.empty or target_period not in monthly.index:
+        return {"applied": False, "source": source}
+
+    raw_mtd_revenue = float(_series_total_for_period(monthly, target_period, "revenue") or 0.0)
+    raw_mtd_cost = float(_series_total_for_period(monthly, target_period, "cost") or 0.0)
+    if raw_mtd_revenue <= 0 and raw_mtd_cost <= 0:
+        return {"applied": False, "source": source}
+
+    month_start = target_period.to_timestamp().normalize()
+    month_end = _month_end_timestamp(month_start) or pd.Timestamp(effective_end).normalize()
+    cutoff_date = min(pd.Timestamp(effective_end).normalize(), month_end)
+    calendar_progress = float(cutoff_date.day / max(1, int(month_end.day)))
+    business_elapsed = int(len(pd.bdate_range(month_start, cutoff_date)))
+    business_total = int(len(pd.bdate_range(month_start, month_end)))
+    business_progress = float(business_elapsed / max(1, business_total))
+    pace_share = max(
+        NOWCAST_MIN_SHARE,
+        min(
+            NOWCAST_MAX_SHARE,
+            (0.55 * calendar_progress) + (0.45 * business_progress),
+        ),
+    )
+
+    closed = monthly.loc[monthly.index < target_period].copy()
+    recent_revenue = pd.to_numeric(closed.get("revenue", pd.Series(dtype=float)), errors="coerce").dropna().astype("float64")
+    recent_cost = pd.to_numeric(closed.get("cost", pd.Series(dtype=float)), errors="coerce").dropna().astype("float64")
+    prior_year_revenue = _series_total_for_period(monthly, target_period - 12, "revenue")
+    prior_year_cost = _series_total_for_period(monthly, target_period - 12, "cost")
+
+    revenue_pace = float(_estimate_from_share(raw_mtd_revenue, pace_share) or raw_mtd_revenue)
+    cost_pace = float(_estimate_from_share(raw_mtd_cost, pace_share) or raw_mtd_cost)
+    revenue_recent_anchor = recent_revenue.tail(min(6, len(recent_revenue))).median() if not recent_revenue.empty else None
+    cost_recent_anchor = recent_cost.tail(min(6, len(recent_cost))).median() if not recent_cost.empty else None
+    revenue_anchor_candidates = [
+        float(val)
+        for val in [revenue_recent_anchor, prior_year_revenue]
+        if val is not None and np.isfinite(val) and float(val) > 0
+    ]
+    cost_anchor_candidates = [
+        float(val)
+        for val in [cost_recent_anchor, prior_year_cost]
+        if val is not None and np.isfinite(val) and float(val) >= 0
+    ]
+    revenue_anchor = float(np.median(np.asarray(revenue_anchor_candidates, dtype=float))) if revenue_anchor_candidates else revenue_pace
+    cost_anchor = float(np.median(np.asarray(cost_anchor_candidates, dtype=float))) if cost_anchor_candidates else cost_pace
+
+    if calendar_progress >= 0.9:
+        progress_weight = 0.82
+    elif calendar_progress >= 0.75:
+        progress_weight = 0.74
+    elif calendar_progress >= 0.55:
+        progress_weight = 0.66
+    else:
+        progress_weight = 0.58
+
+    est_revenue = max(raw_mtd_revenue, (progress_weight * revenue_pace) + ((1.0 - progress_weight) * max(raw_mtd_revenue, revenue_anchor)))
+    est_cost = max(raw_mtd_cost, (progress_weight * cost_pace) + ((1.0 - progress_weight) * max(raw_mtd_cost, cost_anchor)))
+    est_profit = max(0.0, est_revenue - est_cost)
+    raw_mtd_profit = max(0.0, raw_mtd_revenue - raw_mtd_cost)
+    est_margin = _bound_value("margin", float(au.safe_div(est_profit, est_revenue) * 100 if est_revenue else 0.0))
+    raw_mtd_margin = _bound_value("margin", float(au.safe_div(raw_mtd_profit, raw_mtd_revenue) * 100 if raw_mtd_revenue else 0.0))
+
+    revenue_volatility = float(recent_revenue.pct_change().dropna().abs().tail(6).median() * 100.0) if len(recent_revenue) >= 2 else 0.0
+    base_uncertainty = 7.0 if calendar_progress >= 0.9 else (9.0 if calendar_progress >= 0.8 else (12.0 if calendar_progress >= 0.65 else 16.0))
+    uncertainty_pct = max(base_uncertainty, min(28.0, base_uncertainty + (revenue_volatility * 0.35)))
+    revenue_lower = max(raw_mtd_revenue, est_revenue * (1.0 - (uncertainty_pct / 100.0)))
+    revenue_upper = est_revenue * (1.0 + (uncertainty_pct / 100.0))
+    cost_lower = max(raw_mtd_cost, est_cost * (1.0 - (uncertainty_pct / 100.0)))
+    cost_upper = est_cost * (1.0 + (uncertainty_pct / 100.0))
+    profit_lower = max(0.0, revenue_lower - cost_upper)
+    profit_upper = max(0.0, revenue_upper - cost_lower)
+
+    stability_score = max(42.0, min(82.0, 100.0 - (float(uncertainty_pct) * 2.4)))
+    growth_regime = _current_month_growth_regime(
+        estimated_revenue=est_revenue,
+        monthly=closed,
+        pace_vs_prior_month=None,
+        pace_vs_prior_year=None,
+        stability_score=float(stability_score),
+    )
+
+    return {
+        "applied": True,
+        "period": str(target_period),
+        "effective_end": cutoff_date.date().isoformat(),
+        "progress_pct": round(calendar_progress * 100.0, 1),
+        "business_progress_pct": round(business_progress * 100.0, 1),
+        "raw_mtd_revenue": raw_mtd_revenue,
+        "raw_mtd_cost": raw_mtd_cost,
+        "raw_mtd_profit": raw_mtd_profit,
+        "raw_mtd_margin_pct": raw_mtd_margin,
+        "estimated_month_end_revenue": est_revenue,
+        "estimated_month_end_cost": est_cost,
+        "estimated_month_end_profit": est_profit,
+        "estimated_month_end_margin_pct": est_margin,
+        "revenue_interval": {"lower": revenue_lower, "upper": revenue_upper},
+        "cost_interval": {"lower": cost_lower, "upper": cost_upper},
+        "profit_interval": {"lower": profit_lower, "upper": profit_upper},
+        "pace_vs_prior_month_same_day": None,
+        "pace_vs_prior_year_same_day": None,
+        "blend_weights": [
+            {
+                "name": "monthly_progress_fallback",
+                "display_name": "Protected Month Progress Pace",
+                "weight": 1.0,
+                "validation_points": 0,
+                "smape": None,
+                "bias_pct": None,
+                "estimate": est_revenue,
+            }
+        ],
+        "growth_regime": growth_regime,
+        "stability_score": round(float(stability_score), 1),
+        "bias_risk": "medium",
+        "uncertainty_level": _uncertainty_level(float(uncertainty_pct)),
+        "uncertainty_pct": round(float(uncertainty_pct), 1),
+        "current_month_basis": "monthly_progress_fallback",
+        "source": source,
+        "fallback_reason": reason,
+    }
+
+
+def _nowcast_metric(
+    daily: pd.DataFrame,
+    monthly: pd.DataFrame,
+    target_period: pd.Period,
+    *,
+    effective_end: pd.Timestamp,
+    column: str,
+) -> Dict[str, Any]:
+    cutoff_date = pd.Timestamp(effective_end).normalize()
+    current_partial = _partial_total_for_period(daily, target_period, cutoff_date, column)
+    if current_partial is None or not np.isfinite(current_partial):
+        return {"applied": False, "column": column}
+
+    month_end = _month_end_timestamp(target_period.to_timestamp().normalize()) or cutoff_date
+    calendar_day = int(min(cutoff_date.day, month_end.day))
+    progress_pct = float((calendar_day / max(1, int(month_end.day))) * 100.0)
+    business_elapsed = int(len(pd.bdate_range(target_period.to_timestamp().normalize(), min(cutoff_date, month_end))))
+    business_total = int(len(pd.bdate_range(target_period.to_timestamp().normalize(), month_end)))
+    business_progress_pct = float((business_elapsed / max(1, business_total)) * 100.0)
+
+    evaluation_periods = _recent_periods_before(monthly, target_period, NOWCAST_MAX_EVAL_MONTHS)
+    candidate_rows: List[Dict[str, Any]] = []
+    for candidate_name in _nowcast_candidates():
+        actuals: List[float] = []
+        preds: List[float] = []
+        for eval_period in evaluation_periods:
+            actual_full = _series_total_for_period(monthly, eval_period, column)
+            if actual_full is None or not np.isfinite(actual_full) or actual_full <= 0:
+                continue
+            eval_cutoff = _calendar_cutoff_date(eval_period, calendar_day)
+            eval_partial = _partial_total_for_period(daily, eval_period, eval_cutoff, column)
+            if eval_partial is None or not np.isfinite(eval_partial) or eval_partial <= 0:
+                continue
+            pred = _nowcast_candidate_estimate(
+                daily,
+                monthly,
+                eval_period,
+                column=column,
+                current_partial=float(eval_partial),
+                calendar_day=calendar_day,
+                business_day_number=business_elapsed,
+                candidate_name=candidate_name,
+            )
+            if pred is None or not np.isfinite(pred) or pred <= 0:
+                continue
+            actuals.append(float(actual_full))
+            preds.append(float(pred))
+
+        metrics = _candidate_metric_summary(actuals, preds)
+        estimate = _nowcast_candidate_estimate(
+            daily,
+            monthly,
+            target_period,
+            column=column,
+            current_partial=float(current_partial),
+            calendar_day=calendar_day,
+            business_day_number=business_elapsed,
+            candidate_name=candidate_name,
+        )
+        score = None
+        if metrics.get("smape") is not None:
+            score = (float(metrics.get("smape") or 0.0) * 0.55) + (float(metrics.get("wape") or 0.0) * 0.25) + (abs(float(metrics.get("bias_pct") or 0.0)) * 0.20)
+        candidate_rows.append(
+            {
+                "name": candidate_name,
+                "display_name": _candidate_display_name(candidate_name),
+                "estimate": float(estimate) if estimate is not None and np.isfinite(estimate) else None,
+                "smape": metrics.get("smape"),
+                "wape": metrics.get("wape"),
+                "bias_pct": metrics.get("bias_pct"),
+                "validation_points": metrics.get("n"),
+                "score": score,
+            }
+        )
+
+    valid = [
+        row
+        for row in candidate_rows
+        if row.get("estimate") is not None and row.get("score") is not None and int(row.get("validation_points") or 0) >= NOWCAST_MIN_CANDIDATES
+    ]
+    ranked = sorted(valid, key=lambda item: (float(item.get("score") or 9999.0), -int(item.get("validation_points") or 0)))
+    selected = ranked[:NOWCAST_TOP_CANDIDATES]
+
+    if not selected:
+        naive_share = max(NOWCAST_MIN_SHARE, min(NOWCAST_MAX_SHARE, progress_pct / 100.0))
+        naive_estimate = _estimate_from_share(float(current_partial), naive_share) or float(current_partial)
+        uncertainty_pct = 18.0 if progress_pct < 60 else 12.0
+        return {
+            "applied": True,
+            "column": column,
+            "raw_mtd": float(current_partial),
+            "estimate": max(float(current_partial), float(naive_estimate)),
+            "lower": max(float(current_partial), float(naive_estimate) * (1.0 - (uncertainty_pct / 100.0))),
+            "upper": float(naive_estimate) * (1.0 + (uncertainty_pct / 100.0)),
+            "progress_pct": round(progress_pct, 1),
+            "business_progress_pct": round(business_progress_pct, 1),
+            "uncertainty_pct": round(uncertainty_pct, 1),
+            "uncertainty_level": _uncertainty_level(uncertainty_pct),
+            "blend_weights": [],
+            "candidates": candidate_rows,
+        }
+
+    raw_weights = []
+    for row in selected:
+        score = max(1.0, float(row.get("score") or 1.0))
+        support = max(1.0, min(6.0, float(row.get("validation_points") or 1.0)))
+        raw_weights.append((1.0 / score) * (support / 6.0))
+    weight_arr = np.asarray(raw_weights, dtype=float)
+    if float(weight_arr.sum()) <= 0:
+        weight_arr = np.ones(len(selected), dtype=float)
+    weight_arr = weight_arr / float(weight_arr.sum())
+
+    estimates = np.asarray([float(row.get("estimate") or 0.0) for row in selected], dtype=float)
+    blended_estimate = float(np.sum(estimates * weight_arr))
+    blended_smape = float(np.sum(np.asarray([float(row.get("smape") or 0.0) for row in selected], dtype=float) * weight_arr))
+    blended_bias = float(np.sum(np.asarray([float(abs(row.get("bias_pct") or 0.0)) for row in selected], dtype=float) * weight_arr))
+    dispersion_pct = float(np.std(estimates) / max(abs(blended_estimate), 1e-6) * 100.0) if len(estimates) > 1 else 0.0
+    progress_penalty = 8.0 if progress_pct < 30 else (4.5 if progress_pct < 60 else 2.5)
+    uncertainty_pct = max(6.0, min(32.0, (blended_smape * 0.55) + (blended_bias * 0.15) + (dispersion_pct * 0.30) + progress_penalty))
+    bounded_estimate = max(float(current_partial), float(blended_estimate))
+    lower = max(float(current_partial), bounded_estimate * (1.0 - (uncertainty_pct / 100.0)))
+    upper = bounded_estimate * (1.0 + (uncertainty_pct / 100.0))
+    blend_weights = []
+    for row, weight in zip(selected, weight_arr):
+        blend_weights.append(
+            {
+                "name": row.get("name"),
+                "display_name": row.get("display_name"),
+                "weight": round(float(weight), 3),
+                "validation_points": int(row.get("validation_points") or 0),
+                "smape": row.get("smape"),
+                "bias_pct": row.get("bias_pct"),
+                "estimate": row.get("estimate"),
+            }
+        )
+    return {
+        "applied": True,
+        "column": column,
+        "raw_mtd": float(current_partial),
+        "estimate": float(bounded_estimate),
+        "lower": float(lower),
+        "upper": float(upper),
+        "progress_pct": round(progress_pct, 1),
+        "business_progress_pct": round(business_progress_pct, 1),
+        "uncertainty_pct": round(float(uncertainty_pct), 1),
+        "uncertainty_level": _uncertainty_level(float(uncertainty_pct)),
+        "blend_weights": blend_weights,
+        "candidates": candidate_rows,
+    }
+
+
+def _current_month_nowcast(filters: FilterParams, monthly: pd.DataFrame) -> Dict[str, Any]:
+    if not isinstance(monthly, pd.DataFrame) or monthly.empty:
+        return {"applied": False}
+    effective_end = _effective_window_end(filters)
+    last_period = monthly.index.max()
+    if effective_end is None or not isinstance(last_period, pd.Period):
+        return {"applied": False}
+    target_period = effective_end.to_period("M")
+    if last_period != target_period:
+        return {"applied": False}
+
+    daily, daily_meta = _daily_fact_frame(filters)
+    if daily.empty:
+        return _fallback_monthly_nowcast(
+            monthly,
+            target_period,
+            effective_end=effective_end,
+            source=str(daily_meta.get("source") or "monthly_progress_fallback"),
+            reason="Daily fact frame was unavailable for the scoped nowcast path.",
+        )
+
+    daily = daily[daily["date"] <= effective_end].copy()
+    if daily.empty:
+        return _fallback_monthly_nowcast(
+            monthly,
+            target_period,
+            effective_end=effective_end,
+            source=str(daily_meta.get("source") or "monthly_progress_fallback"),
+            reason="Scoped daily fact rows were empty through the effective end date.",
+        )
+    monthly_totals = daily.groupby("period")[["revenue", "cost", "qty", "profit"]].sum().sort_index()
+    if monthly_totals.empty or target_period not in monthly_totals.index:
+        return _fallback_monthly_nowcast(
+            monthly,
+            target_period,
+            effective_end=effective_end,
+            source=str(daily_meta.get("source") or "monthly_progress_fallback"),
+            reason="Daily nowcast totals were unavailable for the target period.",
+        )
+    monthly_totals["margin_pct"] = au.safe_div(monthly_totals["profit"], monthly_totals["revenue"].replace(0, pd.NA)) * 100
+    monthly_totals["margin_pct"] = monthly_totals["margin_pct"].replace([np.inf, -np.inf], np.nan).clip(lower=MARGIN_BOUNDS[0], upper=MARGIN_BOUNDS[1])
+
+    revenue_nowcast = _nowcast_metric(daily, monthly_totals, target_period, effective_end=effective_end, column="revenue")
+    cost_nowcast = _nowcast_metric(daily, monthly_totals, target_period, effective_end=effective_end, column="cost")
+    if not revenue_nowcast.get("applied") or not cost_nowcast.get("applied"):
+        return _fallback_monthly_nowcast(
+            monthly_totals,
+            target_period,
+            effective_end=effective_end,
+            source=str(daily_meta.get("source") or "monthly_progress_fallback"),
+            reason="Detailed pacing candidates were unstable, so a protected monthly pace fallback was used.",
+        )
+
+    raw_mtd_revenue = float(revenue_nowcast.get("raw_mtd") or 0.0)
+    raw_mtd_cost = float(cost_nowcast.get("raw_mtd") or 0.0)
+    est_revenue = max(raw_mtd_revenue, float(revenue_nowcast.get("estimate") or raw_mtd_revenue))
+    est_cost = max(raw_mtd_cost, float(cost_nowcast.get("estimate") or raw_mtd_cost))
+    est_profit = max(0.0, est_revenue - est_cost)
+    raw_mtd_profit = max(0.0, raw_mtd_revenue - raw_mtd_cost)
+    est_margin = _bound_value("margin", float(au.safe_div(est_profit, est_revenue) * 100 if est_revenue else 0.0))
+    raw_mtd_margin = _bound_value("margin", float(au.safe_div(raw_mtd_profit, raw_mtd_revenue) * 100 if raw_mtd_revenue else 0.0))
+
+    profit_lower = max(0.0, float(revenue_nowcast.get("lower") or raw_mtd_revenue) - float(cost_nowcast.get("upper") or raw_mtd_cost))
+    profit_upper = max(0.0, float(revenue_nowcast.get("upper") or est_revenue) - float(cost_nowcast.get("lower") or est_cost))
+
+    prior_month = target_period - 1
+    prior_year = target_period - 12
+    cutoff_date = pd.Timestamp(effective_end).normalize()
+    prior_month_partial = _partial_total_for_period(daily, prior_month, _calendar_cutoff_date(prior_month, cutoff_date.day), "revenue")
+    prior_year_partial = _partial_total_for_period(daily, prior_year, _calendar_cutoff_date(prior_year, cutoff_date.day), "revenue")
+    pace_vs_prior_month = float(raw_mtd_revenue / prior_month_partial) if prior_month_partial and prior_month_partial > 0 else None
+    pace_vs_prior_year = float(raw_mtd_revenue / prior_year_partial) if prior_year_partial and prior_year_partial > 0 else None
+
+    top_weights = revenue_nowcast.get("blend_weights") or []
+    if top_weights:
+        weight_conf = sum(float(item.get("weight") or 0.0) ** 2 for item in top_weights)
+        stability_score = max(35.0, min(92.0, 100.0 - (float(revenue_nowcast.get("uncertainty_pct") or 0.0) * 2.2) - (max(0.0, 1.0 - weight_conf) * 22.0)))
+    else:
+        stability_score = max(35.0, 100.0 - (float(revenue_nowcast.get("uncertainty_pct") or 0.0) * 2.4))
+    growth_regime = _current_month_growth_regime(
+        estimated_revenue=est_revenue,
+        monthly=monthly_totals.loc[monthly_totals.index < target_period],
+        pace_vs_prior_month=pace_vs_prior_month,
+        pace_vs_prior_year=pace_vs_prior_year,
+        stability_score=float(stability_score),
+    )
+    bias_risk = "low"
+    if top_weights:
+        weighted_bias = float(sum(abs(float(item.get("bias_pct") or 0.0)) * float(item.get("weight") or 0.0) for item in top_weights))
+        if weighted_bias >= 12:
+            bias_risk = "high"
+        elif weighted_bias >= 6:
+            bias_risk = "medium"
+
+    nowcast_payload = {
+        "applied": True,
+        "period": str(target_period),
+        "effective_end": effective_end.date().isoformat(),
+        "progress_pct": revenue_nowcast.get("progress_pct"),
+        "business_progress_pct": revenue_nowcast.get("business_progress_pct"),
+        "raw_mtd_revenue": raw_mtd_revenue,
+        "raw_mtd_cost": raw_mtd_cost,
+        "raw_mtd_profit": raw_mtd_profit,
+        "raw_mtd_margin_pct": raw_mtd_margin,
+        "estimated_month_end_revenue": est_revenue,
+        "estimated_month_end_cost": est_cost,
+        "estimated_month_end_profit": est_profit,
+        "estimated_month_end_margin_pct": est_margin,
+        "revenue_interval": {"lower": revenue_nowcast.get("lower"), "upper": revenue_nowcast.get("upper")},
+        "cost_interval": {"lower": cost_nowcast.get("lower"), "upper": cost_nowcast.get("upper")},
+        "profit_interval": {"lower": profit_lower, "upper": profit_upper},
+        "pace_vs_prior_month_same_day": round(float(pace_vs_prior_month), 3) if pace_vs_prior_month is not None else None,
+        "pace_vs_prior_year_same_day": round(float(pace_vs_prior_year), 3) if pace_vs_prior_year is not None else None,
+        "blend_weights": revenue_nowcast.get("blend_weights") or [],
+        "growth_regime": growth_regime,
+        "stability_score": round(float(stability_score), 1),
+        "bias_risk": bias_risk,
+        "uncertainty_level": revenue_nowcast.get("uncertainty_level"),
+        "uncertainty_pct": revenue_nowcast.get("uncertainty_pct"),
+        "current_month_basis": "validation_weighted_pacing_ensemble",
+        "source": daily_meta.get("source"),
+    }
+    return nowcast_payload
+
+
+def _metric_nowcast_view(nowcast: Dict[str, Any], metric: str) -> Dict[str, Any]:
+    if not nowcast.get("applied"):
+        return {"applied": False}
+    metric_key = _normalize_metric(metric)
+    if metric_key == "revenue":
+        raw_mtd = nowcast.get("raw_mtd_revenue")
+        estimate = nowcast.get("estimated_month_end_revenue")
+        interval = nowcast.get("revenue_interval") or {}
+    elif metric_key == "profit":
+        raw_mtd = nowcast.get("raw_mtd_profit")
+        estimate = nowcast.get("estimated_month_end_profit")
+        interval = nowcast.get("profit_interval") or {}
+    else:
+        raw_mtd = nowcast.get("raw_mtd_margin_pct")
+        estimate = nowcast.get("estimated_month_end_margin_pct")
+        revenue_interval = nowcast.get("revenue_interval") or {}
+        profit_interval = nowcast.get("profit_interval") or {}
+        revenue_upper = float(revenue_interval.get("upper") or 0.0)
+        revenue_lower = float(revenue_interval.get("lower") or 0.0)
+        profit_lower = profit_interval.get("lower")
+        profit_upper = profit_interval.get("upper")
+        interval = {
+            "lower": _bound_value("margin", au.safe_div(float(profit_lower), revenue_upper) * 100)
+            if profit_lower is not None and revenue_upper > 0
+            else None,
+            "upper": _bound_value("margin", au.safe_div(float(profit_upper), revenue_lower) * 100)
+            if profit_upper is not None and revenue_lower > 0
+            else None,
+        }
+    return {
+        **nowcast,
+        "raw_mtd_actual": _bound_value(metric_key, raw_mtd),
+        "estimated_month_end": _bound_value(metric_key, estimate),
+        "yhat_lower": _bound_value(metric_key, interval.get("lower")),
+        "yhat_upper": _bound_value(metric_key, interval.get("upper")),
+    }
 
 
 def _regularize_monthly_frame(monthly: pd.DataFrame) -> pd.DataFrame:
@@ -1286,6 +2217,7 @@ def _forecastability_score(
     zero_share_pct: float,
     outlier_share_pct: float,
     partial_included: bool,
+    nowcast_uncertainty_pct: float = 0.0,
 ) -> float:
     score = 58.0
     score += min(18.0, (history_points / 36.0) * 18.0)
@@ -1303,6 +2235,7 @@ def _forecastability_score(
     score -= min(8.0, outlier_share_pct * 0.35)
     if partial_included:
         score -= 6.0
+        score -= min(8.0, max(0.0, nowcast_uncertainty_pct) * 0.18)
     return float(max(0.0, min(100.0, score)))
 
 
@@ -1338,7 +2271,9 @@ def _build_forecast_summary(metric: str, selected: Dict[str, Any], diagnostics: 
     seasonality_strength = float(diagnostics.get("seasonality_strength_score") or 0.0)
     level_shift = float(diagnostics.get("level_shift_score") or 0.0)
     partial_note = ""
-    if partial_meta.get("detected") and partial_meta.get("excluded"):
+    if partial_meta.get("detected") and partial_meta.get("nowcast_applied"):
+        partial_note = " Current month is represented as an estimated month-end nowcast rather than raw partial actuals."
+    elif partial_meta.get("detected") and partial_meta.get("excluded"):
         partial_note = " Incomplete current month was excluded from training."
     elif partial_meta.get("detected") and partial_meta.get("included"):
         partial_note = " Incomplete current month is included, so near-term uncertainty is wider."
@@ -1672,6 +2607,45 @@ def _serialize_v2_series(
     return out, bounded
 
 
+def _inject_nowcast_rows(
+    history_rows: List[Dict[str, Any]],
+    forecast_rows: List[Dict[str, Any]],
+    series_rows: List[Dict[str, Any]],
+    nowcast_payload: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if not nowcast_payload.get("applied"):
+        return history_rows, forecast_rows, series_rows
+
+    period_token = str(nowcast_payload.get("period") or "").strip()
+    if not period_token:
+        return history_rows, forecast_rows, series_rows
+
+    ds_token = f"{period_token}-01"
+    nowcast_row = {
+        "ds": ds_token,
+        "yhat": nowcast_payload.get("estimated_month_end"),
+        "yhat_lower": nowcast_payload.get("yhat_lower"),
+        "yhat_upper": nowcast_payload.get("yhat_upper"),
+    }
+    series_insert = {
+        "t": period_token,
+        "actual": None,
+        "forecast": nowcast_payload.get("estimated_month_end"),
+        "lo": nowcast_payload.get("yhat_lower"),
+        "hi": nowcast_payload.get("yhat_upper"),
+    }
+
+    merged_forecast = [row for row in forecast_rows if str(row.get("ds") or "") != ds_token]
+    merged_forecast = [nowcast_row] + merged_forecast
+
+    merged_series = [row for row in series_rows if str(row.get("t") or "") != period_token]
+    insert_at = 0
+    while insert_at < len(merged_series) and str(merged_series[insert_at].get("t") or "") < period_token:
+        insert_at += 1
+    merged_series = merged_series[:insert_at] + [series_insert] + merged_series[insert_at:]
+    return history_rows, merged_forecast, merged_series
+
+
 def forecast_metric_v2(
     filters: FilterParams,
     *,
@@ -1717,8 +2691,11 @@ def forecast_metric_v2(
     notes: List[str] = []
     warnings: List[str] = []
 
+    nowcast_payload: Dict[str, Any] = {"applied": False}
+    fit_history = pd.Series(dtype="float64")
     if gran == "weekly":
         raw_history, context = _build_weekly_history(filters, metric, include_current=include_current)
+        fit_history = raw_history.copy()
         partial_meta = {
             "detected": False,
             "included": False,
@@ -1727,11 +2704,23 @@ def forecast_metric_v2(
         }
         imputed_points = 0
     else:
-        raw_history, context = _build_monthly_history(filters, metric, include_current=include_current)
+        monthly_history_result = _build_monthly_history(filters, metric, include_current=include_current)
+        if isinstance(monthly_history_result, tuple) and len(monthly_history_result) == 3:
+            raw_history, fit_history, context = monthly_history_result
+        elif isinstance(monthly_history_result, tuple) and len(monthly_history_result) == 2:
+            raw_history, context = monthly_history_result
+            fit_history = raw_history
+        else:
+            raw_history = pd.Series(dtype="float64")
+            fit_history = pd.Series(dtype="float64")
+            context = {}
         partial_meta = dict((context or {}).get("partial_period") or {})
         imputed_points = int((context or {}).get("imputed_points") or 0)
+        nowcast_payload = dict((context or {}).get("nowcast") or {"applied": False})
+    history_basis = dict((context or {}).get("history_basis") or {})
 
     raw_history = raw_history.dropna().astype("float64")
+    fit_history = fit_history.dropna().astype("float64")
     if gran == "weekly":
         seasonal_period = 52 if len(raw_history) >= 104 else 13
     else:
@@ -1740,12 +2729,38 @@ def forecast_metric_v2(
 
     if len(raw_history) < min_points:
         reason = f"Insufficient history for {gran} forecast ({len(raw_history)} points, need at least {min_points})."
+        summary = reason
+        notes = [reason, "Forecast stays disabled until more comparable history is available under the active filters."]
+        history_rows = _serialize_v2_history(raw_history)
+        forecast_rows: List[Dict[str, Any]] = []
+        series_rows: List[Dict[str, Any]] = []
+        if gran == "monthly" and nowcast_payload.get("applied"):
+            series_rows, _ = _serialize_v2_series(
+                raw_history,
+                pd.Series(dtype="float64"),
+                granularity=gran,
+                metric=metric,
+                resid_std=None,
+                upper_cap=None,
+            )
+            history_rows, forecast_rows, series_rows = _inject_nowcast_rows(
+                history_rows,
+                forecast_rows,
+                series_rows,
+                nowcast_payload,
+            )
+            summary = "Current month is estimated to month-end, but forward monthly forecasting stays disabled until more comparable history is available."
+            notes = [
+                "Current month is estimated to month-end using validation-weighted pacing and recent business-day curves.",
+                reason,
+                "Forward forecast stays disabled until more comparable history is available under the active filters.",
+            ]
         payload = {
             "eligible": False,
             "reason": reason,
-            "summary": reason,
+            "summary": summary,
             "warnings": [reason],
-            "notes": [reason, "Forecast stays disabled until more comparable history is available under the active filters."],
+            "notes": notes,
             "metric": metric,
             "granularity": gran,
             "horizon": horizon_points,
@@ -1767,8 +2782,12 @@ def forecast_metric_v2(
             },
             "diagnostics": {
                 "history_points": int(len(raw_history)),
+                "available_history_points": int(history_basis.get("available_points") or len(raw_history)),
                 "history_start": raw_history.index.min().date().isoformat() if len(raw_history.index) else None,
                 "history_end": raw_history.index.max().date().isoformat() if len(raw_history.index) else None,
+                "history_basis_label": history_basis.get("label") or "Filtered comparable history",
+                "history_basis_mode": history_basis.get("mode") or "full",
+                "history_basis_reason": history_basis.get("reason"),
                 "training_cutoff": raw_history.index.max().date().isoformat() if len(raw_history.index) else None,
                 "seasonality_strength_score": 0.0,
                 "trend_strength_score": 0.0,
@@ -1777,10 +2796,16 @@ def forecast_metric_v2(
                 "zero_share_pct": 0.0,
                 "outliers_adjusted": 0,
                 "partial_period": partial_meta,
+                "growth_regime": nowcast_payload.get("growth_regime"),
+                "stability_score": nowcast_payload.get("stability_score"),
+                "bias_risk": nowcast_payload.get("bias_risk"),
+                "current_month_basis": nowcast_payload.get("current_month_basis"),
+                "nowcast_uncertainty_pct": nowcast_payload.get("uncertainty_pct"),
             },
-            "history": _serialize_v2_history(raw_history),
-            "forecast": [],
-            "series": [],
+            "history": history_rows,
+            "forecast": forecast_rows,
+            "series": series_rows,
+            "nowcast": nowcast_payload,
             "cache_hit": False,
             "dataset_version": dataset_marker,
             "model_version": MODEL_VERSION_V2,
@@ -1796,6 +2821,13 @@ def forecast_metric_v2(
     )
     if clean_history.empty:
         clean_history = raw_history.copy()
+    fit_history_for_runner = clean_history.copy()
+    if gran == "monthly" and nowcast_payload.get("applied") and len(fit_history.index) > len(raw_history.index):
+        terminal_idx = fit_history.index.max()
+        terminal_value = fit_history.loc[terminal_idx]
+        if pd.notna(terminal_value):
+            fit_history_for_runner.loc[pd.Timestamp(terminal_idx)] = float(terminal_value)
+            fit_history_for_runner = fit_history_for_runner.sort_index()
 
     seasonality_strength = _seasonality_strength(clean_history, max(4, seasonal_period), gran)
     trend_strength = _trend_strength_score(clean_history)
@@ -1808,6 +2840,17 @@ def forecast_metric_v2(
         "train_points": int(len(clean_history)),
         "history_start": raw_history.index.min().date().isoformat() if len(raw_history.index) else None,
         "history_end": raw_history.index.max().date().isoformat() if len(raw_history.index) else None,
+        "available_history_points": int(history_basis.get("available_points") or len(raw_history)),
+        "available_history_start": history_basis.get("available_start"),
+        "available_history_end": history_basis.get("available_end"),
+        "history_basis_label": history_basis.get("label") or "Filtered comparable history",
+        "history_basis_mode": history_basis.get("mode") or "full",
+        "history_basis_reason": history_basis.get("reason"),
+        "history_basis_points": int(history_basis.get("selected_points") or len(raw_history)),
+        "history_basis_start": history_basis.get("selected_start") or (raw_history.index.min().date().isoformat() if len(raw_history.index) else None),
+        "history_basis_end": history_basis.get("selected_end") or (raw_history.index.max().date().isoformat() if len(raw_history.index) else None),
+        "history_excluded_points": int(history_basis.get("excluded_points") or 0),
+        "history_non_zero_share_pct": float(history_basis.get("non_zero_share_pct") or 0.0),
         "training_cutoff": clean_history.index.max().date().isoformat() if len(clean_history.index) else None,
         "seasonality_period": int(seasonal_period),
         "seasonality_strength_score": round(float(seasonality_strength), 1),
@@ -1822,11 +2865,23 @@ def forecast_metric_v2(
         "outlier_positions": outlier_meta.get("positions") or [],
         "imputed_points": int(imputed_points),
         "partial_period": partial_meta,
-        "history_scope": "recent-aware",
+        "history_scope": history_basis.get("mode") or "recent-aware",
+        "growth_regime": nowcast_payload.get("growth_regime"),
+        "stability_score": nowcast_payload.get("stability_score"),
+        "bias_risk": nowcast_payload.get("bias_risk"),
+        "current_month_basis": nowcast_payload.get("current_month_basis"),
+        "nowcast_uncertainty_pct": nowcast_payload.get("uncertainty_pct"),
+        "nowcast_period": nowcast_payload.get("period"),
     }
 
     if partial_meta.get("note"):
         notes.append(str(partial_meta.get("note")))
+    if nowcast_payload.get("applied"):
+        notes.append(
+            "Current month is nowcasted to month-end using validation-weighted pacing, recent business-day curves, and prior comparable periods."
+        )
+    if history_basis.get("reason"):
+        notes.append(str(history_basis.get("reason")))
     if outlier_meta.get("count"):
         notes.append(f"Adjusted {int(outlier_meta.get('count') or 0)} isolated outlier period(s) before fitting.")
     if imputed_points:
@@ -1901,10 +2956,10 @@ def forecast_metric_v2(
         warnings.append("Model validation was incomplete, so the forecast fell back to a conservative baseline.")
 
     try:
-        forecast_series, resid_std = selected["runner"](clean_history, horizon_points)
+        forecast_series, resid_std = selected["runner"](fit_history_for_runner, horizon_points)
     except Exception:
-        forecast_series = _forecast_level_baseline_generic(clean_history, horizon_points, granularity=gran, window=6)
-        resid_std = float(clean_history.std(skipna=True) or 0.0)
+        forecast_series = _forecast_level_baseline_generic(fit_history_for_runner, horizon_points, granularity=gran, window=6)
+        resid_std = float(fit_history_for_runner.std(skipna=True) or 0.0)
         warnings.append("Selected model failed during final scoring; conservative baseline used instead.")
         selected["name"] = "level_baseline"
         selected["display_name"] = "Conservative Baseline"
@@ -1933,6 +2988,13 @@ def forecast_metric_v2(
         resid_std=float(resid_std or selected.get("resid_std") or 0.0),
         upper_cap=cap_val,
     )
+    if gran == "monthly" and nowcast_payload.get("applied"):
+        history_rows, forecast_rows, series_rows = _inject_nowcast_rows(
+            history_rows,
+            forecast_rows,
+            series_rows,
+            nowcast_payload,
+        )
 
     selected_metrics = {
         "smape": selected.get("smape"),
@@ -1953,6 +3015,7 @@ def forecast_metric_v2(
         zero_share_pct=float(zero_share_pct),
         outlier_share_pct=float(outlier_meta.get("share_pct") or 0.0),
         partial_included=bool(partial_meta.get("included")),
+        nowcast_uncertainty_pct=float(nowcast_payload.get("uncertainty_pct") or 0.0),
     )
     combined_confidence_score = max(0.0, min(100.0, (forecastability * 0.55) + (float(selected.get("quality_score") or 0.0) * 0.45)))
     confidence_badge = _score_label(combined_confidence_score)
@@ -1965,6 +3028,8 @@ def forecast_metric_v2(
         warnings.append("Forecastability is limited under the current filters; use the outlook directionally rather than as a hard plan.")
     elif combined_confidence_score < 60:
         warnings.append("Forecast quality is moderate; validate the outlook against the underlying movers and risk panels.")
+    if nowcast_payload.get("applied") and float(nowcast_payload.get("uncertainty_pct") or 0.0) >= 18.0:
+        warnings.append("Current-month nowcast uncertainty is elevated, so treat the ongoing month estimate as directional.")
 
     model_reason = _selected_model_reason(selected, diagnostics)
     notes.append(model_reason)
@@ -2003,6 +3068,8 @@ def forecast_metric_v2(
         "validation_windows": int(selected.get("validation_windows") or 0),
         "confidence": confidence_tier,
         "confidence_badge": confidence_badge,
+        "stability_score": diagnostics.get("stability_score"),
+        "bias_risk": diagnostics.get("bias_risk"),
         "candidate_count": int(len(candidates)),
         "selection_reason": model_reason,
         "runner_ups": runner_ups,
@@ -2039,6 +3106,7 @@ def forecast_metric_v2(
         "series": series_rows,
         "model": model_payload,
         "diagnostics": diagnostics,
+        "nowcast": nowcast_payload,
         "confidence": confidence_tier,
         "confidence_badge": confidence_badge,
         "cache_hit": False,

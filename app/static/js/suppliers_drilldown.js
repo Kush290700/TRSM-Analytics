@@ -25,6 +25,8 @@
   };
 
   let controller = null;
+  let requestSeq = 0;
+  let currentApplyId = null;
 
   const exportBtn = document.getElementById("supplierProductsExportBtn");
 
@@ -521,8 +523,28 @@
 
   const buildFetchKey = (params) => `${bundleUrl}?${params.toString()}`;
 
+  const consumeApplyId = () => {
+    const applyId = currentApplyId;
+    currentApplyId = null;
+    return applyId;
+  };
+
+  const dispatchGlobalApplyAck = (detail = {}) => {
+    const payload = { ...detail };
+    const applyId = consumeApplyId();
+    if (applyId && !payload.applyId) payload.applyId = applyId;
+    try {
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(payload);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: payload }));
+    } catch (_err) {
+      // no-op
+    }
+  };
+
   const fetchBundle = async () => {
-    if (state.loading) return;
     const params = buildParams();
     const fetchKey = buildFetchKey(params);
     if (state.lastFetchKey === fetchKey) return;
@@ -530,6 +552,7 @@
     state.lastFetchKey = fetchKey;
     state.loading = true;
     updateExportHref();
+    const currentSeq = ++requestSeq;
 
     let payload = null;
     let error = null;
@@ -552,6 +575,7 @@
       renderCharts(payload);
       updateExportHref();
     } catch (err) {
+      if (err?.name === "AbortError") return;
       error = err;
       console.error("[supplier drilldown] bundle error", err);
       emptyChart("supTrend", "Unable to load trend.");
@@ -561,24 +585,17 @@
       emptyChart("prodMetricSecondary", "Unable to load product metrics.");
       emptyChart("upHist", "Unable to load unit price distribution.");
     } finally {
+      if (currentSeq !== requestSeq) return;
       state.loading = false;
       state.lastFetchKey = "";
-      try {
-        window.dispatchEvent(
-          new CustomEvent("globalFilters:applied", {
-            detail: {
-              page: "supplier_drilldown",
-              qs: state.filterQs,
-              supplier_id: supplierId,
-              error: error ? String(error) : null,
-              cached: Boolean(payload?.meta?.cached),
-              duckdb_query_count: payload?.meta?.duckdb_query_count ?? null,
-            },
-          })
-        );
-      } catch (err) {
-        // no-op
-      }
+      dispatchGlobalApplyAck({
+        page: "supplier_drilldown",
+        qs: state.filterQs,
+        supplier_id: supplierId,
+        error: error ? String(error) : null,
+        cached: Boolean(payload?.meta?.cached),
+        duckdb_query_count: payload?.meta?.duckdb_query_count ?? null,
+      });
     }
   };
 
@@ -590,6 +607,7 @@
   };
 
   const onApply = (evt) => {
+    currentApplyId = evt?.detail?.applyId || null;
     const qs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(qs);
   };

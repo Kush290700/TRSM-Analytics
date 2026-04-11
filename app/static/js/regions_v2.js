@@ -3,6 +3,7 @@
   if (!root) return;
 
   const authFetch = window.authFetch || fetch;
+  const pageCache = window.analyticsPageCache || null;
   if (document?.body?.dataset) {
     document.body.dataset.filtersHandler = "ajax";
   }
@@ -10,9 +11,13 @@
   const bundleUrl = root.dataset.bundleUrl || "/api/regions/bundle";
   const exportUrl = root.dataset.exportUrl || "/regions/export";
   const exportMomentumUrl = root.dataset.exportMomentumUrl || "/regions/export_momentum";
+  const PAGE_CACHE_ID = "regions";
+  const PAGE_CACHE_POLICY = { freshMs: 90 * 1000, maxAgeMs: 20 * 60 * 1000 };
 
   let filterQs = (window.location.search || "").replace(/^\?/, "");
   let controller = null;
+  let fetchSeq = 0;
+  let currentApplyId = "";
   let bootstrapped = false;
   let lastFetchKey = "";
 
@@ -30,6 +35,7 @@
   let momentumTab = "all";
   let momentumSort = { key: "delta_revenue", dir: "desc" };
   let tableMeta = {};
+  let lastPayload = null;
 
   const fmtMoney0 = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const fmtMoney2 = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -46,6 +52,11 @@
   const fmtCurrency2 = (value) => (value == null || Number.isNaN(Number(value)) ? "-" : fmtMoney2.format(Number(value)));
   const fmtPercent = (value) => (value == null || Number.isNaN(Number(value)) ? "-" : `${fmtPct1.format(Number(value))}%`);
   const fmtCompactCurrency = (value) => (value == null || Number.isNaN(Number(value)) ? "-" : `$${fmtCompact.format(Number(value))}`);
+  const fmtSignedPoints = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "";
+    return `${numeric > 0 ? "+" : ""}${fmtPct1.format(numeric)} pts`;
+  };
   const asNumber = (value, fallback = 0) => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : fallback;
@@ -72,6 +83,42 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+
+  const normalizeStatusKey = (value) => String(value || "").trim().toLowerCase();
+  const statusPillClass = (value) => {
+    const key = normalizeStatusKey(value);
+    if (key === "red") return "status-red";
+    if (key === "orange") return "status-orange";
+    if (key === "yellow") return "status-yellow";
+    if (key === "light_green") return "status-light-green";
+    if (key === "green") return "status-green";
+    return "status-neutral";
+  };
+  const statusLabel = (row = {}) => row?.target_status || row?.profitability_band || "Needs review";
+  const marginContextText = (row = {}) => {
+    const parts = [];
+    if (row.target_margin_pct != null) parts.push(`Target ${fmtPercent(row.target_margin_pct)}`);
+    if (row.minimum_margin_pct != null) parts.push(`Min ${fmtPercent(row.minimum_margin_pct)}`);
+    if (row.target_gap_pct_points != null) {
+      parts.push(`${fmtSignedPoints(row.target_gap_pct_points)} vs target`);
+    } else if (row.target_status) {
+      parts.push(row.target_status);
+    }
+    return parts.join(" · ");
+  };
+  const marginCellHtml = (row = {}) => {
+    const status = statusLabel(row);
+    const context = marginContextText(row);
+    const pill = status
+      ? `<span class="status-pill ${statusPillClass(row.status_key)}">${escapeHtml(status)}</span>`
+      : "";
+    return `
+      <div class="metric-stack metric-stack-end">
+        <div>${fmtPercent(row.margin_pct)}</div>
+        ${context || pill ? `<div class="metric-sub">${pill}${context ? `${pill ? " " : ""}<span>${escapeHtml(context)}</span>` : ""}</div>` : ""}
+      </div>
+    `;
+  };
 
   const currentFilterState = () => {
     try {
@@ -233,6 +280,71 @@
     [momentumCsv, momentumCardCsv].forEach((el) => el && el.setAttribute("href", momentumCsvHref));
   };
 
+  const syncControlsFromState = () => {
+    const searchInput = document.getElementById("regionsV2Search");
+    if (searchInput) searchInput.value = search || "";
+    document.querySelectorAll("[data-quick-filter]").forEach((button) => {
+      button.classList.toggle("active", (button.dataset.quickFilter || "") === quickFilter);
+    });
+    document.querySelectorAll("[data-momentum-tab]").forEach((button) => {
+      button.classList.toggle("active", (button.dataset.momentumTab || "all") === momentumTab);
+    });
+  };
+
+  const snapshotUiState = () => ({
+    page,
+    pageSize,
+    sortBy,
+    sortDir,
+    search,
+    quickFilter,
+    momentumTab,
+    momentumSort: { ...momentumSort },
+  });
+
+  const applySnapshotUiState = (uiState = {}) => {
+    if (!uiState || typeof uiState !== "object") return;
+    if (Number.isFinite(Number(uiState.page)) && Number(uiState.page) > 0) page = Number(uiState.page);
+    if (Number.isFinite(Number(uiState.pageSize)) && Number(uiState.pageSize) > 0) pageSize = Number(uiState.pageSize);
+    if (uiState.sortBy) sortBy = String(uiState.sortBy);
+    if (uiState.sortDir) sortDir = String(uiState.sortDir) === "asc" ? "asc" : "desc";
+    if (uiState.search != null) search = String(uiState.search);
+    if (uiState.quickFilter != null) quickFilter = String(uiState.quickFilter);
+    if (uiState.momentumTab) momentumTab = String(uiState.momentumTab);
+    if (uiState.momentumSort && typeof uiState.momentumSort === "object") {
+      momentumSort = {
+        key: String(uiState.momentumSort.key || momentumSort.key || "delta_revenue"),
+        dir: String(uiState.momentumSort.dir || momentumSort.dir || "desc") === "asc" ? "asc" : "desc",
+      };
+    }
+  };
+
+  const persistSnapshot = (payload = lastPayload) => {
+    if (!pageCache || !payload || !filterQs) return false;
+    return pageCache.saveSnapshot(PAGE_CACHE_ID, {
+      qs: filterQs,
+      payload,
+      uiState: snapshotUiState(),
+      scrollY: window.scrollY || 0,
+      meta: {
+        datasetVersion: payload?.meta?.dataset_version || null,
+      },
+    });
+  };
+
+  const restoreSnapshot = (qs, { restoreScroll = false } = {}) => {
+    if (!pageCache) return null;
+    const snapshot = pageCache.loadSnapshot(PAGE_CACHE_ID, { qs, ...PAGE_CACHE_POLICY });
+    if (!snapshot?.payload) return null;
+    applySnapshotUiState(snapshot.ui_state || {});
+    syncControlsFromState();
+    applyPayload(snapshot.payload);
+    if (restoreScroll) {
+      pageCache.restoreScroll(PAGE_CACHE_ID, { qs, ...PAGE_CACHE_POLICY, delayMs: 40 });
+    }
+    return snapshot;
+  };
+
   const renderBadge = (id, text, tone = "") => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -269,7 +381,10 @@
     setText("kpiProfit", fmtCurrency(kpis.profit));
     setText("kpiProfitMeta", `${fmtPercent(kpis.cost_coverage_pct)} cost coverage`);
     setText("kpiMargin", fmtPercent(kpis.margin_pct));
-    setText("kpiMarginMeta", `Profit ${fmtCurrency(kpis.profit)} / Revenue ${fmtCompactCurrency(kpis.total_revenue)}`);
+    setText(
+      "kpiMarginMeta",
+      marginContextText(kpis) || `Profit ${fmtCurrency(kpis.profit)} / Revenue ${fmtCompactCurrency(kpis.total_revenue)}`
+    );
     setText("kpiRegionCount", fmtInt.format(asNumber(kpis.regions_count)));
     setText("kpiRegionCountMeta", `${fmtInt.format(asNumber(kpis.customers))} customers across regions`);
     setText("kpiAov", fmtCurrency(kpis.avg_order_value));
@@ -701,7 +816,7 @@
             <td class="text-end">${fmtInt.format(asNumber(row.orders))}</td>
             <td class="text-end">${fmtCurrency(row.revenue)}</td>
             <td class="text-end">${fmtCurrency(row.profit)}</td>
-            <td class="text-end">${fmtPercent(row.margin_pct)}</td>
+            <td class="text-end">${marginCellHtml(row)}</td>
             <td class="text-end">${fmtCurrency(row.aov)}</td>
             <td class="text-end">${fmtPercent(row.repeat_pct)}</td>
             <td class="text-end">${fmtPercent(row.churn_pct)}</td>
@@ -755,6 +870,7 @@
   };
 
   const applyPayload = (payload = {}) => {
+    lastPayload = payload || {};
     chartLabels = ((payload.charts || {}).revenue_by_region || {}).labels || [];
     chartValues = ((payload.charts || {}).revenue_by_region || {}).values || [];
     profitabilityRows = ((payload.charts || {}).profitability_by_region || {}).rows || [];
@@ -776,17 +892,28 @@
     if (window.universalDrilldown && typeof window.universalDrilldown.enhanceAll === "function") {
       window.universalDrilldown.enhanceAll();
     }
+    persistSnapshot(payload);
   };
 
   const dispatchApplied = () => {
+    const detail = { page: "regions", qs: filterQs };
+    if (currentApplyId) {
+      detail.applyId = currentApplyId;
+      currentApplyId = "";
+    }
     try {
-      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail: { page: "regions" } }));
+      if (typeof window.dispatchGlobalFiltersApplied === "function") {
+        window.dispatchGlobalFiltersApplied(detail);
+      } else {
+        window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail }));
+      }
     } catch (_err) {
       /* ignore */
     }
   };
 
-  const fetchBundle = async (force = false) => {
+  const fetchBundle = async (force = false, options = {}) => {
+    const requestId = ++fetchSeq;
     const params = buildBundleParams();
     const fetchKey = params.toString();
     if (!force && fetchKey === lastFetchKey) {
@@ -797,23 +924,33 @@
     if (controller) controller.abort();
     controller = new AbortController();
     updateExports();
+    const url = `${bundleUrl}?${params.toString()}`;
+    const snapshot = options.snapshot || null;
     try {
-      const response = await authFetch(`${bundleUrl}?${params.toString()}`, {
+      const response = await authFetch(url, {
         signal: controller.signal,
         credentials: "same-origin",
-        headers: { Accept: "application/json" },
+        headers: pageCache ? pageCache.prepareHeaders(url, { Accept: "application/json" }) : { Accept: "application/json" },
       });
+      if (pageCache) pageCache.rememberResponse(url, response);
+      if (response.status === 304) {
+        if (!lastPayload && snapshot?.payload) applyPayload(snapshot.payload);
+        return;
+      }
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
       applyPayload(payload);
     } catch (error) {
       if (error?.name === "AbortError") return;
       console.error("regions v2 bundle failed", error);
-      const tbody = document.getElementById("regionsV2TableBody");
-      if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="16" class="text-center text-danger">Failed to load regions.</td></tr>';
+      if (!lastPayload) {
+        const tbody = document.getElementById("regionsV2TableBody");
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="16" class="text-center text-danger">Failed to load regions.</td></tr>';
+        }
       }
     } finally {
+      if (requestId !== fetchSeq) return;
       dispatchApplied();
     }
   };
@@ -907,6 +1044,7 @@
     filterQs = (qsHint || "").replace(/^\?/, "");
     page = 1;
     updateExports();
+    syncControlsFromState();
     fetchBundle(true);
   };
 
@@ -919,10 +1057,19 @@
       const readyDetail = await waitForFiltersReady();
       nextQs = (readyDetail && readyDetail.qs) || filterQs;
     }
-    applyFilters(nextQs || filterQs);
+    filterQs = (nextQs || filterQs || "").replace(/^\?/, "");
+    syncControlsFromState();
+    const snapshot = restoreSnapshot(filterQs, { restoreScroll: true });
+    updateExports();
+    if (snapshot?.fresh) {
+      dispatchApplied();
+      return;
+    }
+    fetchBundle(true, { snapshot });
   };
 
   window.addEventListener("globalFilters:apply", (evt) => {
+    currentApplyId = String(evt?.detail?.applyId || "");
     const nextQs = (evt?.detail && evt.detail.qs) || "";
     applyFilters(nextQs);
   });
@@ -930,6 +1077,12 @@
   window.addEventListener("globalFilters:ready", (evt) => {
     const nextQs = (evt?.detail && evt.detail.qs) || "";
     bootstrap(nextQs);
+  });
+  window.addEventListener("pagehide", () => {
+    persistSnapshot();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistSnapshot();
   });
 
   bootstrap(filterQs);

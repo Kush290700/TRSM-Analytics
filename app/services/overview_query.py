@@ -23,7 +23,7 @@ from app.core.exceptions import DatasetNotBuiltError
 
 EPSILON = 1e-9
 
-PROTEIN_CANDIDATES: Tuple[str, ...] = ("ProteinType", "Category", "ProductCategory")
+PROTEIN_CANDIDATES: Tuple[str, ...] = ("Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
 
 
 def build_filter_options(df: pd.DataFrame) -> Dict[str, List[str]]:

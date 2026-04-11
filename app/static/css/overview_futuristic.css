@@ -1433,13 +1433,13 @@
 .health-title {
   font-size: 1.75rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
 .health-subtitle {
   font-size: 0.95rem;
-  color: #6c757d;
+  color: var(--color-text-muted);
   margin: 0;
 }
 
@@ -1489,7 +1489,7 @@
 .health-metric-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #6c757d;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 0.75rem;
@@ -1500,13 +1500,13 @@
 .health-metric-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--color-text-primary);
   margin-bottom: 0.5rem;
 }
 
 .health-metric-subtitle {
   font-size: 0.85rem;
-  color: #95a5a6;
+  color: var(--color-text-muted);
 }
 
 .health-strengths-list,
@@ -1543,7 +1543,7 @@
 
 .health-progress-label {
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--color-text-primary);
   font-size: 0.95rem;
 }
 
@@ -1600,7 +1600,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
-  color: #95a5a6;
+  color: var(--color-text-muted);
   font-weight: 500;
 }
 
@@ -1633,13 +1633,13 @@
 }
 
 .refresh-btn-futuristic {
-  border-color: #6c757d;
-  color: #6c757d;
+  border-color: var(--color-border-default);
+  color: var(--color-text-muted);
   background: white;
 }
 
 .refresh-btn-futuristic:hover {
-  background: #6c757d;
+  background: var(--color-text-secondary);
   color: white;
   box-shadow: 0 4px 16px rgba(108, 117, 125, 0.2);
   transform: translateY(-2px);

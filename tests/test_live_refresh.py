@@ -216,3 +216,13 @@ def test_live_refresh_flow(client):
     updated_summary_body = summary_updated.get_json()
     assert updated_summary_body["meta"]["version"] == new_version
     assert summary_updated.headers.get("ETag") != initial_summary_etag
+
+
+def test_live_updates_asset_only_starts_sse_when_handlers_exist(app):
+    with app.test_client() as client:
+        resp = client.get("/static/js/live-updates.js")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "if (!handlers.size) {" in body
+        assert "startEventStream();" in body
+        assert "state.sseAttempted = false;" in body

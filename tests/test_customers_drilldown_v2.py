@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import io
 import json
 import re
+import zipfile
 
 import pandas as pd
 import pytest
@@ -21,6 +23,8 @@ def seed_customers_drilldown_v2(tmp_path, monkeypatch):
         product = f"Product {idx:02d}"
         qty = float(4 + (idx % 4))
         weight = float(8 + (idx % 5))
+        protein = "Beef" if idx % 2 else "Pork"
+        product_category = "Steak" if idx % 2 else "Roast"
 
         prior_revenue = float(90 + idx)
         current_revenue = float(120 + idx)
@@ -39,6 +43,10 @@ def seed_customers_drilldown_v2(tmp_path, monkeypatch):
                 "OrderStatus": "packed",
                 "ProductName": product,
                 "SKU": f"SKU-{idx:03d}",
+                "Protein": protein,
+                "ProteinType": None,
+                "Category": None,
+                "ProductCategory": product_category,
                 "Revenue": prior_revenue,
                 "Cost": prior_cost,
                 "QuantityOrdered": qty,
@@ -63,6 +71,10 @@ def seed_customers_drilldown_v2(tmp_path, monkeypatch):
                 "OrderStatus": "packed",
                 "ProductName": product,
                 "SKU": f"SKU-{idx:03d}",
+                "Protein": protein,
+                "ProteinType": None,
+                "Category": None,
+                "ProductCategory": product_category,
                 "Revenue": current_revenue,
                 "Cost": current_cost,
                 "QuantityOrdered": qty + 1.0,
@@ -90,6 +102,10 @@ def seed_customers_drilldown_v2(tmp_path, monkeypatch):
                 "OrderStatus": "packed",
                 "ProductName": f"Other Product {idx}",
                 "SKU": f"OSKU-{idx:03d}",
+                "Protein": "Chicken",
+                "ProteinType": None,
+                "Category": None,
+                "ProductCategory": "Poultry",
                 "Revenue": float(100 + (idx * 10)),
                 "Cost": float(65 + (idx * 6)),
                 "QuantityOrdered": float(5 + idx),
@@ -105,6 +121,35 @@ def seed_customers_drilldown_v2(tmp_path, monkeypatch):
 
     rows.append(
         {
+            "Date": "2025-04-01",
+            "DateExpected": "2025-04-01",
+            "OrderId": "O-LAST-SELL-001",
+            "CustomerId": "C_MAIN",
+            "CustomerName": "Main Customer",
+            "SalesRepId": "R2",
+            "SalesRepName": "Rep Two",
+            "OrderStatus": "packed",
+            "ProductName": "Product 01",
+            "SKU": "SKU-001",
+            "Protein": "Beef",
+            "ProteinType": None,
+            "Category": None,
+            "ProductCategory": "Steak",
+            "Revenue": 130.0,
+            "Cost": 81.9,
+            "QuantityOrdered": 6.0,
+            "WeightLb": 10.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 6.0,
+            "pack_weight_lb_sum": 10.0,
+            "pack_count": 1,
+            "Price": 130.0,
+            "CostPrice": 81.9,
+        }
+    )
+
+    rows.append(
+        {
             "Date": "2025-03-05",
             "DateExpected": "2025-03-05",
             "OrderId": "O-SPARSE-001",
@@ -115,6 +160,10 @@ def seed_customers_drilldown_v2(tmp_path, monkeypatch):
             "OrderStatus": "packed",
             "ProductName": "Sparse Product",
             "SKU": "SKU-SPARSE-001",
+            "Protein": "Beef",
+            "ProteinType": None,
+            "Category": None,
+            "ProductCategory": "Trim",
             "Revenue": 75.0,
             "Cost": 48.0,
             "QuantityOrdered": 1.0,
@@ -170,6 +219,12 @@ def _csv_frame(resp) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(resp.get_data(as_text=True)))
 
 
+def _xlsx_sheet_names(resp) -> set[str]:
+    with zipfile.ZipFile(io.BytesIO(resp.get_data())) as workbook:
+        workbook_xml = workbook.read("xl/workbook.xml").decode("utf-8", errors="ignore")
+    return set(re.findall(r'<sheet[^>]+name="([^"]+)"', workbook_xml))
+
+
 def _base_query():
     return {
         "customer_id": "C_MAIN",
@@ -194,6 +249,24 @@ def test_customers_drilldown_v2_monthly_bins_are_yyyy_mm_and_sorted(app_client, 
     assert labels[:2] == ["2025-02", "2025-03"]
 
 
+def test_customers_drilldown_v2_keeps_protein_and_category_dimensions_distinct(app_client, seed_customers_drilldown_v2, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
+    monkeypatch.setitem(app_client.application.config, "CUSTOMER_DRILLDOWN_V2", True)
+
+    resp = app_client.get("/api/customers/drilldown/bundle", query_string={"customer_id": "C_MAIN", "start": "2025-03-01", "end": "2025-03-31"})
+    assert resp.status_code == 200
+    payload = resp.get_json() or {}
+
+    protein_mix = ((payload.get("protein_intelligence") or {}).get("mix") or [])
+    category_rows = payload.get("categories") or []
+
+    assert protein_mix
+    assert {row.get("family") for row in protein_mix[:4]} <= {"Beef", "Pork"}
+    assert category_rows
+    assert {row.get("category") for row in category_rows[:4]} <= {"Steak", "Roast"}
+    assert ((payload.get("protein_intelligence") or {}).get("summary") or {}).get("top_family") in {"Beef", "Pork"}
+
+
 def test_customers_drilldown_v2_snapshot_export_contains_expected_sheets(app_client, seed_customers_drilldown_v2, monkeypatch):
     monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
     monkeypatch.setitem(app_client.application.config, "CUSTOMER_DRILLDOWN_V2", True)
@@ -210,7 +283,6 @@ def test_customers_drilldown_v2_snapshot_export_contains_expected_sheets(app_cli
         assert {"metric", "value"}.issubset(set(fallback_df.columns))
         assert len(fallback_df.index) > 0
     else:
-        book = pd.ExcelFile(io.BytesIO(resp.get_data()))
         expected_sheets = {
             "Hero",
             "HeroBadges",
@@ -234,10 +306,46 @@ def test_customers_drilldown_v2_snapshot_export_contains_expected_sheets(app_cli
             "Cadence",
             "Metadata",
         }
-        assert expected_sheets.issubset(set(book.sheet_names))
+        if importlib.util.find_spec("openpyxl") is None:
+            assert expected_sheets.issubset(_xlsx_sheet_names(resp))
+        else:
+            book = pd.ExcelFile(io.BytesIO(resp.get_data()))
+            assert expected_sheets.issubset(set(book.sheet_names))
 
-        product_df = pd.read_excel(book, sheet_name="ProductProfitability")
-        assert len(product_df.index) == 35
+            product_df = pd.read_excel(book, sheet_name="ProductProfitability")
+            assert len(product_df.index) == 35
+
+
+def test_customers_drilldown_v2_tracks_latest_visible_seller_and_historical_owner(app_client, seed_customers_drilldown_v2, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
+    monkeypatch.setitem(app_client.application.config, "CUSTOMER_DRILLDOWN_V2", True)
+
+    admin_resp = app_client.get("/api/customers/drilldown/bundle", query_string=_base_query())
+    assert admin_resp.status_code == 200
+    admin_payload = admin_resp.get_json() or {}
+
+    admin_hero = admin_payload.get("hero") or {}
+    admin_kpis = admin_payload.get("kpis") or {}
+    admin_trust = admin_payload.get("trust_coverage") or {}
+
+    assert admin_hero.get("owner") == "Rep One"
+    assert admin_hero.get("last_sales_rep") == "Rep Two"
+    assert admin_hero.get("last_sales_rep_date") == "2025-04-01"
+    assert admin_hero.get("historical_owner") is None
+    assert admin_kpis.get("historical_owner_sales_rep") is None
+    assert admin_kpis.get("last_sales_rep") == "Rep Two"
+    assert admin_trust.get("owner_source") == "Dominant visible seller"
+    assert "Rep One" in str(admin_hero.get("owner_detail") or "")
+
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_sales(["r1"]))
+    scoped_resp = app_client.get("/api/customers/drilldown/bundle", query_string=_base_query())
+    assert scoped_resp.status_code == 200
+    scoped_payload = scoped_resp.get_json() or {}
+    scoped_hero = scoped_payload.get("hero") or {}
+
+    assert scoped_hero.get("owner") == "Rep One"
+    assert scoped_hero.get("last_sales_rep") == "Rep One"
+    assert scoped_hero.get("historical_owner") is None
 
 
 def test_customers_drilldown_v2_rbac_scope_bundle_and_export(app_client, seed_customers_drilldown_v2, monkeypatch):
@@ -295,6 +403,77 @@ def test_customers_drilldown_v2_product_export_not_truncated_and_matches_table(a
     assert len(export_df.index) > 25
 
 
+def test_customers_drilldown_v2_orders_monthly_and_crm_action_exports_respect_customer_scope(app_client, seed_customers_drilldown_v2, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
+    monkeypatch.setitem(app_client.application.config, "CUSTOMER_DRILLDOWN_V2", True)
+
+    orders_resp = app_client.get(
+        "/customers/export",
+        query_string={**_base_query(), "page": "drilldown", "dataset": "orders", "format": "csv"},
+    )
+    assert orders_resp.status_code == 200
+    orders_df = _csv_frame(orders_resp)
+    assert len(orders_df.index) == 35
+    order_dates = pd.to_datetime(orders_df["order_date"])
+    assert order_dates.min() >= pd.Timestamp("2025-03-01")
+    assert order_dates.max() < pd.Timestamp("2025-04-01")
+
+    monthly_resp = app_client.get(
+        "/customers/export",
+        query_string={**_base_query(), "page": "drilldown", "dataset": "monthly", "format": "xlsx"},
+    )
+    assert monthly_resp.status_code == 200
+    assert {"MonthlyTrends", "Metadata"}.issubset(_xlsx_sheet_names(monthly_resp))
+
+    actions_resp = app_client.get(
+        "/customers/export",
+        query_string={**_base_query(), "page": "drilldown", "dataset": "crm_actions", "format": "xlsx"},
+    )
+    assert actions_resp.status_code == 200
+    assert {"CRMActionWorkspace", "Metadata"}.issubset(_xlsx_sheet_names(actions_resp))
+
+
+def test_customers_drilldown_v2_exports_preserve_local_drill_state(app_client, seed_customers_drilldown_v2, monkeypatch):
+    monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
+    monkeypatch.setitem(app_client.application.config, "CUSTOMER_DRILLDOWN_V2", True)
+
+    bundle_resp = app_client.get("/api/customers/drilldown/bundle", query_string=_base_query())
+    assert bundle_resp.status_code == 200
+    crm_workspace = (bundle_resp.get_json() or {}).get("crm_workspace") or {}
+    selected_lane = next((lane for lane, rows in crm_workspace.items() if rows), "protect_now")
+
+    products_resp = app_client.get(
+        "/customers/export",
+        query_string={
+            **_base_query(),
+            "page": "drilldown",
+            "dataset": "product_profitability",
+            "format": "csv",
+            "protein_focus": "Beef",
+        },
+    )
+    assert products_resp.status_code == 200
+    products_df = _csv_frame(products_resp)
+    assert len(products_df.index) == 18
+    assert set(products_df["protein_family"].astype(str).str.lower()) == {"beef"}
+
+    actions_resp = app_client.get(
+        "/customers/export",
+        query_string={
+            **_base_query(),
+            "page": "drilldown",
+            "dataset": "crm_actions",
+            "format": "csv",
+            "action_lane": selected_lane,
+        },
+    )
+    assert actions_resp.status_code == 200
+    actions_df = _csv_frame(actions_resp)
+    assert {"lane", "title", "owner"}.issubset(set(actions_df.columns))
+    if len(actions_df.index) > 0:
+        assert set(actions_df["lane"].astype(str).str.lower()) == {selected_lane}
+
+
 def test_customers_drilldown_v2_basket_denominator_matches_window_orders(app_client, seed_customers_drilldown_v2, monkeypatch):
     monkeypatch.setattr("app.services.filters_service.scope_from_user", lambda _u: _scope_admin())
     monkeypatch.setitem(app_client.application.config, "CUSTOMER_DRILLDOWN_V2", True)
@@ -304,7 +483,7 @@ def test_customers_drilldown_v2_basket_denominator_matches_window_orders(app_cli
     payload = resp.get_json() or {}
     basket = payload.get("basket") or {}
     assert int(basket.get("orders") or 0) == 35
-    assert int(basket.get("orders_lifetime") or 0) == 70
+    assert int(basket.get("orders_lifetime") or 0) == 71
 
 
 def test_customers_drilldown_v2_exposes_crm_workspace_and_weight_metrics(app_client, seed_customers_drilldown_v2, monkeypatch):
@@ -372,11 +551,15 @@ def test_customers_drilldown_v2_rendered_page_scopes_window_metrics_and_exports(
 
     assert "Visible lifetime" in body
     assert "Current filter window" in body
-    assert "Scope, Coverage" in body
+    assert "Coverage, Trust, &amp; Governance" in body or "Coverage, Trust, & Governance" in body
+    assert "Inferred from dominant visible seller across visible history: Rep One." in body
+    assert "Latest visible sale 2025-04-01" in body
     assert f"${expected_window_revenue:,.0f}" in body or f"${expected_window_revenue:,.2f}" in body
     assert "dataset=snapshot" in body
+    assert "dataset=crm_actions" in body
     assert "start=2025-03-01" in body
     assert "end=2025-03-31" in body
+    assert "data-export-link" in body
 
 
 def test_customers_drilldown_v2_moves_shared_scripts_below_hero_and_defers_page_js(app_client, seed_customers_drilldown_v2, monkeypatch):

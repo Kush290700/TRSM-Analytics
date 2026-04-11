@@ -383,7 +383,7 @@
             <div>
               <h5 class="card-title mb-0">Performance bubble (target price uplift)</h5>
               <div class="text-muted small">
-                Target margin: <strong id="priceTargetMargin">—</strong> &middot; Floor: <strong id="priceBaseMargin">—</strong>
+                Target margin band: <strong id="priceTargetMargin">—</strong> &middot; Minimum band: <strong id="priceBaseMargin">—</strong>
               </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -491,7 +491,7 @@
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
             <div>
               <h5 class="card-title mb-0">Margin risk and uplift</h5>
-              <div class="text-muted small">Focus on high-revenue SKUs below target margin.</div>
+              <div class="text-muted small">Focus on high-revenue SKUs below target gross margin.</div>
             </div>
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('products.export_movers_csv') }}{{ querystring|default('') }}">
               <i class="bi bi-download me-1"></i>Export Priority List
@@ -519,7 +519,7 @@
               </div>
               <div class="col-sm-3">
                 <div class="mini-kpi">
-                  <div class="mini-kpi-label">Profit uplift @ 27%</div>
+                  <div class="mini-kpi-label">Profit uplift to target</div>
                   <div class="mini-kpi-value" id="riskProfitUplift">—</div>
                 </div>
               </div>
@@ -694,7 +694,7 @@
             <div class="row g-2 mb-3 align-items-start">
               <div class="col-lg-8">
                 <div id="tableQuickFilters" class="d-flex flex-wrap gap-2">
-                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="below_target_margin">Below target margin</button>
+                  <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="below_target_margin">Below target gross margin</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="negative_margin">Negative margin</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="high_velocity">High velocity</button>
                   <button class="btn btn-sm btn-outline-secondary table-chip" type="button" data-quick-filter="top_revenue_20">Top 20% revenue</button>
@@ -735,7 +735,7 @@
                     <th class="text-end sortable" data-key="qty" data-column="qty" scope="col" id="thQty">Quantity</th>
                     <th class="text-end sortable" data-key="weight" data-column="weight" scope="col">Weight</th>
                     <th class="text-end sortable" data-key="current_unit_price" data-column="current_unit_price" scope="col">Current Price</th>
-                    <th class="text-end sortable" data-key="target_price" data-column="target_price" scope="col" id="thTarget">Target (27%)</th>
+                    <th class="text-end sortable" data-key="target_price" data-column="target_price" scope="col" id="thTarget">Target Price</th>
                     <th class="text-end sortable" data-key="uplift_pct" data-column="uplift_pct" scope="col">Uplift %</th>
                     <th class="text-end sortable requires-cost" data-key="cost" data-column="cost" scope="col">Cost</th>
                     <th class="text-end sortable requires-cost" data-key="profit" data-column="profit" scope="col">Profit</th>
@@ -769,7 +769,7 @@
                     <th class="text-end sortable" data-key="current_unit_price" scope="col">Current Price</th>
                     <th class="text-end sortable requires-cost" data-key="cost" scope="col">Cost</th>
                     <th class="text-end sortable requires-cost" data-key="profit" scope="col">Profit</th>
-                    <th class="text-end sortable requires-cost" data-key="target_price" scope="col" id="thTarget">Target (27%)</th>
+                    <th class="text-end sortable requires-cost" data-key="target_price" scope="col" id="thTarget">Target Price</th>
                     <th class="text-end sortable requires-cost" data-key="uplift_pct" scope="col">Uplift %</th>
                     <th class="text-end sortable requires-cost" data-key="margin_pct" scope="col" id="thMarginPct">Margin %</th>
                     <th class="text-end sortable requires-cost" data-key="margin" scope="col" id="thMargin">Margin $</th>

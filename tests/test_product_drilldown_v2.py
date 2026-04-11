@@ -40,6 +40,10 @@ def product_drilldown_v2_client(app, monkeypatch, tmp_path):
                     "SKU": target_sku,
                     "ProductID": target_sku,
                     "ProductName": "Prime Ribeye",
+                    "Protein": "Beef",
+                    "ProteinType": None,
+                    "Category": None,
+                    "ProductCategory": "Steak",
                     "CustomerID": customer,
                     "CustomerName": f"Customer {customer}",
                     "OrderID": order_id,
@@ -59,6 +63,10 @@ def product_drilldown_v2_client(app, monkeypatch, tmp_path):
                     "SKU": "SKU-CO1",
                     "ProductID": "SKU-CO1",
                     "ProductName": "Linked Side",
+                    "Protein": "Prepared",
+                    "ProteinType": None,
+                    "Category": None,
+                    "ProductCategory": "Sides",
                     "CustomerID": customer,
                     "CustomerName": f"Customer {customer}",
                     "OrderID": order_id,
@@ -121,6 +129,15 @@ def test_product_drilldown_v2_interactive_workspace_markers(product_drilldown_v2
     assert b"Rolling 28-day diagnostics compare" in response.data
 
 
+def test_product_drilldown_v2_exit_button_preserves_request_state(product_drilldown_v2_client):
+    client, _expected_customers = product_drilldown_v2_client
+    response = client.get("/products/SKU-001/drilldown?page=3&search=ribeye&quick_filters=below_target_margin")
+    assert response.status_code == 200
+    assert b"productDrilldownBackButton" in response.data
+    assert b"data-back-fallback" in response.data
+    assert b"page=3&amp;search=ribeye&amp;quick_filters=below_target_margin" in response.data
+
+
 def test_product_drilldown_v2_long_name_hero_markup(product_drilldown_v2_client, monkeypatch):
     client, _expected_customers = product_drilldown_v2_client
     original = product_drilldown_service.build_product_drilldown_context
@@ -173,6 +190,21 @@ def test_product_drilldown_v2_context_weight_and_pricing_metrics(product_drilldo
     assert context["kpis"]["revenue_per_lb"] == context["kpis"]["asp_lb"]
     assert context["weight_analytics"]["summary"]["avg_weight_per_order"] is not None
     assert context["lifecycle_insights"]["stage"] in {"New", "Growth", "Mature", "Declining", "Reactivated", "Unstable"}
+
+
+def test_product_drilldown_v2_includes_family_context(product_drilldown_v2_client):
+    client, _expected_customers = product_drilldown_v2_client
+    with client.application.app_context():
+        context = product_drilldown_service.build_product_drilldown_context("SKU-001", filters={}, current_user_obj=object())
+
+    family_context = context.get("family_context") or {}
+    assert family_context.get("protein_family") == "Beef"
+    assert family_context.get("product_category") == "Steak"
+    assert family_context.get("target_margin_pct") == pytest.approx(26.0, abs=0.01)
+    assert family_context.get("minimum_margin_pct") == pytest.approx(17.0, abs=0.01)
+    assert family_context.get("target_price_lb") is not None
+    assert family_context.get("minimum_price_lb") is not None
+    assert (context.get("margin_profile") or {}).get("target_status")
 
 
 def test_product_drilldown_v2_kpi_profit_matches_monthly_profit_rollup(product_drilldown_v2_client):

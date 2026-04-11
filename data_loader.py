@@ -195,6 +195,37 @@ def _coalesce_numeric(df: pd.DataFrame, candidates: Iterable[str]) -> pd.Series:
         out = out.where(~fill_mask, series)
     return out
 
+
+def _clean_text_dimension(series: Optional[pd.Series], index: pd.Index) -> pd.Series:
+    if series is None:
+        return pd.Series(pd.NA, index=index, dtype="string")
+    text = series.astype("string").str.strip()
+    text = text.where(text.notna() & text.ne(""))
+    return text.astype("string")
+
+
+def _normalize_product_family_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+    idx = out.index
+
+    def _first_text(*names: str) -> pd.Series:
+        merged = pd.Series(pd.NA, index=idx, dtype="string")
+        for name in names:
+            if name not in out.columns:
+                continue
+            merged = merged.fillna(_clean_text_dimension(out[name], idx))
+        return merged
+
+    out["Protein"] = _first_text("Protein", "ProteinType", "ProteinName")
+    out["ProteinType"] = _first_text("ProteinType", "ProteinName", "Protein", "Category", "ProductCategory")
+    out["ProteinName"] = _first_text("ProteinName", "ProteinType", "Protein", "Category", "ProductCategory")
+    out["Category"] = _first_text("Category", "ProductCategory", "ProteinType", "ProteinName", "Protein")
+    out["ProductCategory"] = _first_text("ProductCategory", "Category", "ProteinType", "ProteinName", "Protein")
+    return out
+
 def _effective_date_series(df: pd.DataFrame) -> pd.Series:
     """Deterministic EffectiveDate for audits and filtering."""
     if df is None or df.empty:
@@ -1480,8 +1511,17 @@ def extract_all(
             "IsProduction","LastImport","IsInternalProduct","CostPrice",
         ]
         optional_costs = [("StandardCost", "standardcost"), ("LastCost", "lastcost")]
+        optional_attributes = [
+            ("Category", "category"),
+            ("ProductCategory", "productcategory"),
+            ("ProteinType", "proteintype"),
+            ("ProteinName", "proteinname"),
+        ]
         dynamic_cols = list(base_cols)
         for col, norm in optional_costs:
+            if norm in prod_cols:
+                dynamic_cols.append(col)
+        for col, norm in optional_attributes:
             if norm in prod_cols:
                 dynamic_cols.append(col)
 
@@ -1520,6 +1560,7 @@ def extract_all(
             df["SkuName"] = df["SKU"].astype(str)
         else:
             df["SkuName"] = pd.Series(pd.NA, index=df.index, dtype="string")
+        df = _normalize_product_family_columns(df)
         return "Products", df
 
     def fetch_uom():
@@ -2149,7 +2190,7 @@ def derive_cost(
 def canonicalize_columns(df: pd.DataFrame, *, best_effort: bool = False) -> pd.DataFrame:
     if not isinstance(df, pd.DataFrame):
         raise TypeError("canonicalize_columns expects a pandas DataFrame")
-    out = df.copy()
+    out = _normalize_product_family_columns(df.copy())
     idx = out.index
 
     def _first_series(*names):
@@ -2208,6 +2249,11 @@ def canonicalize_columns(df: pd.DataFrame, *, best_effort: bool = False) -> pd.D
     _ensure_string("OrderId","order_id")
     _ensure_string("OrderLineId","orderline_id")
     _ensure_string("ShipperName","Carrier")
+    _ensure_string("Protein","Protein","ProteinType","ProteinName")
+    _ensure_string("ProteinType","ProteinType","ProteinName","Protein","Category","ProductCategory")
+    _ensure_string("ProteinName","ProteinName","ProteinType","Protein","Category","ProductCategory")
+    _ensure_string("Category","Category","ProductCategory","ProteinType","ProteinName","Protein")
+    _ensure_string("ProductCategory","ProductCategory","Category","ProteinType","ProteinName","Protein")
 
     # Shipping method label
     ship_method = pd.Series(pd.NA, index=idx, dtype="string")
@@ -2240,7 +2286,7 @@ def canonicalize_columns(df: pd.DataFrame, *, best_effort: bool = False) -> pd.D
     for column in [
         "WeightLb","ItemCount","QuantityOrdered","QuantityShipped","Price","PricePerUnit","BasePrice","ListPrice",
         "CostPrice","revenue_ordered","cost_ordered","gross_margin_ordered","revenue_shipped","cost_shipped",
-        "gross_margin_shipped","Protein","LeadTime","pack_count","pack_piece_count_sum","pack_item_count_sum",
+        "gross_margin_shipped","LeadTime","pack_count","pack_piece_count_sum","pack_item_count_sum",
         "pack_weight_lb_sum","ShippingCharge","LinesTotalPrice","OrderTotalPrice"
     ]:
         if column in {"Revenue","Cost","Profit","MarginPct","ROIPct"}:
@@ -2253,7 +2299,8 @@ def canonicalize_columns(df: pd.DataFrame, *, best_effort: bool = False) -> pd.D
 
     for column in [
         "CustomerId","CustomerName","RegionName","ProductId","ProductName","SupplierId","SupplierName",
-        "ShipperName","ShippingMethodName","OrderId","OrderLineId",
+        "ShipperName","ShippingMethodName","OrderId","OrderLineId","Protein","ProteinType","ProteinName",
+        "Category","ProductCategory",
     ]:
         if column in out.columns:
             out[column] = out[column].astype("string")
@@ -2429,11 +2476,13 @@ def finalize_dataframe(
     except Exception:
         fact_with_cost["EffectiveDate"] = pd.to_datetime(fact_with_cost.get("Date"), errors="coerce")
 
+    fact_with_cost = _normalize_product_family_columns(fact_with_cost)
+
     # Preserve legacy casting for a few known columns
     num_cols = [
         "WeightLb","ItemCount","QuantityOrdered","QuantityShipped","Price","PricePerUnit","BasePrice","ListPrice",
         "CostPrice","revenue_ordered","cost_ordered","gross_margin_ordered","revenue_shipped","cost_shipped",
-        "gross_margin_shipped","Protein","LeadTime","pack_count","pack_piece_count_sum","pack_item_count_sum",
+        "gross_margin_shipped","LeadTime","pack_count","pack_piece_count_sum","pack_item_count_sum",
         "pack_weight_lb_sum","ShippingCharge","LinesTotalPrice","OrderTotalPrice"
     ]
     str_cols = [
@@ -2441,7 +2490,8 @@ def finalize_dataframe(
         "RegionId","RegionName","Address1","City","Province","PostalCode","Phone","Email","ProductName","ProductDescription",
         "SupplierName","ShippingMethodName","ShipperName","OrderStatus","WarehouseId",
         "PoReference","Instructions","ProductionSheetId","UOM_UOMName","UOM_UOMShortName","batch_tags_concat",
-        "production_location_ids","batch_type_names","SalesRepName","PrimarySalesRepName"
+        "production_location_ids","batch_type_names","SalesRepName","PrimarySalesRepName","Protein","ProteinType",
+        "ProteinName","Category","ProductCategory"
     ]
 
     for c in num_cols:

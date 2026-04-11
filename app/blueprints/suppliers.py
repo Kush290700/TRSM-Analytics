@@ -155,7 +155,10 @@ def _get_sku_map() -> pd.Series:
     try:
         products = fact_store.get_sales_fact(columns=sorted(requested_cols))
     except Exception:
-        products = fact_store.get_sales_fact()
+        try:
+            products = fact_store.get_sales_fact()
+        except Exception:
+            return pd.Series(dtype="object")
 
     if products is None or products.empty or "ProductId" not in products.columns:
         return pd.Series(dtype="object")
@@ -1183,6 +1186,7 @@ def index():
         except Exception:  # pragma: no cover - defensive
             logger.exception("suppliers.bundle_render_failed")
             payload = {"kpis": {}, "charts": {}, "table": {"rows": []}, "meta": {}}
+        filter_options_bootstrap = None
         try:
             filters_norm, _meta = resolve_filters(
                 request,
@@ -1192,6 +1196,18 @@ def index():
                 sticky_enabled=bool(current_app.config.get("STICKY_FILTERS", True)),
             )
             filters_norm_dict = filters_to_store(filters_norm)
+            try:
+                filter_options_bootstrap = filters_service.load_filter_options(
+                    filters_norm,
+                    filters_service.scope_from_user(current_user),
+                    requested_keys=("statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps"),
+                    use_cache=True,
+                )
+                if isinstance(filter_options_bootstrap, dict):
+                    filter_options_bootstrap.setdefault("meta", {})
+                    filter_options_bootstrap["meta"]["source"] = "server-inline"
+            except Exception:
+                logger.exception("suppliers.inline_filter_options_failed")
         except Exception:
             filters_norm_dict = {}
         kpis_payload = payload.get("kpis", {}) if isinstance(payload, dict) else {}
@@ -1281,6 +1297,7 @@ def index():
             show_costs=can_view_costs(current_user),
             suppliers_v2=suppliers_v2,
             payload=payload,
+            filter_options_bootstrap=filter_options_bootstrap,
         )
     try:
         base_df = get_fact_df()
@@ -1374,14 +1391,20 @@ def drilldown(supplier_id):
                 logger.exception("suppliers.drilldown_v2.bundle_failed", extra={"supplier_id": str(supplier_id)})
                 payload = {"error": {"message": "Unable to load supplier drilldown data."}, "meta": {}}
 
-            if not isinstance(payload, dict) or payload.get("error"):
-                abort(404)
+            if not isinstance(payload, dict):
+                payload = {"error": {"message": "Unable to load supplier drilldown data."}, "meta": {}}
 
             kpis_payload = payload.get("kpis") or {}
             charts_payload = payload.get("charts") or {}
             supplier_v2 = payload.get("supplier_v2") or payload.get("v2") or {}
             if not isinstance(supplier_v2, dict):
                 supplier_v2 = {}
+            page_notice = None
+            if payload.get("error"):
+                try:
+                    page_notice = str((payload.get("error") or {}).get("message") or "Unable to load supplier drilldown data.")
+                except Exception:
+                    page_notice = "Unable to load supplier drilldown data."
             trend_payload = payload.get("trend") or charts_payload.get("trend") or {}
             top_prod_payload = charts_payload.get("top_products") or {}
             top_cust_payload = charts_payload.get("top_customers") or {}
@@ -1407,6 +1430,7 @@ def drilldown(supplier_id):
                 show_costs=can_view_costs(current_user),
                 supplier_v2=supplier_v2,
                 payload=payload,
+                page_notice=page_notice,
             )
         return render_template(
             "suppliers/drilldown.html",

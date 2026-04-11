@@ -2,7 +2,7 @@
 {% set filters_handler = "ssr" %}
 {% block title %}Product Intelligence Workspace · {{ product_name }}{% endblock %}
 {% block head_extras %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/product_drilldown_v2.css', v='20260319d') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/product_drilldown_v2.css', v='20260325-theme-refine') }}">
 {% endblock %}
 {% block content %}
 {% macro fmt_currency(value) -%}
@@ -97,8 +97,12 @@
               {% endif %}
             </div>
             <div class="product-v2-hero-actions">
-              <a href="{{ url_for('products.index') }}{{ querystring }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back
+              <a
+                id="productDrilldownBackButton"
+                href="{{ url_for('products.index') }}{{ ('?' ~ request_querystring) if request_querystring else querystring }}"
+                data-back-fallback="{{ url_for('products.index') }}{{ ('?' ~ request_querystring) if request_querystring else querystring }}"
+                class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Exit
               </a>
               <div class="btn-group btn-group-sm">
                 <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -123,7 +127,33 @@
             <span class="product-v2-chip {{ tone_class('accent' if (header_summary.get('posture') or 'Stable') in ['Stable', 'Growing'] else 'warn') }}">Posture: {{ header_summary.get("posture") or "Stable" }}</span>
             <span class="product-v2-chip {{ tone_class('accent' if (lifecycle_insights.get('stage') or lifecycle.get('stage')) not in ['Declining', 'Unstable'] else 'warn') }}">Lifecycle: {{ lifecycle_insights.get("stage") or lifecycle.get("stage") or "Unknown" }}</span>
             <span class="product-v2-chip">Classification: {{ classification.get("abc_xyz") or classification.get("label") or "Unclassified" }}</span>
+            {% if family_context and family_context.get('protein_family') %}
+              <span class="product-v2-chip">Protein: {{ family_context.get("protein_family") }}</span>
+            {% endif %}
+            {% if family_context and family_context.get('product_category') and family_context.get('product_category') != family_context.get('protein_family') %}
+              <span class="product-v2-chip">Category: {{ family_context.get("product_category") }}</span>
+            {% endif %}
+            {% if show_costs and family_context %}
+              <span class="product-v2-chip {{ tone_class('risk' if family_context.get('status_key') == 'red' else ('warn' if family_context.get('status_key') in ['orange', 'yellow'] else 'good')) }}">
+                Target status: {{ family_context.get("target_status") or "Unknown" }}
+              </span>
+              <span class="product-v2-chip">
+                Gross margin gates: min {{ fmt_percent(family_context.get("minimum_margin_pct")) }} · target {{ fmt_percent(family_context.get("target_margin_pct")) }}
+              </span>
+              <span class="product-v2-chip">Meat Manager cost/lb: {{ fmt_currency(kpis.get("base_cost_per_lb")) }}</span>
+              <span class="product-v2-chip">Effective cost/lb: {{ fmt_currency(kpis.get("cost_per_lb")) }}</span>
+              <span class="product-v2-chip">Min price/lb: {{ fmt_currency(family_context.get("minimum_price_lb")) }}</span>
+              <span class="product-v2-chip">Target price/lb: {{ fmt_currency(family_context.get("target_price_lb")) }}</span>
+            {% endif %}
             <span class="product-v2-chip">ASP/lb: {{ fmt_currency(kpis.get("asp_lb")) }}</span>
+            {% if (customers.get("top_rows") or []) %}
+              {% set lead_customer = (customers.get("top_rows") or [])[0] %}
+              <span class="product-v2-chip">Top customer: {{ lead_customer.get("name") or "Unknown" }} · {{ fmt_currency(lead_customer.get("revenue")) }}</span>
+            {% endif %}
+            {% if (regions.get("top_rows") or []) %}
+              {% set lead_region = (regions.get("top_rows") or [])[0] %}
+              <span class="product-v2-chip">Lead region: {{ lead_region.get("name") or "Unknown" }} · {{ fmt_currency(lead_region.get("revenue")) }}</span>
+            {% endif %}
             {% if show_costs %}
               <span class="product-v2-chip {{ tone_class('good' if (quality.get('cost_coverage_pct') or 0) >= 95 else 'warn') }}">Cost coverage: {{ fmt_percent(quality.get("cost_coverage_pct")) }}</span>
             {% else %}
@@ -218,6 +248,37 @@
           <div class="product-v2-trust-note">
             {{ lifecycle_insights.get("summary") or "Lifecycle commentary appears when enough trend history is available." }}
           </div>
+          {% if family_context and (family_context.get('protein_family') or family_context.get('peer_count')) %}
+            <div class="product-v2-trust-grid mt-3">
+              <div>
+                <div class="product-v2-panel-label">Protein family</div>
+                <div class="product-v2-panel-value">{{ family_context.get("protein_family") or "Unknown" }}</div>
+              </div>
+              <div>
+                <div class="product-v2-panel-label">Peer SKUs</div>
+                <div class="product-v2-panel-value">{{ fmt_number(family_context.get("peer_count"), 0) }}</div>
+              </div>
+              <div>
+                <div class="product-v2-panel-label">Peer ASP/lb</div>
+                <div class="product-v2-panel-value">{{ fmt_currency(family_context.get("peer_asp_lb")) }}</div>
+              </div>
+              <div>
+                <div class="product-v2-panel-label">Peer Margin %</div>
+                <div class="product-v2-panel-value">{{ fmt_percent(family_context.get("peer_margin_pct")) if show_costs else "—" }}</div>
+              </div>
+            </div>
+            <div class="product-v2-trust-note mt-3">
+              {% if family_context.get('top_peer_display') %}
+                Leading peer: {{ family_context.get('top_peer_display') }}.
+              {% endif %}
+              {% if family_context.get('asp_vs_peer_pct') is not none %}
+                This SKU is {{ fmt_percent(family_context.get('asp_vs_peer_pct')) }} vs its family ASP/lb benchmark.
+              {% endif %}
+              {% if show_costs and family_context.get('margin_vs_peer_pp') is not none %}
+                Margin gap vs family median: {{ fmt_number(family_context.get('margin_vs_peer_pp'), 1) }} pp.
+              {% endif %}
+            </div>
+          {% endif %}
         </aside>
       </div>
     </div>
@@ -325,8 +386,18 @@
               <div class="card-body">
                 <div class="product-v2-metric-list">
                   <div class="product-v2-metric-row"><span>{{ metric_label("ASP/lb", "Revenue divided by shipped weight in pounds.") }}</span><strong>{{ fmt_currency(kpis.get("asp_lb")) }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Meat Manager cost / lb</span><strong>{{ fmt_currency(kpis.get("base_cost_per_lb")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Effective cost / lb</span><strong>{{ fmt_currency(kpis.get("cost_per_lb")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Minimum price / lb</span><strong>{{ fmt_currency(family_context.get("minimum_price_lb")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Target price / lb</span><strong>{{ fmt_currency(family_context.get("target_price_lb")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>ASP/lb gap to minimum</span><strong>{{ fmt_currency(family_context.get("asp_lb_gap_to_min")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>ASP/lb gap to target</span><strong>{{ fmt_currency(family_context.get("asp_lb_gap_to_target")) if show_costs else "—" }}</strong></div>
                   <div class="product-v2-metric-row"><span>ASP/unit</span><strong>{{ fmt_currency(kpis.get("asp")) }}</strong></div>
                   <div class="product-v2-metric-row"><span>Profit / lb</span><strong>{{ fmt_currency(kpis.get("profit_per_lb")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Current gross margin %</span><strong>{{ fmt_percent(kpis.get("margin_pct")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Minimum gross margin %</span><strong>{{ fmt_percent(family_context.get("minimum_margin_pct")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Target gross margin %</span><strong>{{ fmt_percent(family_context.get("target_margin_pct")) if show_costs else "—" }}</strong></div>
+                  <div class="product-v2-metric-row"><span>Target achievement</span><strong>{{ fmt_percent(family_context.get("target_achievement_pct")) if show_costs else "—" }}</strong></div>
                   <div class="product-v2-metric-row"><span>Price P10 / P50 / P90</span><strong>{{ fmt_currency(kpis.get("price_p10")) }} / {{ fmt_currency(kpis.get("price_p50")) }} / {{ fmt_currency(kpis.get("price_p90")) }}</strong></div>
                   <div class="product-v2-metric-row"><span>Dispersion ratio</span><strong>{{ fmt_number(kpis.get("price_dispersion_ratio"), 2) }}</strong></div>
                   <div class="product-v2-metric-row"><span>Margin-risk exposure</span><strong>{{ fmt_percent(kpis.get("margin_risk_exposure_pct")) if show_costs else "—" }}</strong></div>
@@ -779,7 +850,7 @@
       <div>
         <h4 class="mb-1">Pricing, Margin & Elasticity</h4>
         <p class="text-muted mb-0">ASP/lb-first diagnostics for distribution, demand response, margin risk, and recovery opportunity.</p>
-        <div class="product-v2-section-note">Use pricing diagnostics to separate broad price dispersion from specific below-target customers. Margin-risk rows rank recoverable uplift to the 27% target inside the current scoped window.</div>
+        <div class="product-v2-section-note">Use pricing diagnostics to separate broad price dispersion from specific below-target customers. Margin-risk rows rank recoverable uplift to the protein-specific target inside the current scoped window.</div>
       </div>
       <a class="btn btn-sm btn-outline-secondary js-v2-export" data-kind="customers" data-format="csv" href="#">Export pricing base</a>
     </div>
@@ -819,7 +890,7 @@
           <div class="card-header d-flex justify-content-between align-items-center gap-2 product-v2-control-row">
             <div>
               <h5 class="mb-1">Margin at Risk by Customer</h5>
-              <div class="small text-muted">Below-target margin accounts ranked by recoverable uplift and recency. Click a row to inspect the account and open customer drilldown.</div>
+              <div class="small text-muted">Below-target gross-margin accounts ranked by recoverable uplift and recency. Click a row to inspect the account and open customer drilldown.</div>
             </div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <input type="search" id="v2MarginRiskSearch" class="form-control form-control-sm product-v2-search" placeholder="Filter customers">
@@ -828,7 +899,7 @@
           </div>
           <div class="card-body">
             <div class="row g-2 mb-3">
-              <div class="col-sm-4"><div class="product-v2-stat-tile"><div class="small text-muted">Below-target customers</div><div class="fw-semibold">{{ fmt_number((margin_risk.get("summary") or {}).get("row_count")) }}</div></div></div>
+              <div class="col-sm-4"><div class="product-v2-stat-tile"><div class="small text-muted">Below-target customers</div><div class="fw-semibold">{{ fmt_number((margin_risk.get("summary") or {}).get("row_count")) }}</div><div class="small text-muted">Target {{ fmt_percent(margin_risk.get("target_margin_pct")) }}</div></div></div>
               <div class="col-sm-4"><div class="product-v2-stat-tile"><div class="small text-muted">Revenue at risk</div><div class="fw-semibold">{{ fmt_currency((margin_risk.get("summary") or {}).get("revenue_exposure")) if show_costs else "—" }}</div></div></div>
               <div class="col-sm-4"><div class="product-v2-stat-tile"><div class="small text-muted">Margin uplift to target</div><div class="fw-semibold">{{ fmt_currency((margin_risk.get("summary") or {}).get("uplift_to_target")) if show_costs else "—" }}</div></div></div>
             </div>
@@ -842,7 +913,7 @@
                     <th class="text-end" data-sort="profit">Profit</th>
                     <th class="text-end" data-sort="margin_pct">Margin %</th>
                     <th class="text-end" data-sort="target_gap_pp">Gap (pp)</th>
-                    <th class="text-end" data-sort="uplift_to_target">Uplift to 27%</th>
+                    <th class="text-end" data-sort="uplift_to_target">Uplift to Target</th>
                     <th class="text-end" data-sort="orders">Orders</th>
                     <th class="text-end" data-sort="cadence_days">Cadence (d)</th>
                     <th data-sort="last_order_date">Last order</th>
@@ -1148,6 +1219,7 @@
   const exportBaseV2 = "{{ url_for('products.export_product_drilldown_v2', product_id=product_id) }}";
   const forecastApiBaseV2 = "{{ url_for('bundles.products_forecast', product_id=product_id) }}";
   const requestQueryV2 = {{ (request_querystring or "")|tojson }};
+  const productsIndexBaseV2 = {{ url_for('products.index')|tojson }};
   const customerDrilldownBaseV2 = {{ url_for('customers.drilldown', customer_id='__CID__')|tojson }};
   const productDrilldownBaseV2 = {{ url_for('products.drilldown', product_id='__PID__')|tojson }};
 
@@ -1192,6 +1264,19 @@
     let base = productDrilldownBaseV2.replace("__PID__", encodeURIComponent(String(productId)));
     if (requestQueryV2) base += requestQueryV2.startsWith("?") ? requestQueryV2 : `?${requestQueryV2}`;
     return base;
+  }
+  function productsExitUrl() {
+    if (!requestQueryV2) return productsIndexBaseV2;
+    return `${productsIndexBaseV2}${requestQueryV2.startsWith("?") ? requestQueryV2 : `?${requestQueryV2}`}`;
+  }
+  function shouldUseHistoryBackForProducts() {
+    if (!document.referrer || !window.history || window.history.length <= 1) return false;
+    try {
+      const ref = new URL(document.referrer, window.location.origin);
+      return ref.origin === window.location.origin && ref.pathname.startsWith("/products");
+    } catch (_err) {
+      return false;
+    }
   }
   function intelMetric(label, value) {
     return `<div class="product-v2-intel-metric"><div class="product-v2-intel-metric-label">${escapeHtml(label)}</div><div class="product-v2-intel-metric-value">${escapeHtml(value)}</div></div>`;
@@ -1366,7 +1451,7 @@
     showIntelPanel({
       eyebrow: "Margin recovery account",
       title: customerName,
-      summary: `${customerName} is currently below the 27% target margin threshold for this SKU in the active scoped window.`,
+      summary: `${customerName} is currently below the protein-specific target gross-margin threshold for this SKU in the active scoped window.`,
       metrics: [
         { label: "Revenue", value: money(data.customerRevenue) },
         { label: "Shipped lb", value: `${num(data.customerWeight, 1)} lb` },
@@ -1935,6 +2020,11 @@
       el.__intelBound = true;
     }
   }
+  const backButtonV2 = document.getElementById("productDrilldownBackButton");
+  if (backButtonV2) {
+    const fallbackHref = backButtonV2.getAttribute("data-back-fallback") || productsExitUrl();
+    backButtonV2.href = fallbackHref;
+  }
 
   function plotCustomerActivity() {
     const el = document.getElementById("v2CustomerActivityChart");
@@ -2038,7 +2128,7 @@
       return;
     }
     if (!marginRiskRowsV2.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center py-3">No below-target margin rows for this product.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center py-3">No below-target gross-margin rows for this product.</td></tr>';
       return;
     }
     sortMarginRiskRows(marginRiskSortV2.key, marginRiskSortV2.dir);
@@ -2065,7 +2155,7 @@
         data-customer-margin="${escapeHtml(row.margin_pct ?? "")}"
         data-customer-gap="${escapeHtml(row.target_gap_pp ?? "")}"
         data-customer-uplift="${escapeHtml(row.uplift_to_target ?? "")}"
-        data-customer-status="Below target margin"
+        data-customer-status="Below target"
         data-customer-asp-lb="${escapeHtml(row.asp_lb ?? "")}"
         data-intel-link="${escapeHtml(url || "")}">
         <td>${linkedName}</td>

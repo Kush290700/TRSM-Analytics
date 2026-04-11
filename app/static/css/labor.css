@@ -1,19 +1,24 @@
+
 :root {
-  --labor-ink: #173039;
-  --labor-muted: #5d7480;
-  --labor-border: #d7e2e8;
+  --labor-ink: #15313b;
+  --labor-muted: #607783;
+  --labor-border: #d9e5ea;
   --labor-surface: #ffffff;
-  --labor-surface-soft: #f4f8fa;
-  --labor-primary: #0f766e;
-  --labor-primary-deep: #0c4f4a;
-  --labor-accent: #c98a2a;
-  --labor-danger: #b53a2b;
+  --labor-surface-soft: #f4f9fb;
+  --labor-panel: #eff6f8;
+  --labor-primary: #0d766f;
+  --labor-primary-deep: #0b5550;
+  --labor-primary-soft: #e6f7f3;
+  --labor-blue: #295fa5;
+  --labor-blue-soft: #eaf1fb;
+  --labor-warning: #b67718;
+  --labor-warning-soft: #fff4de;
+  --labor-danger: #bc4935;
   --labor-danger-soft: #fff1ee;
-  --labor-warning: #9a6413;
-  --labor-warning-soft: #fff7e5;
-  --labor-success: #296743;
-  --labor-success-soft: #eef8f1;
-  --labor-shadow: 0 18px 40px rgba(16, 37, 44, 0.08);
+  --labor-success: #2d7a4b;
+  --labor-success-soft: #eef9f1;
+  --labor-shadow: 0 18px 38px rgba(17, 38, 46, 0.08);
+  --labor-shadow-soft: 0 10px 24px rgba(17, 38, 46, 0.05);
 }
 
 .labor-page {
@@ -22,130 +27,352 @@
 
 .labor-page .card {
   border-color: var(--labor-border);
-  box-shadow: var(--labor-shadow);
+  box-shadow: var(--labor-shadow-soft);
 }
 
 .labor-hero {
   color: #fff;
   overflow: hidden;
   background:
-    radial-gradient(circle at top right, rgba(245, 197, 92, 0.30), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(44, 154, 143, 0.25), transparent 26%),
-    linear-gradient(140deg, #10292f 0%, #153a42 52%, #0b1d22 100%);
+    radial-gradient(circle at top right, rgba(245, 189, 92, 0.28), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(40, 162, 149, 0.24), transparent 30%),
+    linear-gradient(140deg, #0b2127 0%, #12363f 52%, #0a171b 100%);
 }
 
 .labor-hero::after {
   content: "";
   position: absolute;
-  inset: auto -10% -45% auto;
-  width: 320px;
-  height: 320px;
+  inset: auto -6% -34% auto;
+  width: 360px;
+  height: 360px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);
-  filter: blur(6px);
+  filter: blur(8px);
+}
+
+.labor-hero-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.9fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.labor-hero-main {
+  position: relative;
+  z-index: 1;
+}
+
+.labor-hero-side {
+  position: relative;
+  z-index: 1;
 }
 
 .labor-kicker,
-.labor-section-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 0.75rem;
+.labor-section-kicker,
+.labor-command-card__label,
+.labor-focus-card__eyebrow,
+.labor-context-label,
+.labor-metric-label,
+.labor-chart-title,
+.labor-subtable-title,
+.labor-watch-panel__title,
+.labor-watch-item__scope,
+.labor-mini-stat__label,
+.labor-signal-title,
+.labor-hero-stat__label {
   font-size: 0.74rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .labor-kicker {
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.78);
+  margin-bottom: 0.8rem;
 }
 
 .labor-hero-title {
-  font-size: clamp(2rem, 3vw, 2.9rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-size: clamp(2rem, 3vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
 }
 
 .labor-hero-subtitle {
   max-width: 70ch;
-  margin: 0.4rem 0 0.55rem;
+  margin: 0.45rem 0 0.55rem;
+  color: rgba(248, 252, 255, 0.94);
   font-size: 1.05rem;
-  color: rgba(255, 255, 255, 0.88);
 }
 
 .labor-hero-purpose,
-.labor-hero-narrative {
+.labor-hero-narrative,
+.labor-focus-card__copy,
+.labor-focus-card__note,
+.labor-context-copy,
+.labor-context-note,
+.labor-trust-note,
+.labor-score-group__subtitle,
+.labor-metric-definition,
+.labor-metric-note,
+.labor-signal-copy,
+.labor-filter-note,
+.labor-table-note,
+.labor-watch-panel__subtitle,
+.labor-watch-item__reason,
+.labor-watch-item__magnitude,
+.labor-command-link__detail,
+.labor-section-copy,
+.labor-section-subtitle,
+.labor-driver-callout {
+  color: var(--labor-muted);
+}
+
+.labor-hero-purpose {
   max-width: 76ch;
   margin: 0;
-  color: rgba(255, 255, 255, 0.74);
+  color: rgba(240, 247, 252, 0.84);
 }
 
 .labor-hero-narrative {
   margin-top: 1rem;
-  padding: 1rem 1.1rem;
+  padding: 1.05rem 1.1rem;
   border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .labor-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.6rem;
+}
+
+.labor-chip-row-wrap {
+  justify-content: flex-end;
 }
 
 .labor-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.38rem 0.72rem;
+  padding: 0.42rem 0.74rem;
   border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.12);
   color: inherit;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.labor-page .labor-hero .labor-chip {
+  background: rgba(18, 35, 53, 0.42);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f8fbff !important;
 }
 
 .labor-chip-dark {
-  background: #edf4f7;
-  border-color: #d9e5ea;
+  background: #eef5f8;
+  border-color: #d7e4ea;
   color: var(--labor-ink);
 }
 
-.labor-hero-stat,
+.labor-chip-clear {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.labor-command-card {
+  padding: 1rem;
+  border-radius: 1.1rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.09));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.labor-command-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+}
+
+.labor-command-link {
+  display: block;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.95rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.1));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  text-decoration: none;
+}
+
+.labor-command-link__title {
+  display: block;
+  font-weight: 700;
+}
+
+.labor-command-link__detail {
+  display: block;
+  margin-top: 0.25rem;
+  color: rgba(240, 247, 252, 0.84);
+  font-size: 0.9rem;
+}
+
+.labor-command-link:hover,
+.labor-export-menu summary:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.labor-export-menu {
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.labor-export-menu summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.95rem 1rem;
+  font-weight: 700;
+  color: rgba(248, 252, 255, 0.96);
+}
+
+.labor-export-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.labor-export-menu__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0 1rem 1rem;
+}
+
+.labor-summary-strip,
+.labor-mini-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
 .labor-mini-stat {
-  height: 100%;
   padding: 1rem 1.05rem;
   border-radius: 1rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.09));
 }
 
-.labor-hero-stat__label,
-.labor-mini-stat__label,
-.labor-kpi-title,
-.labor-signal-title {
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.labor-mini-stat-info {
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.labor-hero-stat__label {
-  color: rgba(255, 255, 255, 0.66);
+.labor-mini-stat-warning {
+  background: rgba(255, 244, 222, 0.16);
 }
 
-.labor-hero-stat__value,
+.labor-mini-stat-success {
+  background: rgba(238, 249, 241, 0.18);
+}
+
+.labor-mini-stat-primary {
+  background: rgba(230, 247, 243, 0.17);
+}
+
+.labor-mini-stat__label {
+  color: var(--labor-muted);
+}
+
 .labor-mini-stat__value {
   margin-top: 0.25rem;
-  font-size: 1.7rem;
-  font-weight: 700;
+  font-size: 1.55rem;
+  font-weight: 800;
   letter-spacing: -0.03em;
+  color: var(--labor-ink);
+}
+
+.labor-mini-stat__hint {
+  margin-top: 0.42rem;
+  font-size: 0.9rem;
+  color: var(--labor-muted);
+}
+
+.labor-export-menu .btn-light {
+  background: #ffffff;
+  color: #132033;
+  border-color: rgba(255, 255, 255, 0.26);
+}
+
+.labor-export-menu .btn-outline-light {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fbff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.labor-export-menu .btn-light:hover,
+.labor-export-menu .btn-light:focus {
+  background: #f3f7fb;
+  color: #132033;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.labor-export-menu .btn-outline-light:hover,
+.labor-export-menu .btn-outline-light:focus {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.labor-page .labor-hero .labor-command-card__label,
+.labor-page .labor-hero .labor-command-link__title,
+.labor-page .labor-hero .labor-mini-stat__value,
+.labor-page .labor-hero .labor-mini-stat__label,
+.labor-page .labor-hero .labor-mini-stat__hint,
+.labor-page .labor-hero .labor-chip,
+.labor-page .labor-hero .labor-chip i {
+  color: #f8fbff !important;
+}
+
+.labor-filter-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%);
+}
+
+.labor-context-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 1rem 1.5rem;
+  align-items: start;
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+  border: 1px solid var(--labor-border);
+  background: var(--labor-surface-soft);
+}
+
+.labor-context-label {
+  color: var(--labor-primary);
+  margin-bottom: 0.35rem;
+}
+
+.labor-context-copy {
+  font-size: 1.05rem;
+  color: var(--labor-ink);
+}
+
+.labor-context-note,
+.labor-trust-note {
+  margin-top: 0.45rem;
+  line-height: 1.5;
+}
+
+.labor-trust-note {
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.85rem;
+  background: var(--labor-warning-soft);
+  color: #946216;
 }
 
 .labor-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.7rem;
 }
 
 .labor-section-head {
@@ -154,6 +381,7 @@
 
 .labor-section-kicker {
   color: var(--labor-primary);
+  margin-bottom: 0.6rem;
 }
 
 .labor-section-title-row {
@@ -166,118 +394,236 @@
 
 .labor-section-title {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 1.55rem;
+  font-weight: 800;
   letter-spacing: -0.03em;
 }
 
 .labor-section-subtitle {
-  margin-top: 0.2rem;
-  color: var(--labor-muted);
+  margin-top: 0.15rem;
 }
 
 .labor-section-copy {
   max-width: 42rem;
-  color: var(--labor-muted);
+  line-height: 1.5;
+}
+
+.labor-score-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.labor-score-group {
+  height: 100%;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%);
+}
+
+.labor-score-group__title {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.labor-score-group__subtitle {
+  margin-top: 0.3rem;
   line-height: 1.45;
 }
 
-.labor-filter-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbfc 100%);
-}
-
-.labor-filter-note {
-  color: var(--labor-muted);
-  font-size: 0.92rem;
-}
-
-.labor-kpi-grid {
+.labor-metric-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
 }
 
-.labor-kpi-card {
-  min-height: 140px;
-  padding: 1rem 1.05rem;
+.labor-metric-card {
+  padding: 0.95rem 1rem;
   border-radius: 1rem;
   border: 1px solid var(--labor-border);
   background: var(--labor-surface);
-  box-shadow: var(--labor-shadow);
 }
 
-.labor-kpi-value {
-  margin-top: 0.45rem;
-  font-size: 1.7rem;
-  font-weight: 700;
+.labor-metric-card-primary {
+  background: linear-gradient(180deg, #eef9f6 0%, #ffffff 100%);
+}
+
+.labor-metric-card-warning {
+  background: linear-gradient(180deg, #fff8eb 0%, #ffffff 100%);
+}
+
+.labor-metric-card-danger {
+  background: linear-gradient(180deg, #fff2ef 0%, #ffffff 100%);
+}
+
+.labor-metric-card-success {
+  background: linear-gradient(180deg, #eef8f1 0%, #ffffff 100%);
+}
+
+.labor-metric-label {
+  color: var(--labor-muted);
+}
+
+.labor-metric-value {
+  margin-top: 0.32rem;
+  font-size: 1.5rem;
+  font-weight: 800;
   letter-spacing: -0.03em;
 }
 
-.labor-kpi-footnote {
-  margin-top: 0.8rem;
-  color: var(--labor-muted);
+.labor-metric-definition {
+  margin-top: 0.4rem;
+  min-height: 3.1rem;
   font-size: 0.9rem;
+  line-height: 1.45;
 }
 
-.labor-kpi-card-primary {
-  background: linear-gradient(180deg, #f3fbfa 0%, #ffffff 100%);
+.labor-metric-meta {
+  margin-top: 0.55rem;
 }
 
-.labor-kpi-card-warning {
-  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 100%);
+.labor-delta {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
-.labor-kpi-card-danger {
-  background: linear-gradient(180deg, #fff4f1 0%, #ffffff 100%);
+.labor-delta-primary,
+.labor-delta-default {
+  background: var(--labor-blue-soft);
+  color: var(--labor-blue);
 }
 
-.labor-signal-grid,
-.labor-action-grid {
+.labor-delta-warning {
+  background: var(--labor-warning-soft);
+  color: #8d5e11;
+}
+
+.labor-delta-danger {
+  background: var(--labor-danger-soft);
+  color: #8d3226;
+}
+
+.labor-delta-success {
+  background: var(--labor-success-soft);
+  color: var(--labor-success);
+}
+
+.labor-signal-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
 }
 
-.labor-signal-card,
-.labor-action-card {
+.labor-signal-card {
   height: 100%;
-  padding: 1rem 1.05rem;
+  padding: 1rem 1.1rem;
   border-radius: 1rem;
   border: 1px solid var(--labor-border);
   background: var(--labor-surface-soft);
 }
 
-.labor-signal-detail,
-.labor-action-detail {
-  margin-top: 0.6rem;
-  line-height: 1.48;
-}
-
-.labor-signal-next,
-.labor-action-scope {
-  margin-top: 0.75rem;
-  color: var(--labor-muted);
-  font-size: 0.92rem;
-}
-
 .labor-signal-card-primary {
-  background: #eef4ff;
-  border-color: #cdd9f3;
+  background: var(--labor-blue-soft);
+  border-color: #cbd9f1;
 }
 
 .labor-signal-card-success {
   background: var(--labor-success-soft);
-  border-color: #cae2d4;
+  border-color: #d0e6d7;
 }
 
 .labor-signal-card-warning {
   background: var(--labor-warning-soft);
-  border-color: #f0ddb7;
+  border-color: #f0dcaa;
 }
 
 .labor-signal-card-danger {
   background: var(--labor-danger-soft);
-  border-color: #efc6bf;
+  border-color: #efc9c2;
+}
+
+.labor-signal-copy {
+  margin-top: 0.7rem;
+}
+
+.labor-signal-copy p {
+  margin-bottom: 0.55rem;
+  line-height: 1.48;
+}
+
+.labor-inline-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(13, 118, 111, 0.12);
+  color: var(--labor-primary-deep);
+  text-decoration: none;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.labor-inline-action:hover,
+.labor-table-link:hover,
+.labor-page .btn-link:hover {
+  color: var(--labor-primary);
+}
+
+.labor-chart-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.labor-chart-grid-departments {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.labor-chart-grid-categories,
+.labor-chart-grid-rhythm {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.labor-chart-grid-workers {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.labor-chart-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%);
+}
+
+.labor-chart-card-lg {
+  grid-column: span 3;
+}
+
+.labor-chart-grid-departments .labor-chart-card-lg {
+  grid-column: span 3;
+}
+
+.labor-chart-grid-departments .labor-chart-card {
+  grid-column: span 2;
+}
+
+.labor-chart-grid-categories .labor-chart-card:first-child {
+  grid-column: span 4;
+}
+
+.labor-chart-grid-categories .labor-chart-card:last-child,
+.labor-chart-grid-rhythm .labor-chart-card-lg {
+  grid-column: span 8;
+}
+
+.labor-chart-grid-rhythm .labor-chart-card {
+  grid-column: span 4;
+}
+
+.labor-chart-title,
+.labor-subtable-title,
+.labor-watch-panel__title {
+  color: var(--labor-ink);
+  margin-bottom: 0.25rem;
 }
 
 .labor-chart {
@@ -285,11 +631,11 @@
 }
 
 .labor-chart-lg {
-  min-height: 380px;
+  min-height: 400px;
 }
 
 .labor-focus-card {
-  border-radius: 1.1rem;
+  border-radius: 1.15rem;
   border: 1px solid var(--labor-border);
   background: linear-gradient(180deg, #ffffff 0%, #f6fafb 100%);
   box-shadow: var(--labor-shadow);
@@ -298,47 +644,130 @@
 .labor-focus-card__head {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1rem;
+  gap: 1rem;
   justify-content: space-between;
   align-items: start;
 }
 
-.labor-focus-card__eyebrow {
-  color: var(--labor-primary);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
 .labor-focus-card__title {
-  margin: 0.2rem 0 0;
-  font-size: 1.45rem;
+  margin: 0.15rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.labor-focus-card__note {
+  margin-top: 0.55rem;
+  font-size: 0.92rem;
+}
+
+.labor-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.labor-driver-callout {
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  background: var(--labor-panel);
+  border: 1px solid var(--labor-border);
+  line-height: 1.5;
+}
+
+.labor-watch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.labor-watch-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%);
+}
+
+.labor-watch-panel__subtitle {
+  margin-top: 0.25rem;
+  line-height: 1.45;
+}
+
+.labor-watch-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.labor-watch-item {
+  padding: 0.9rem 0.95rem;
+  border-radius: 1rem;
+  border: 1px solid var(--labor-border);
+  background: #fff;
+}
+
+.labor-watch-item-warning {
+  background: #fffaf1;
+}
+
+.labor-watch-item-danger {
+  background: #fff4f1;
+}
+
+.labor-watch-item-success {
+  background: #f2faf4;
+}
+
+.labor-watch-item-primary {
+  background: #eff5fd;
+}
+
+.labor-watch-item__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.labor-watch-item__entity {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.labor-posture,
+.labor-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.24rem 0.58rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
   font-weight: 700;
 }
 
-.labor-focus-card__copy {
-  color: var(--labor-muted);
-  margin-top: 0.55rem;
-  max-width: 58rem;
+.labor-posture-warning,
+.labor-tag-warning {
+  background: var(--labor-warning-soft);
+  color: #8f5b0f;
 }
 
-.labor-summary-strip,
-.labor-mini-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.85rem;
+.labor-posture-danger,
+.labor-tag-danger {
+  background: var(--labor-danger-soft);
+  color: #933024;
 }
 
-.labor-mini-stat {
-  background: #f3f8fa;
-  border-color: #dbe6eb;
+.labor-posture-success,
+.labor-tag-success {
+  background: var(--labor-success-soft);
+  color: var(--labor-success);
 }
 
-.labor-mini-stat__hint {
-  margin-top: 0.4rem;
-  color: var(--labor-muted);
-  font-size: 0.86rem;
+.labor-posture-primary,
+.labor-tag-primary,
+.labor-tag-info {
+  background: var(--labor-blue-soft);
+  color: var(--labor-blue);
+}
+
+.labor-tag {
+  background: #edf5f7;
+  color: var(--labor-ink);
 }
 
 .labor-data-table thead th {
@@ -353,70 +782,63 @@
   background: #f7fbfc;
 }
 
+.labor-table-link,
+.labor-page .btn-link {
+  color: var(--labor-primary-deep);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.labor-workspace-table-wrap {
+  max-height: 640px;
+  overflow: auto;
+}
+
+.labor-workspace-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f5f9fb;
+}
+
 .labor-empty {
   padding: 1.1rem;
   border-radius: 1rem;
-  background: #f7fafb;
   border: 1px dashed var(--labor-border);
+  background: #f8fbfc;
   color: var(--labor-muted);
-}
-
-.labor-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.labor-table-note {
-  color: var(--labor-muted);
-  font-size: 0.92rem;
-}
-
-.labor-page .btn-link {
-  font-weight: 600;
-  color: var(--labor-primary-deep);
-}
-
-.labor-page .btn-link:hover {
-  color: var(--labor-primary);
-}
-
-.labor-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.22rem 0.55rem;
-  border-radius: 999px;
-  background: #eef4f6;
-  color: var(--labor-ink);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.labor-tag-warning {
-  background: #fff3d8;
-  color: #8f590f;
-}
-
-.labor-tag-danger {
-  background: #ffe1dc;
-  color: #9c3326;
-}
-
-.labor-tag-success {
-  background: #e8f5ec;
-  color: #256442;
 }
 
 @media (max-width: 1399px) {
-  .labor-kpi-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .labor-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 1199px) {
-  .labor-kpi-grid,
+  .labor-hero-layout,
+  .labor-context-strip,
+  .labor-score-group-grid,
   .labor-signal-grid,
-  .labor-action-grid,
+  .labor-watch-grid,
+  .labor-chart-grid-workers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .labor-chart-grid-departments,
+  .labor-chart-grid-categories,
+  .labor-chart-grid-rhythm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .labor-chart-grid-departments .labor-chart-card,
+  .labor-chart-grid-departments .labor-chart-card-lg,
+  .labor-chart-grid-categories .labor-chart-card,
+  .labor-chart-grid-rhythm .labor-chart-card,
+  .labor-chart-grid-rhythm .labor-chart-card-lg {
+    grid-column: span 1;
+  }
+
   .labor-summary-strip,
   .labor-mini-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -424,16 +846,25 @@
 }
 
 @media (max-width: 767px) {
-  .labor-kpi-grid,
-  .labor-signal-grid,
-  .labor-action-grid,
   .labor-summary-strip,
-  .labor-mini-stat-grid {
+  .labor-mini-stat-grid,
+  .labor-metric-grid,
+  .labor-chart-grid-departments,
+  .labor-chart-grid-categories,
+  .labor-chart-grid-rhythm {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .labor-chart-grid-departments .labor-chart-card,
+  .labor-chart-grid-departments .labor-chart-card-lg,
+  .labor-chart-grid-categories .labor-chart-card,
+  .labor-chart-grid-rhythm .labor-chart-card,
+  .labor-chart-grid-rhythm .labor-chart-card-lg {
+    grid-column: span 1;
+  }
+
   .labor-hero-title {
-    font-size: 1.9rem;
+    font-size: 1.95rem;
   }
 
   .labor-chart,

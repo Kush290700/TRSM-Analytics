@@ -4475,6 +4475,7 @@
     renderTopCustomers(analysis.top_customers || [], payload.lost_accounts ?? []);
     renderCustomerMovers(analysis);
     renderLostAccountsPanel(payload.lost_accounts ?? []);
+    initLiveMap(payload);
     renderProteinTable(analysis.proteins || []);
     // 6D: Protein section subtitle
     (() => {
@@ -4978,6 +4979,603 @@
     });
   };
 
+  let liveMap = null;
+  let mapReady = false;
+  let mapPopup = null;
+  let pendingMapPayload = null;
+  let mapAnimationId = null;
+  let lastMapRows = [];
+  let lastMapFeatures = [];
+  const MAP_DEFAULT_VIEW = { center: [-123.11, 49.27], zoom: 6.8 };
+  const MAP_THEME = {
+    brand: "#1f5f9a",
+    opportunity: "#0f8c5a",
+    opportunityDeep: "#0b5f3d",
+    risk: "#c53939",
+    riskSoft: "#f2b0b0",
+    lost: "#64748b",
+    ink: "#122033",
+    muted: "#5b6676",
+  };
+  const MAP_REP_COLORS = [
+    "#1f5f9a",
+    "#0f8c5a",
+    "#a36b00",
+    "#7c3aed",
+    "#c2410c",
+    "#0f766e",
+    "#be123c",
+    "#475569",
+  ];
+  const TERRITORY_CENTROIDS = {
+    bc: [-123.11, 49.27],
+    "british columbia": [-123.11, 49.27],
+    vancouver: [-123.11, 49.27],
+    burnaby: [-122.98, 49.25],
+    richmond: [-123.14, 49.17],
+    surrey: [-122.85, 49.19],
+    delta: [-122.94, 49.08],
+    langley: [-122.67, 49.11],
+    abbotsford: [-122.31, 49.05],
+    chilliwack: [-121.95, 49.16],
+    coquitlam: [-122.83, 49.28],
+    "new westminster": [-122.91, 49.20],
+    victoria: [-123.37, 48.43],
+    nanaimo: [-123.94, 49.17],
+    kelowna: [-119.50, 49.89],
+    vernon: [-119.27, 50.27],
+    penticton: [-119.59, 49.49],
+    kamloops: [-120.33, 50.68],
+    prince_george: [-122.75, 53.92],
+    "prince george": [-122.75, 53.92],
+    calgary: [-114.07, 51.05],
+    edmonton: [-113.49, 53.55],
+    alberta: [-113.49, 53.55],
+    toronto: [-79.38, 43.70],
+    ontario: [-79.38, 43.70],
+    canada: [-123.11, 49.27],
+  };
+
+  const mapModeValue = () => document.querySelector('input[name="srMapMode"]:checked')?.value || "bubbles";
+  const mapStatusValue = () => document.querySelector('input[name="srMapStatus"]:checked')?.value || "active";
+
+  const stableMapHash = (value) => {
+    const raw = cleanText(value).toLowerCase();
+    let hash = 0;
+    for (let idx = 0; idx < raw.length; idx += 1) {
+      hash = ((hash << 5) - hash + raw.charCodeAt(idx)) >>> 0;
+    }
+    return hash >>> 0;
+  };
+
+  const repColor = (repName) => {
+    const label = cleanText(repName);
+    if (!label) return "#94a3b8";
+    return MAP_REP_COLORS[stableMapHash(label) % MAP_REP_COLORS.length];
+  };
+
+  const validCoordinatePair = (latValue, lngValue) => {
+    const lat = Number(latValue);
+    const lng = Number(lngValue);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return null;
+    return [lng, lat];
+  };
+
+  const coordForTerritory = (territoryName) => {
+    const key = cleanText(territoryName).toLowerCase();
+    if (!key) return TERRITORY_CENTROIDS.bc;
+    if (TERRITORY_CENTROIDS[key]) return TERRITORY_CENTROIDS[key];
+    const match = Object.entries(TERRITORY_CENTROIDS).find(([token]) => key.includes(token) || token.includes(key));
+    return match ? match[1] : TERRITORY_CENTROIDS.bc;
+  };
+
+  const resolveMapCoordinate = (row = {}) => {
+    const exact = validCoordinatePair(
+      row.delivery_lat ?? row.lat ?? row.latitude,
+      row.delivery_lng ?? row.delivery_long ?? row.lng ?? row.longitude,
+    );
+    if (exact) return { coordinates: exact, approx: false, approx_reason: "" };
+
+    const centroid = coordForTerritory(row.delivery_city || row.territory_name || row.delivery_province || "bc");
+    const hash = stableMapHash(row.customer_id || row.customer_name || row.territory_name || JSON.stringify(row));
+    const angle = ((hash % 360) * Math.PI) / 180;
+    const ring = 1 + ((hash >> 8) % 3);
+    const radius = 0.012 * ring;
+    return {
+      coordinates: [
+        +(centroid[0] + (Math.cos(angle) * radius)).toFixed(6),
+        +(centroid[1] + (Math.sin(angle) * radius * 0.68)).toFixed(6),
+      ],
+      approx: true,
+      approx_reason: "territory_centroid",
+    };
+  };
+
+  const mapRasterStyle = () => ({
+    version: 8,
+    sources: {
+      carto_light: {
+        type: "raster",
+        tiles: ["https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> © CARTO',
+      },
+    },
+    layers: [{ id: "carto-light", type: "raster", source: "carto_light" }],
+  });
+
+  const mapStatusMatch = (row, status) => {
+    const token = cleanText(row?.customer_status).toLowerCase();
+    const revenue = num(row?.revenue);
+    const priorRevenue = num(row?.prior_revenue);
+    const lost = Number(row?.is_lost || 0) === 1 || (revenue <= 0 && priorRevenue > 0);
+    if (status === "all") return true;
+    if (status === "lost") return token === "lost" || lost;
+    if (status === "prospect") return token === "prospect" || (revenue <= 0 && priorRevenue <= 0);
+    return token ? token === "active" : !lost;
+  };
+
+  const filterMapRows = (rows = []) => {
+    const status = mapStatusValue();
+    return (Array.isArray(rows) ? rows : []).filter((row) => mapStatusMatch(row, status));
+  };
+
+  const buildMapFeatures = (rows = []) => {
+    const visibleRows = filterMapRows(rows);
+    const maxRevenue = Math.max(
+      1,
+      ...visibleRows.map((row) => Math.max(num(row?.revenue), num(row?.prior_revenue), num(row?.opportunity_score) * 100)),
+    );
+    return visibleRows.map((row, index) => {
+      const location = resolveMapCoordinate(row);
+      const silentDays = customerSilentDays(row) ?? (opt(row.silent_days) == null ? null : Number(row.silent_days));
+      const score = Math.max(num(row.revenue), num(row.prior_revenue), num(row.opportunity_score) * 100);
+      const radius = Math.max(6, Math.min(24, 6 + (Math.sqrt(score / maxRevenue) * 18)));
+      const reasons = Array.isArray(row.opportunity_reasons)
+        ? row.opportunity_reasons.filter(Boolean).join("; ")
+        : cleanText(row.opportunity_reason_text || row.opportunity_reasons);
+      return {
+        type: "Feature",
+        id: index + 1,
+        properties: {
+          customer_id: row.customer_id || row.key || "",
+          customer_name: row.customer_name || row.customer_id || "Customer",
+          account_owner_name: row.account_owner_name || "",
+          account_owner_id: row.account_owner_id || "",
+          territory_name: row.territory_name || "",
+          delivery_city: row.delivery_city || "",
+          delivery_province: row.delivery_province || "",
+          shipping_method: row.shipping_method || "",
+          revenue: num(row.revenue),
+          prior_revenue: num(row.prior_revenue),
+          profit: opt(row.profit),
+          silent_days: silentDays == null ? null : Number(silentDays),
+          opportunity_score: num(row.opportunity_score),
+          opportunity_band: row.opportunity_band || "",
+          opportunity_reasons: reasons,
+          risk_score: num(row.risk_score),
+          customer_status: row.customer_status || "",
+          is_lost: Number(row.is_lost || 0),
+          is_risk: Number(row.is_risk || 0),
+          approx: location.approx ? 1 : 0,
+          approx_reason: location.approx_reason || "",
+          radius,
+          color: repColor(row.account_owner_name),
+          last_order_date: row.last_order_date || "",
+        },
+        geometry: { type: "Point", coordinates: location.coordinates },
+      };
+    });
+  };
+
+  const setMapPlaceholder = (show, message = "Map loading...") => {
+    const placeholder = document.getElementById("srMapPlaceholder");
+    if (!placeholder) return;
+    const title = placeholder.querySelector(".fw-semibold");
+    if (title) title.textContent = message;
+    placeholder.classList.toggle("active", !!show);
+  };
+
+  const mapRowFromFeatureProps = (props = {}) => ({
+    customer_id: props.customer_id || "",
+    customer_name: props.customer_name || props.customer_id || "Customer",
+    account_owner_name: props.account_owner_name || "",
+    account_owner_id: props.account_owner_id || "",
+    territory_name: props.territory_name || "",
+    delivery_city: props.delivery_city || "",
+    delivery_province: props.delivery_province || "",
+    shipping_method: props.shipping_method || "",
+    revenue: opt(props.revenue),
+    prior_revenue: opt(props.prior_revenue),
+    profit: opt(props.profit),
+    silent_days: props.silent_days == null || props.silent_days === "" ? null : Number(props.silent_days),
+    opportunity_score: num(props.opportunity_score),
+    opportunity_band: props.opportunity_band || "",
+    opportunity_reasons: props.opportunity_reasons || "",
+    customer_status: props.customer_status || "",
+    is_lost: Number(props.is_lost || 0),
+    is_risk: Number(props.is_risk || 0),
+    last_order_date: props.last_order_date || "",
+    approx: Number(props.approx || 0) === 1,
+    approx_reason: props.approx_reason || "",
+  });
+
+  const mapPopupHtml = (row = {}) => {
+    const owner = businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK);
+    const silentDays = row.silent_days == null ? customerSilentDays(row) : Number(row.silent_days);
+    const reasons = Array.isArray(row.opportunity_reasons)
+      ? row.opportunity_reasons.filter(Boolean).join("; ")
+      : cleanText(row.opportunity_reasons);
+    const badges = [
+      row.is_risk ? '<span class="sr-map-popup-badge is-risk">Silent Risk</span>' : "",
+      row.is_lost ? '<span class="sr-map-popup-badge is-lost">Lost Account</span>' : "",
+      num(row.opportunity_score) >= 35 ? `<span class="sr-map-popup-badge is-opportunity">Opportunity ${fmtInt.format(num(row.opportunity_score))}</span>` : "",
+    ].filter(Boolean).join("");
+    const approxNote = row.approx ? "Location estimated from territory centroid." : "";
+    return `
+      <div class="sr-map-popup-inner">
+        <div class="sr-map-popup-name">${escapeHtml(row.customer_name || row.customer_id || NA)}</div>
+        <div class="sr-map-popup-meta">${escapeHtml(owner)}${row.territory_name ? ` · ${escapeHtml(row.territory_name)}` : ""}</div>
+        <div class="sr-map-popup-divider"></div>
+        <div class="sr-map-popup-row">Revenue <strong>${money(row.revenue)}</strong></div>
+        ${row.prior_revenue ? `<div class="sr-map-popup-row">Prior revenue <strong>${money(row.prior_revenue)}</strong></div>` : ""}
+        ${silentDays != null ? `<div class="sr-map-popup-row">Silent <strong>${fmtInt.format(silentDays)}d</strong></div>` : ""}
+        ${reasons ? `<div class="sr-map-popup-note">${escapeHtml(reasons)}</div>` : ""}
+        ${badges ? `<div class="sr-map-popup-badges">${badges}</div>` : ""}
+        ${approxNote ? `<div class="sr-map-popup-note">${escapeHtml(approxNote)}</div>` : ""}
+        <a class="sr-map-popup-open" href="#" data-map-open="1">Open customer drilldown</a>
+      </div>
+    `;
+  };
+
+  const buildMapLegend = (rows = [], mode = mapModeValue()) => {
+    const legend = document.getElementById("srMapLegend");
+    if (!legend) return;
+    const total = rows.length;
+    const riskCount = rows.filter((row) => Number(row.is_risk || 0) === 1 || (opt(row.silent_days) || 0) >= 45).length;
+    if (mode === "opportunity") {
+      legend.innerHTML = `
+        <span class="sr-map-legend-item">
+          <span class="sr-map-legend-gradient" style="background:linear-gradient(90deg, #d6f5e5, ${MAP_THEME.opportunityDeep})"></span>
+          Opportunity intensity
+        </span>
+        <span class="sr-map-legend-item">${fmtInt.format(total)} account(s)</span>
+      `;
+      return;
+    }
+    if (mode === "risk") {
+      legend.innerHTML = `
+        <span class="sr-map-legend-item">
+          <span class="sr-map-legend-gradient" style="background:linear-gradient(90deg, #fde3e3, ${MAP_THEME.risk})"></span>
+          Risk concentration
+        </span>
+        <span class="sr-map-legend-item">${fmtInt.format(riskCount)} high-risk account(s)</span>
+      `;
+      return;
+    }
+    legend.innerHTML = [
+      '<span class="sr-map-legend-item"><span class="sr-map-legend-dot" style="background:#1f5f9a"></span>Bubble size = revenue</span>',
+      riskCount
+        ? `<span class="sr-map-legend-item"><span class="sr-map-legend-dot" style="background:transparent;border:2px solid ${MAP_THEME.risk}"></span>Pulsing halo = silent / declining</span>`
+        : "",
+      mode === "hybrid"
+        ? `<span class="sr-map-legend-item"><span class="sr-map-legend-gradient" style="background:linear-gradient(90deg, #d6f5e5, ${MAP_THEME.opportunityDeep})"></span>Opportunity background</span>`
+        : "",
+    ].filter(Boolean).join("");
+  };
+
+  const fitMapToFeatures = (features = []) => {
+    if (!liveMap || !mapReady || !window.maplibregl) return;
+    if (!features.length) {
+      liveMap.easeTo({ center: MAP_DEFAULT_VIEW.center, zoom: MAP_DEFAULT_VIEW.zoom, duration: 700 });
+      return;
+    }
+    if (features.length === 1) {
+      liveMap.easeTo({ center: features[0].geometry.coordinates, zoom: 10.8, duration: 700 });
+      return;
+    }
+    const bounds = new window.maplibregl.LngLatBounds(features[0].geometry.coordinates, features[0].geometry.coordinates);
+    features.forEach((feature) => bounds.extend(feature.geometry.coordinates));
+    liveMap.fitBounds(bounds, {
+      padding: { top: 56, right: 56, bottom: 56, left: 56 },
+      maxZoom: 10.2,
+      duration: 850,
+    });
+  };
+
+  const animateMapHalos = () => {
+    if (!liveMap || !mapReady || !liveMap.getLayer("sr-customer-halos")) {
+      mapAnimationId = null;
+      return;
+    }
+    if (mapAnimationId) cancelAnimationFrame(mapAnimationId);
+    const step = (Date.now() % 2200) / 2200;
+    const pulse = Math.sin(step * Math.PI);
+    try {
+      liveMap.setPaintProperty("sr-customer-halos", "circle-opacity", 0.1 + (0.16 * pulse));
+      liveMap.setPaintProperty("sr-customer-halos", "circle-radius", ["+", ["get", "radius"], 4 + (3 * pulse)]);
+    } catch (_err) {
+      mapAnimationId = null;
+      return;
+    }
+    mapAnimationId = requestAnimationFrame(animateMapHalos);
+  };
+
+  const pushMapData = (rows = []) => {
+    if (!liveMap || !mapReady) {
+      pendingMapPayload = { analysis: { map_customers: rows } };
+      return;
+    }
+
+    lastMapRows = Array.isArray(rows) ? rows.slice() : [];
+    const features = buildMapFeatures(lastMapRows);
+    lastMapFeatures = features;
+
+    ["sr-opportunity-heatmap", "sr-risk-heatmap", "sr-customer-halos", "sr-customer-bubbles", "sr-customer-hitpoints"].forEach((id) => {
+      if (liveMap.getLayer(id)) liveMap.removeLayer(id);
+    });
+    if (liveMap.getSource("sr-customers")) liveMap.removeSource("sr-customers");
+
+    liveMap.addSource("sr-customers", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features },
+      generateId: true,
+    });
+
+    liveMap.addLayer({
+      id: "sr-opportunity-heatmap",
+      type: "heatmap",
+      source: "sr-customers",
+      maxzoom: 15,
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["coalesce", ["get", "opportunity_score"], 0], 0, 0, 100, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.8, 8, 2.6],
+        "heatmap-color": [
+          "interpolate", ["linear"], ["heatmap-density"],
+          0, "rgba(214,245,229,0)",
+          0.25, "#d6f5e5",
+          0.5, "#8dd9b3",
+          0.75, "#2ca56f",
+          1, MAP_THEME.opportunityDeep,
+        ],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 10, 8, 28],
+        "heatmap-opacity": 0.88,
+      },
+      layout: { visibility: "none" },
+    });
+
+    liveMap.addLayer({
+      id: "sr-risk-heatmap",
+      type: "heatmap",
+      source: "sr-customers",
+      maxzoom: 15,
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["coalesce", ["get", "risk_score"], 0], 0, 0, 100, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 8, 2.4],
+        "heatmap-color": [
+          "interpolate", ["linear"], ["heatmap-density"],
+          0, "rgba(253,227,227,0)",
+          0.25, "#fde3e3",
+          0.5, "#f3abab",
+          0.75, "#df6767",
+          1, MAP_THEME.risk,
+        ],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 10, 8, 30],
+        "heatmap-opacity": 0.86,
+      },
+      layout: { visibility: "none" },
+    });
+
+    liveMap.addLayer({
+      id: "sr-customer-halos",
+      type: "circle",
+      source: "sr-customers",
+      filter: ["any", ["==", ["get", "is_risk"], 1], ["==", ["get", "is_lost"], 1]],
+      paint: {
+        "circle-radius": ["+", ["get", "radius"], 4],
+        "circle-color": ["case", ["==", ["get", "is_lost"], 1], MAP_THEME.lost, MAP_THEME.risk],
+        "circle-opacity": 0.16,
+        "circle-blur": 0.7,
+      },
+      layout: { visibility: "visible" },
+    });
+
+    liveMap.addLayer({
+      id: "sr-customer-bubbles",
+      type: "circle",
+      source: "sr-customers",
+      paint: {
+        "circle-radius": ["coalesce", ["get", "radius"], 7],
+        "circle-color": ["coalesce", ["get", "color"], MAP_THEME.brand],
+        "circle-opacity": ["case", ["==", ["get", "approx"], 1], 0.72, 0.92],
+        "circle-stroke-width": 1.8,
+        "circle-stroke-color": MAP_THEME.ink,
+        "circle-stroke-opacity": 0.9,
+      },
+      layout: { visibility: "visible" },
+    });
+
+    liveMap.addLayer({
+      id: "sr-customer-hitpoints",
+      type: "circle",
+      source: "sr-customers",
+      paint: {
+        "circle-radius": ["+", ["coalesce", ["get", "radius"], 7], 8],
+        "circle-color": "rgba(0,0,0,0)",
+        "circle-opacity": 0.01,
+      },
+      layout: { visibility: "visible" },
+    });
+
+    const emptyMessage = mapStatusValue() === "active"
+      ? "No active accounts are visible for the current filter scope."
+      : mapStatusValue() === "lost"
+        ? "No lost accounts are visible for the current filter scope."
+        : mapStatusValue() === "prospect"
+          ? "No prospect accounts are available in the current scope."
+          : "No map accounts are visible for the current filter scope.";
+    setMapPlaceholder(!features.length, features.length ? "Map loading..." : emptyMessage);
+    buildMapLegend(filterMapRows(lastMapRows), mapModeValue());
+    fitMapToFeatures(features);
+    animateMapHalos();
+    updateMapMode(mapModeValue());
+  };
+
+  const updateMapMode = (mode = mapModeValue()) => {
+    if (!liveMap || !mapReady) return;
+    const visible = {
+      "sr-opportunity-heatmap": mode === "opportunity" || mode === "hybrid",
+      "sr-risk-heatmap": mode === "risk",
+      "sr-customer-halos": mode === "bubbles" || mode === "hybrid",
+      "sr-customer-bubbles": mode === "bubbles" || mode === "hybrid",
+      "sr-customer-hitpoints": true,
+    };
+    Object.entries(visible).forEach(([id, on]) => {
+      if (liveMap.getLayer(id)) {
+        liveMap.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+      }
+    });
+    buildMapLegend(filterMapRows(lastMapRows), mode);
+  };
+
+  const initMapOnce = () => {
+    const mapEl = document.getElementById("srLiveMap");
+    if (!mapEl || liveMap || !window.maplibregl) return;
+    liveMap = new window.maplibregl.Map({
+      container: "srLiveMap",
+      style: mapRasterStyle(),
+      center: MAP_DEFAULT_VIEW.center,
+      zoom: MAP_DEFAULT_VIEW.zoom,
+      maxBounds: [[-145, 35], [-50, 75]],
+    });
+    liveMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    liveMap.addControl(new window.maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }), "bottom-left");
+    mapPopup = new window.maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: "300px",
+      className: "sr-map-popup",
+    });
+    liveMap.on("style.load", () => {
+      mapReady = true;
+      liveMap.resize();
+      if (pendingMapPayload) {
+        const rows = pendingMapPayload.analysis?.map_customers || pendingMapPayload.analysis?.top_customers || [];
+        pushMapData(rows);
+        pendingMapPayload = null;
+      }
+    });
+    const hoverHandler = (evt) => {
+      liveMap.getCanvas().style.cursor = "pointer";
+      const row = mapRowFromFeatureProps(evt.features?.[0]?.properties || {});
+      mapPopup.setLngLat(evt.lngLat).setHTML(mapPopupHtml(row)).addTo(liveMap);
+      const openEl = mapPopup.getElement()?.querySelector("[data-map-open='1']");
+      if (openEl) {
+        openEl.addEventListener("click", (clickEvt) => {
+          clickEvt.preventDefault();
+          const sourceRow = lastMapRows.find((item) => String(item?.customer_id || "") === String(row.customer_id || ""));
+          openUniversal(
+            customerPayload(
+              sourceRow || row,
+              "Live Account Map",
+              modeLabelForMap(mapModeValue()),
+              "Revenue",
+              sourceRow?.revenue ?? row.revenue,
+              {
+                filter_mode: "current_window",
+                map_mode: mapModeValue(),
+                map_status: mapStatusValue(),
+                opportunity_score: sourceRow?.opportunity_score ?? row.opportunity_score,
+              },
+            ),
+            document.getElementById("srLiveMap"),
+          );
+        }, { once: true });
+      }
+    };
+    liveMap.on("mouseenter", "sr-customer-hitpoints", hoverHandler);
+    liveMap.on("mousemove", "sr-customer-hitpoints", hoverHandler);
+    liveMap.on("mouseleave", "sr-customer-hitpoints", () => {
+      liveMap.getCanvas().style.cursor = "";
+      mapPopup?.remove();
+    });
+    liveMap.on("click", "sr-customer-hitpoints", (evt) => {
+      const row = mapRowFromFeatureProps(evt.features?.[0]?.properties || {});
+      const sourceRow = lastMapRows.find((item) => String(item?.customer_id || "") === String(row.customer_id || ""));
+      openUniversal(
+        customerPayload(
+          sourceRow || row,
+          "Live Account Map",
+          modeLabelForMap(mapModeValue()),
+          "Revenue",
+          sourceRow?.revenue ?? row.revenue,
+          {
+            filter_mode: "current_window",
+            map_mode: mapModeValue(),
+            map_status: mapStatusValue(),
+            opportunity_score: sourceRow?.opportunity_score ?? row.opportunity_score,
+          },
+        ),
+        document.getElementById("srLiveMap"),
+      );
+    });
+  };
+
+  const modeLabelForMap = (mode) => {
+    if (mode === "opportunity") return "Opportunity";
+    if (mode === "risk") return "Risk";
+    if (mode === "hybrid") return "Hybrid";
+    return "Customers";
+  };
+
+  const initLiveMap = (payload) => {
+    const mapEl = document.getElementById("srLiveMap");
+    if (!mapEl) return;
+    const rows = Array.isArray(payload?.analysis?.map_customers)
+      ? payload.analysis.map_customers
+      : Array.isArray(payload?.analysis?.top_customers)
+        ? payload.analysis.top_customers
+        : [];
+    lastMapRows = rows.slice();
+
+    if (!window.maplibregl) {
+      const scriptEl = document.querySelector("script[src*='maplibre-gl']");
+      if (scriptEl) scriptEl.addEventListener("load", () => initLiveMap(payload), { once: true });
+      setMapPlaceholder(true, "Map library is still loading.");
+      return;
+    }
+
+    setMapPlaceholder(!rows.length, rows.length ? "Map loading..." : "No map accounts are visible for the current filter scope.");
+    if (!liveMap) {
+      pendingMapPayload = payload;
+      initMapOnce();
+      return;
+    }
+    liveMap.resize();
+    if (mapReady) {
+      pushMapData(rows);
+    } else {
+      pendingMapPayload = payload;
+    }
+  };
+
+  const wireMapModes = () => {
+    document.querySelectorAll('input[name="srMapMode"]').forEach((input) => {
+      input.addEventListener("change", () => updateMapMode(input.value));
+    });
+    document.querySelectorAll('input[name="srMapStatus"]').forEach((input) => {
+      input.addEventListener("change", () => {
+        if (!lastPayload) return;
+        initLiveMap(lastPayload);
+      });
+    });
+    document.getElementById("srMapResetBtn")?.addEventListener("click", () => {
+      fitMapToFeatures(lastMapFeatures);
+    });
+  };
+
   const bootstrap = async (qsHint) => {
     if (bootstrapped) return;
     bootstrapped = true;
@@ -5005,6 +5603,7 @@
   wireRowClicks();
   wireMiniSorts();
   wireControls();
+  wireMapModes();
   wireCompare();
   initCustomerViewToggle();
 

@@ -73,6 +73,16 @@ except Exception:  # pragma: no cover
     fact_store = None
 
 try:
+    from app.services import margin_rules  # type: ignore
+except Exception:  # pragma: no cover
+    margin_rules = None  # type: ignore
+
+try:
+    from app.services import products_bundle as products_bundle_service  # type: ignore
+except Exception:  # pragma: no cover
+    products_bundle_service = None  # type: ignore
+
+try:
     from app.services import analytics_utils as au  # type: ignore
 except Exception:  # pragma: no cover
     au = None
@@ -434,6 +444,8 @@ def requires_roles(*roles: str):
         def wrapper(*args, **kwargs):
             if current_app.config.get("AUTHZ_DISABLED"):
                 return fn(*args, **kwargs)
+            if current_app.config.get("LOGIN_DISABLED"):
+                return fn(*args, **kwargs)
             if callable(route_permission_override_allows_request):
                 try:
                     allow_override = route_permission_override_allows_request()
@@ -642,6 +654,10 @@ class CanonCols:
     product_id: str = "product_id"
     product_name: str = "product_name"
     sku: str = "sku"
+    protein_type: str = "protein_type"
+    protein_name: str = "protein_name"
+    category: str = "category"
+    product_category: str = "product_category"
     cost: str = "cost"
     customer_id: str = "customer_id"
     customer_name: str = "customer_name"
@@ -669,6 +685,10 @@ REQUIRED_PRODUCTS_COLUMNS: List[str] = [
     CAN.product_id,
     CAN.product_name,
     CAN.sku,
+    CAN.protein_type,
+    CAN.protein_name,
+    CAN.category,
+    CAN.product_category,
     CAN.customer_id,
     CAN.customer_name,
     CAN.region,
@@ -696,6 +716,10 @@ def _empty_products_frame() -> pd.DataFrame:
             CAN.product_id: pd.Series(dtype="string"),
             CAN.product_name: pd.Series(dtype="string"),
             CAN.sku: pd.Series(dtype="string"),
+            CAN.protein_type: pd.Series(dtype="string"),
+            CAN.protein_name: pd.Series(dtype="string"),
+            CAN.category: pd.Series(dtype="string"),
+            CAN.product_category: pd.Series(dtype="string"),
             CAN.customer_id: pd.Series(dtype="string"),
             CAN.customer_name: pd.Series(dtype="string"),
             CAN.region: pd.Series(dtype="string"),
@@ -733,6 +757,28 @@ def _to_dt(s: pd.Series) -> pd.Series:
     return pd.to_datetime(s, errors="coerce").dt.tz_localize(None)
 
 
+def _clean_text_series(s: pd.Series | None, index: pd.Index) -> pd.Series:
+    if s is None:
+        return pd.Series(pd.NA, index=index, dtype="string")
+    out = s.astype("string").str.strip()
+    out = out.where(out.notna() & (out.str.len() > 0))
+    return out.astype("string")
+
+
+def _coalesce_text_columns(df: pd.DataFrame, candidates: Iterable[str]) -> pd.Series | None:
+    series_list: list[pd.Series] = []
+    for cand in candidates:
+        if cand not in df.columns:
+            continue
+        series_list.append(_clean_text_series(df[cand], df.index))
+    if not series_list:
+        return None
+    out = series_list[0].copy()
+    for series in series_list[1:]:
+        out = out.fillna(series)
+    return out.astype("string")
+
+
 def normalize_products_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Produce canonical product analytics columns with defensive defaults.
@@ -764,6 +810,10 @@ def normalize_products_df(df: pd.DataFrame) -> pd.DataFrame:
         df,
         ("SkuName", "SKUName", "ProductName", "product_name", "Name", "Description", "Product_Label", "Product"),
     )
+    protein_series = _coalesce_text_columns(df, ("Protein", "ProteinType", "ProteinName", "Category", "ProductCategory"))
+    protein_name_series = _coalesce_text_columns(df, ("ProteinName", "Protein", "ProteinType", "Category", "ProductCategory"))
+    category_series = _coalesce_text_columns(df, ("Category", "ProductCategory", "Protein", "ProteinType", "ProteinName"))
+    product_category_series = _coalesce_text_columns(df, ("ProductCategory", "Category", "Protein", "ProteinType", "ProteinName"))
     src_cid = _resolve_col(df, ("CustomerId", "customer_id", "ClientId"))
     src_cname = _resolve_col(df, ("CustomerName", "customer_name", "ClientName", "AccountName"))
     src_region_id = _resolve_col(df, ("RegionId", "region_id", "RegionID"))
@@ -830,6 +880,14 @@ def normalize_products_df(df: pd.DataFrame) -> pd.DataFrame:
     out[CAN.product_id] = df[src_pid].astype("string") if src_pid else pd.Series(pd.NA, index=df.index, dtype="string")
     out[CAN.product_name] = df[src_pname].astype("string") if src_pname else pd.Series(pd.NA, index=df.index, dtype="string")
     out[CAN.sku] = df[src_sku].astype("string") if src_sku else pd.Series(pd.NA, index=df.index, dtype="string")
+    out[CAN.protein_type] = (protein_series if protein_series is not None else pd.Series(pd.NA, index=df.index, dtype="string"))
+    out[CAN.protein_name] = (
+        protein_name_series if protein_name_series is not None else pd.Series(pd.NA, index=df.index, dtype="string")
+    )
+    out[CAN.category] = (category_series if category_series is not None else pd.Series(pd.NA, index=df.index, dtype="string"))
+    out[CAN.product_category] = (
+        product_category_series if product_category_series is not None else pd.Series(pd.NA, index=df.index, dtype="string")
+    )
     out[CAN.customer_id] = df[src_cid].astype("string") if src_cid else pd.Series(pd.NA, index=df.index, dtype="string")
     out[CAN.customer_name] = df[src_cname].astype("string") if src_cname else pd.Series(pd.NA, index=df.index, dtype="string")
     out[CAN.region_id] = df[src_region_id].astype("string") if src_region_id else pd.Series(pd.NA, index=df.index, dtype="string")
@@ -893,13 +951,29 @@ def normalize_products_df(df: pd.DataFrame) -> pd.DataFrame:
     out[CAN.discount] = _to_numeric(df[src_disc]).fillna(0.0) if src_disc else 0.0
 
     # Clean strings
-    for c in (CAN.product_name, CAN.customer_name, CAN.region_id, CAN.region, CAN.supplier_id, CAN.supplier, CAN.sku):
+    for c in (
+        CAN.product_name,
+        CAN.customer_name,
+        CAN.region_id,
+        CAN.region,
+        CAN.supplier_id,
+        CAN.supplier,
+        CAN.sku,
+        CAN.protein_type,
+        CAN.protein_name,
+        CAN.category,
+        CAN.product_category,
+    ):
         out[c] = out[c].astype("string").str.strip()
         out[c] = out[c].where(out[c].notna() & (out[c].str.len() > 0))
 
     # Fallback name/sku
     out[CAN.product_name] = out[CAN.product_name].fillna(out[CAN.product_id]).fillna("Unknown")
     out[CAN.sku] = out[CAN.sku].fillna(out[CAN.product_id])
+    out[CAN.protein_type] = out[CAN.protein_type].fillna(out[CAN.protein_name]).fillna(df.get("Protein", pd.Series(pd.NA, index=df.index, dtype="string"))).fillna(out[CAN.category]).fillna(out[CAN.product_category])
+    out[CAN.protein_name] = out[CAN.protein_name].fillna(out[CAN.protein_type]).fillna(df.get("Protein", pd.Series(pd.NA, index=df.index, dtype="string"))).fillna(out[CAN.category]).fillna(out[CAN.product_category])
+    out[CAN.category] = out[CAN.category].fillna(out[CAN.product_category]).fillna(out[CAN.protein_type]).fillna(out[CAN.protein_name])
+    out[CAN.product_category] = out[CAN.product_category].fillna(out[CAN.category]).fillna(out[CAN.protein_type]).fillna(out[CAN.protein_name])
 
     # Drop rows with no date or no product_id (keeps intelligence reliable)
     out = out.dropna(subset=[CAN.date, CAN.product_id])
@@ -907,9 +981,15 @@ def normalize_products_df(df: pd.DataFrame) -> pd.DataFrame:
     # Small perf wins
     out[CAN.region] = out[CAN.region].astype("category")
     out[CAN.supplier] = out[CAN.supplier].astype("category")
+    out[CAN.protein_type] = out[CAN.protein_type].astype("category")
+    out[CAN.category] = out[CAN.category].astype("category")
 
     # Alias for compatibility with legacy code if present
     out["weight"] = out[CAN.weight]
+    out["ProteinType"] = out[CAN.protein_type].astype("string")
+    out["ProteinName"] = out[CAN.protein_name].astype("string")
+    out["Category"] = out[CAN.category].astype("string")
+    out["ProductCategory"] = out[CAN.product_category].astype("string")
 
     return out
 
@@ -1762,6 +1842,7 @@ def parse_filter_params(params: Any, fallback_months: int = DEFAULT_MONTHS):
                 "date_preset",
                 "preset",
                 "range_preset",
+                "date_type",
             )
         )
     except Exception:
@@ -1837,6 +1918,7 @@ def parse_global_filters(arg: Any = None, fallback_months: int = DEFAULT_MONTHS)
                 "start_date": _ts_to_datestr(start),
                 "end_date": _ts_to_datestr(end),
                 "date_preset": getattr(params, "preset", None),
+                "date_type": getattr(params, "date_type", None),
                 "regions": list(getattr(params, "regions", ()) or []),
                 "customers": list(getattr(params, "customers", ()) or []),
                 "suppliers": list(getattr(params, "suppliers", ()) or []),
@@ -1894,6 +1976,11 @@ def parse_global_filters(arg: Any = None, fallback_months: int = DEFAULT_MONTHS)
         )
     except Exception:
         date_preset = None
+    date_type = None
+    try:
+        date_type = source.get("date_type") or stored.get("date_type")
+    except Exception:
+        date_type = None
     preset_token = str(date_preset).strip().lower() if date_preset else None
     explicit_all_time = preset_token in {"all", "__all__", "*"}
     if start is None and end is None and not explicit_all_time:
@@ -1915,6 +2002,7 @@ def parse_global_filters(arg: Any = None, fallback_months: int = DEFAULT_MONTHS)
         "start_date": _ts_to_datestr(start),
         "end_date": _ts_to_datestr(end),
         "date_preset": str(date_preset).strip() if date_preset else None,
+        "date_type": str(date_type).strip() if date_type else None,
         "regions": list(getattr(params, "regions", ()) or []),
         "customers": list(getattr(params, "customers", ()) or []),
         "suppliers": list(getattr(params, "suppliers", ()) or []),
@@ -1944,6 +2032,7 @@ def parse_filters(arg: Any = None, fallback_months: int = DEFAULT_MONTHS) -> Dic
         "start_date": gf.get("start_date"),
         "end_date": gf.get("end_date"),
         "date_preset": gf.get("date_preset"),
+        "date_type": gf.get("date_type"),
         "regions": gf.get("regions") or [],
         "customers": gf.get("customers") or [],
         "suppliers": gf.get("suppliers") or [],
@@ -1973,7 +2062,7 @@ def build_querystring(filters: Dict[str, Any], include_prefix: bool = True) -> s
             for v in vals:
                 params.append((out_key or key, v))
 
-    for k in ("start_date", "end_date", "date_preset"):
+    for k in ("start_date", "end_date", "date_preset", "date_type"):
         v = filters.get(k) or filters.get(k.replace("_date", ""))
         if v:
             params.append((k, v))
@@ -2106,22 +2195,28 @@ def apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
 
     protein_min = filters.get("protein_min")
     protein_max = filters.get("protein_max")
-    if "Protein" in df.columns and (protein_min is not None or protein_max is not None):
-        prot = pd.to_numeric(df["Protein"], errors="coerce")
-        if protein_min is not None:
-            try:
-                mask &= prot >= float(protein_min)
-            except Exception:
-                pass
-        if protein_max is not None:
-            try:
-                mask &= prot <= float(protein_max)
-            except Exception:
-                pass
+    protein_numeric_col = next((col for col in ("Protein", "protein", CAN.protein_type, CAN.protein_name, CAN.category) if col in df.columns), None)
+    if protein_numeric_col and (protein_min is not None or protein_max is not None):
+        prot = pd.to_numeric(df[protein_numeric_col], errors="coerce")
+        if prot.notna().any():
+            if protein_min is not None:
+                try:
+                    mask &= prot >= float(protein_min)
+                except Exception:
+                    pass
+            if protein_max is not None:
+                try:
+                    mask &= prot <= float(protein_max)
+                except Exception:
+                    pass
 
     protein_name_like = str(filters.get("protein_name_like") or "").strip()
-    if protein_name_like and CAN.product_name in df.columns:
-        mask &= df[CAN.product_name].astype("string").str.contains(protein_name_like, case=False, na=False)
+    if protein_name_like:
+        family_mask = pd.Series(False, index=df.index)
+        for cand in (CAN.protein_type, CAN.protein_name, CAN.category, CAN.product_category, "ProteinType", "ProteinName", "Category", "ProductCategory", "Protein", CAN.product_name):
+            if cand in df.columns:
+                family_mask |= df[cand].astype("string").str.contains(protein_name_like, case=False, na=False)
+        mask &= family_mask
 
     return df.loc[mask]
 
@@ -2284,6 +2379,8 @@ def _top_products(df: pd.DataFrame, limit: int) -> List[Dict[str, Any]]:
     qty_basis = g["_qty_basis"].sum().astype(float)
     weight_sum = g["_weight"].sum().astype(float)
     cost = g[CAN.cost].sum(min_count=1).astype(float) if CAN.cost in df.columns else None
+    protein_family = g[CAN.protein_type].agg("first") if CAN.protein_type in working.columns else pd.Series(pd.NA, index=rev.index, dtype="string")
+    product_category = g[CAN.product_category].agg("first") if CAN.product_category in working.columns else pd.Series(pd.NA, index=rev.index, dtype="string")
     first_sold = g[CAN.date].min()
     last_sold = g[CAN.date].max()
 
@@ -2294,6 +2391,8 @@ def _top_products(df: pd.DataFrame, limit: int) -> List[Dict[str, Any]]:
             "revenue": rev.values,
             "qty": qty_basis.values,
             "weight": weight_sum.values,
+            "protein_family": protein_family.values,
+            "product_category": product_category.values,
             "first_sold": first_sold.values,
             "last_sold": last_sold.values,
         }
@@ -2313,24 +2412,18 @@ def _top_products(df: pd.DataFrame, limit: int) -> List[Dict[str, Any]]:
             out["margin_pct"] = np.where(out["margin_valid"], out["profit"] / out["revenue"] * 100.0, np.nan)
             out["margin_pct"] = np.clip(out["margin_pct"], -200.0, 200.0)
         out["unit_cost"] = np.where(out["qty"] > 0, out["cost"] / out["qty"], np.nan)
-        out["target_price_27"] = np.where(out["unit_cost"].notna(), out["unit_cost"] / (1 - 0.27), np.nan)
-        out["target_price_21"] = np.where(out["unit_cost"].notna(), out["unit_cost"] / (1 - 0.21), np.nan)
-        out["target_unit_price"] = out["target_price_27"]
-        if au is not None and hasattr(au, "safe_uplift_pct"):
-            out["uplift_pct"] = au.safe_uplift_pct(out["current_unit_price"], out["target_price_27"])
-        else:
-            out["uplift_pct"] = np.where(
-                (out["current_unit_price"] > 0) & out["target_price_27"].notna(),
-                (out["target_price_27"] - out["current_unit_price"]) / out["current_unit_price"] * 100.0,
-                np.nan,
-            )
-            out["uplift_pct"] = np.clip(out["uplift_pct"], -100.0, 200.0)
+        out["minimum_price"] = np.nan
+        out["target_price_27"] = np.nan
+        out["target_price_21"] = np.nan
+        out["target_unit_price"] = np.nan
+        out["uplift_pct"] = np.nan
     else:
         out["cost"] = np.nan
         out["margin"] = np.nan
         out["margin_pct"] = np.nan
         out["profit"] = np.nan
         out["unit_cost"] = np.nan
+        out["minimum_price"] = np.nan
         out["target_price_27"] = np.nan
         out["target_price_21"] = np.nan
         out["target_unit_price"] = np.nan
@@ -2338,10 +2431,7 @@ def _top_products(df: pd.DataFrame, limit: int) -> List[Dict[str, Any]]:
         out["cost_available"] = False
         out["margin_valid"] = False
 
-    out["recommendation_label"] = [
-        _recommendation_label(bool(mv), None if pd.isna(up) else float(up))
-        for mv, up in zip(out.get("margin_valid", pd.Series(False, index=out.index)), out.get("uplift_pct", pd.Series(np.nan, index=out.index)))
-    ]
+    out["recommendation_label"] = None
     out = out.sort_values("revenue", ascending=False).head(limit)
 
     total_rev = float(out["revenue"].sum()) if not out.empty else 0.0
@@ -2365,6 +2455,8 @@ def _top_products(df: pd.DataFrame, limit: int) -> List[Dict[str, Any]]:
             "unit_price": float(round(r.avg_price, 2)) if not pd.isna(r.avg_price) else None,
             "current_unit_price": float(round(r.current_unit_price, 2)) if hasattr(r, "current_unit_price") and not pd.isna(r.current_unit_price) else None,
             "revenue_share": float(round(r.revenue_share, 4)) if not pd.isna(r.revenue_share) else None,
+            "protein_family": getattr(r, "protein_family", None),
+            "product_category": getattr(r, "product_category", None),
             "margin": float(round(r.margin, 2)) if not pd.isna(r.margin) else None,
             "margin_pct": float(round(r.margin_pct, 2)) if not pd.isna(r.margin_pct) else None,
             "profit": float(round(r.profit, 2)) if hasattr(r, "profit") and not pd.isna(r.profit) else None,
@@ -2381,6 +2473,33 @@ def _top_products(df: pd.DataFrame, limit: int) -> List[Dict[str, Any]]:
             "first_sold": first_sold.strftime("%Y-%m-%d") if pd.notna(first_sold) else None,
             "last_sold": last_sold.strftime("%Y-%m-%d") if pd.notna(last_sold) else None,
         })
+    if margin_rules is not None:
+        rows = margin_rules.annotate_margin_rows(
+            rows,
+            protein_keys=("protein_family",),
+            category_keys=("product_category",),
+            revenue_key="revenue",
+            cost_key="cost",
+            profit_key="profit",
+            margin_key="margin_pct",
+            unit_cost_key="unit_cost",
+            unit_price_key="current_unit_price",
+        )
+        for row in rows:
+            target_price = _safe_float_optional(row.get("target_price"))
+            minimum_price = _safe_float_optional(row.get("minimum_price"))
+            current_unit_price = _safe_float_optional(row.get("current_unit_price"))
+            row["target_price"] = round(target_price, 2) if target_price is not None else None
+            row["minimum_price"] = round(minimum_price, 2) if minimum_price is not None else None
+            row["target_price_27"] = row.get("target_price")
+            row["target_price_21"] = round(minimum_price, 2) if minimum_price is not None else None
+            row["target_unit_price"] = row.get("target_price")
+            if current_unit_price not in (None, 0) and target_price is not None:
+                uplift_pct = (target_price - current_unit_price) / current_unit_price * 100.0
+                row["uplift_pct"] = round(float(np.clip(uplift_pct, -100.0, 200.0)), 2)
+            else:
+                row["uplift_pct"] = None
+            row["recommendation_label"] = _recommendation_label(bool(row.get("margin_valid")), row.get("uplift_pct"))
     return rows
 
 
@@ -3121,6 +3240,8 @@ def _bubble_payload(df: pd.DataFrame, filters: Dict[str, Any], limit: int) -> Di
     revenue = g[CAN.revenue].sum().astype(float)
     qty_total = g["_qty_basis"].sum().astype(float)
     sku_map = working.groupby(CAN.product_id, observed=True)[CAN.sku].agg(lambda s: s.dropna().iloc[0] if not s.dropna().empty else None)
+    protein_map = working.groupby(CAN.product_id, observed=True)[CAN.protein_type].agg("first") if CAN.protein_type in working.columns else pd.Series(dtype="string")
+    category_map = working.groupby(CAN.product_id, observed=True)[CAN.product_category].agg("first") if CAN.product_category in working.columns else pd.Series(dtype="string")
     months_active = working.groupby(CAN.product_id, observed=True)["month"].nunique()
 
     cost_sum = g[CAN.cost].sum(min_count=1).astype(float) if CAN.cost in working.columns else pd.Series(dtype=float)
@@ -3142,6 +3263,8 @@ def _bubble_payload(df: pd.DataFrame, filters: Dict[str, Any], limit: int) -> Di
     data["unit_price"] = np.where(data["qty_basis"] > 0, data["revenue"] / data["qty_basis"], np.nan)
     data["current_unit_price"] = data["unit_price"]
     data["velocity_month"] = data["velocity"]
+    data["protein_family"] = data["product_id"].map(protein_map)
+    data["product_category"] = data["product_id"].map(category_map)
 
     if has_cost and not cost_sum.empty:
         cost_map = {str(pid): val for pid, val in zip(cost_sum.index.get_level_values(0).astype(str), cost_sum.values)}
@@ -3160,27 +3283,17 @@ def _bubble_payload(df: pd.DataFrame, filters: Dict[str, Any], limit: int) -> Di
                 np.nan,
             )
             data["margin_pct"] = np.clip(data["margin_pct"], -200.0, 200.0)
-        data["target_price_27"] = np.where(data["unit_cost"].notna(), data["unit_cost"] / (1 - 0.27), np.nan)
-        data["target_unit_price"] = data["target_price_27"]
-        if au is not None and hasattr(au, "safe_uplift_pct"):
-            data["uplift_pct"] = au.safe_uplift_pct(data["current_unit_price"], data["target_price_27"])
-        else:
-            data["uplift_pct"] = np.where(
-                (data["current_unit_price"] > 0) & data["target_price_27"].notna(),
-                (data["target_price_27"] - data["current_unit_price"]) / data["current_unit_price"] * 100.0,
-                np.nan,
-            )
-            data["uplift_pct"] = np.clip(data["uplift_pct"], -100.0, 200.0)
-        data["uplift_abs"] = np.where(
-            (data["target_price_27"].notna()) & (data["current_unit_price"] > 0),
-            (data["target_price_27"] - data["current_unit_price"].fillna(0)) * data["qty_basis"].fillna(0),
-            np.nan,
-        )
+        data["minimum_price"] = np.nan
+        data["target_price_27"] = np.nan
+        data["target_unit_price"] = np.nan
+        data["uplift_pct"] = np.nan
+        data["uplift_abs"] = np.nan
     else:
         data["cost"] = np.nan
         data["unit_cost"] = np.nan
         data["margin_pct"] = np.nan
         data["profit"] = np.nan
+        data["minimum_price"] = np.nan
         data["target_price_27"] = np.nan
         data["target_unit_price"] = np.nan
         data["uplift_pct"] = np.nan
@@ -3219,6 +3332,8 @@ def _bubble_payload(df: pd.DataFrame, filters: Dict[str, Any], limit: int) -> Di
                 "velocity_month": float(round(r.velocity_month, 3)) if hasattr(r, "velocity_month") and not pd.isna(r.velocity_month) else None,
                 "unit_price": float(round(r.unit_price, 4)) if not pd.isna(r.unit_price) else None,
                 "current_unit_price": float(round(r.current_unit_price, 4)) if hasattr(r, "current_unit_price") and not pd.isna(r.current_unit_price) else None,
+                "protein_family": getattr(r, "protein_family", None),
+                "product_category": getattr(r, "product_category", None),
                 "unit_cost": float(round(r.unit_cost, 4)) if not pd.isna(r.unit_cost) else None,
                 "target_price_27": float(round(r.target_price_27, 4)) if hasattr(r, "target_price_27") and not pd.isna(r.target_price_27) else None,
                 "target_unit_price": float(round(r.target_unit_price, 4)) if hasattr(r, "target_unit_price") and not pd.isna(r.target_unit_price) else None,
@@ -3230,6 +3345,34 @@ def _bubble_payload(df: pd.DataFrame, filters: Dict[str, Any], limit: int) -> Di
                 "revenue_share": float(round(r.revenue_share, 4)) if hasattr(r, "revenue_share") and not pd.isna(r.revenue_share) else None,
             }
         )
+
+    if margin_rules is not None:
+        rows = margin_rules.annotate_margin_rows(
+            rows,
+            protein_keys=("protein_family",),
+            category_keys=("product_category",),
+            revenue_key="revenue",
+            cost_key="cost",
+            profit_key="profit",
+            margin_key="margin_pct",
+            unit_cost_key="unit_cost",
+            unit_price_key="current_unit_price",
+        )
+        for row in rows:
+            target_price = _safe_float_optional(row.get("target_price"))
+            minimum_price = _safe_float_optional(row.get("minimum_price"))
+            current_unit_price = _safe_float_optional(row.get("current_unit_price"))
+            row["minimum_price"] = round(minimum_price, 4) if minimum_price is not None else None
+            row["target_price_27"] = round(target_price, 4) if target_price is not None else None
+            row["target_price_21"] = round(minimum_price, 4) if minimum_price is not None else None
+            row["target_unit_price"] = row.get("target_price_27")
+            if target_price is not None and current_unit_price not in (None, 0):
+                uplift_pct = (target_price - current_unit_price) / current_unit_price * 100.0
+                row["uplift_pct"] = round(float(np.clip(uplift_pct, -100.0, 200.0)), 2)
+                row["uplift_abs"] = round((target_price - current_unit_price) * _safe_float_or_zero(row.get("qty_basis")), 2)
+            else:
+                row["uplift_pct"] = None
+                row["uplift_abs"] = None
 
     return {"rows": rows, "has_cost": has_cost, "limit": limit, "total": total_rows}
 
@@ -4320,12 +4463,16 @@ def _normalize_overview_export_row(row: Dict[str, Any]) -> Dict[str, Any]:
         out["avg_price"] = out.get("unit_price")
     if out.get("current_unit_price") is None:
         out["current_unit_price"] = out.get("unit_price")
+    if out.get("minimum_price") is None:
+        out["minimum_price"] = out.get("target_price_21")
+    if out.get("asp_lb_gap_to_min") is None:
+        out["asp_lb_gap_to_min"] = out.get("min_price_gap")
     if out.get("target_unit_price") is None:
         out["target_unit_price"] = out.get("target_price")
     if out.get("target_price_27") is None:
         out["target_price_27"] = out.get("target_price")
     if out.get("target_price_21") is None:
-        out["target_price_21"] = out.get("target_price")
+        out["target_price_21"] = out.get("minimum_price")
     if out.get("recommendation_label") is None:
         out["recommendation_label"] = out.get("recommendation") or out.get("quick_rec")
     if out.get("asp_lb") is None:
@@ -4364,11 +4511,15 @@ _DEFAULT_PRODUCTS_EXPORT_FIELDS = [
     "product_id",
     "sku",
     "desc",
+    "protein_family",
+    "product_category",
     "supplier",
     "customer_count",
     "supplier_count",
     "region_breadth",
+    "top_customer_name",
     "top_customer_share",
+    "top_region_name",
     "customer_hhi",
     "revenue",
     "revenue_current",
@@ -4383,6 +4534,11 @@ _DEFAULT_PRODUCTS_EXPORT_FIELDS = [
     "qty_share",
     "unit_price",
     "asp_lb",
+    "minimum_price",
+    "asp_lb_gap_to_min",
+    "minimum_price_lb",
+    "target_price_lb",
+    "asp_lb_gap_to_target",
     "cost_lb",
     "contribution_lb",
     "avg_price",
@@ -4392,6 +4548,8 @@ _DEFAULT_PRODUCTS_EXPORT_FIELDS = [
     "profit_current",
     "profit_prior",
     "profit_delta",
+    "minimum_margin_pct",
+    "target_margin_pct",
     "target_price_27",
     "target_price_21",
     "target_unit_price",
@@ -4400,6 +4558,9 @@ _DEFAULT_PRODUCTS_EXPORT_FIELDS = [
     "margin_pct_prior",
     "margin_delta_pp",
     "margin",
+    "target_achievement_pct",
+    "target_status",
+    "status_key",
     "recommendation_label",
 ]
 
@@ -4408,6 +4569,8 @@ _PRODUCTS_EXPORT_COLUMN_ALIASES = {
     "sku": "sku",
     "product": "product_name",
     "product_name": "product_name",
+    "protein_family": "protein_family",
+    "product_category": "product_category",
     "segment": "segment",
     "revenue": "revenue",
     "revenue_current": "revenue_current",
@@ -4425,9 +4588,16 @@ _PRODUCTS_EXPORT_COLUMN_ALIASES = {
     "customer_count": "customer_count",
     "supplier_count": "supplier_count",
     "region_breadth": "region_breadth",
+    "top_customer_name": "top_customer_name",
     "top_customer_share": "top_customer_share",
+    "top_region_name": "top_region_name",
     "customer_hhi": "customer_hhi",
     "asp_lb": "asp_lb",
+    "minimum_price": "minimum_price",
+    "asp_lb_gap_to_min": "asp_lb_gap_to_min",
+    "minimum_price_lb": "minimum_price_lb",
+    "target_price_lb": "target_price_lb",
+    "asp_lb_gap_to_target": "asp_lb_gap_to_target",
     "cost_lb": "cost_lb",
     "contribution_lb": "contribution_lb",
     "unit_price": "unit_price",
@@ -4435,6 +4605,8 @@ _PRODUCTS_EXPORT_COLUMN_ALIASES = {
     "target_price": "target_unit_price",
     "target_unit_price": "target_unit_price",
     "uplift_pct": "uplift_pct",
+    "minimum_margin_pct": "minimum_margin_pct",
+    "target_margin_pct": "target_margin_pct",
     "cost": "cost",
     "profit": "profit",
     "profit_current": "profit_current",
@@ -4446,6 +4618,9 @@ _PRODUCTS_EXPORT_COLUMN_ALIASES = {
     "margin_pct_prior": "margin_pct_prior",
     "margin_delta_pp": "margin_delta_pp",
     "margin": "margin",
+    "target_achievement_pct": "target_achievement_pct",
+    "target_status": "target_status",
+    "status_key": "status_key",
     "price_variance_vs_median": "price_variance_vs_median",
     "volatility_score": "volatility_score",
     "margin_risk": "margin_risk",
@@ -4670,98 +4845,148 @@ def _classify_quadrants(rows: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]
 
 
 def _build_execution_lists(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    classified, _ = _classify_quadrants(rows)
-    pricing_fixes: List[Dict[str, Any]] = []
-    cost_fixes: List[Dict[str, Any]] = []
-    promote_candidates: List[Dict[str, Any]] = []
+    if products_bundle_service is None:
+        return {"pricing_fixes": [], "cost_fixes": [], "promote_candidates": []}
 
-    for row in classified:
-        margin = _safe_float_optional(row.get("margin_pct"))
-        cost = _safe_float_optional(row.get("cost"))
-        revenue = _safe_float_or_zero(row.get("revenue"))
-        velocity = _safe_float_or_zero(row.get("velocity_per_month"))
-        out = {
-            "product_id": row.get("product_id"),
-            "sku": row.get("sku") or row.get("product_id"),
-            "desc": row.get("desc") or row.get("display_name") or row.get("product_name"),
-            "segment": row.get("segment"),
-            "quadrant": row.get("quadrant"),
-            "revenue": revenue,
-            "profit": _safe_float_or_zero(row.get("profit")),
-            "margin_pct": margin,
-            "velocity_per_month": velocity,
-        }
-        if (row.get("quadrant") == "fix_margin") and (margin is None or margin < 27.0):
-            pricing_fixes.append({**out, "action": "Increase / Review cost", "reason": "High velocity with below-target margin and high revenue exposure."})
-        if cost is None or cost <= 0:
-            cost_fixes.append({**out, "action": "Review cost data", "reason": "Missing or invalid cost blocks reliable margin decisions."})
-        if row.get("quadrant") == "grow":
-            promote_candidates.append({**out, "action": "Promote / Expand distribution", "reason": "High profitability with lower velocity suggests demand headroom."})
-
-    if not pricing_fixes:
-        # Fallback: always surface low-margin candidates when velocity quadrants
-        # collapse due sparse/flat distributions.
-        for row in classified:
-            margin = _safe_float_optional(row.get("margin_pct"))
-            if margin is not None and margin >= 27.0:
-                continue
-            pricing_fixes.append(
-                {
-                    "product_id": row.get("product_id"),
-                    "sku": row.get("sku") or row.get("product_id"),
-                    "desc": row.get("desc") or row.get("display_name") or row.get("product_name"),
-                    "segment": row.get("segment"),
-                    "quadrant": row.get("quadrant"),
-                    "revenue": _safe_float_or_zero(row.get("revenue")),
-                    "profit": _safe_float_or_zero(row.get("profit")),
-                    "margin_pct": margin,
-                    "velocity_per_month": _safe_float_or_zero(row.get("velocity_per_month")),
-                    "action": "Increase / Review cost",
-                    "reason": "Below-target margin candidate selected from fallback rules.",
-                }
-            )
-
-    pricing_fixes.sort(key=lambda r: (_safe_float_or_zero(r.get("revenue")), _safe_float_or_zero(r.get("velocity_per_month"))), reverse=True)
-    cost_fixes.sort(key=lambda r: _safe_float_or_zero(r.get("revenue")), reverse=True)
-    promote_candidates.sort(key=lambda r: _safe_float_or_zero(r.get("revenue")), reverse=True)
+    lists = products_bundle_service._build_execution_lists_from_rows(rows, limit=None)
+    if not isinstance(lists, dict):
+        return {"pricing_fixes": [], "cost_fixes": [], "promote_candidates": []}
     return {
-        "pricing_fixes": pricing_fixes,
-        "cost_fixes": cost_fixes,
-        "promote_candidates": promote_candidates,
+        "pricing_fixes": list(lists.get("pricing_fixes") or []),
+        "cost_fixes": list(lists.get("cost_fixes") or []),
+        "promote_candidates": list(lists.get("promote_candidates") or []),
     }
 
 
-def _fallback_execution_selection(rows: List[Dict[str, Any]], list_name: str) -> List[Dict[str, Any]]:
-    selected: List[Dict[str, Any]] = []
-    for row in rows:
-        margin = _safe_float_optional(row.get("margin_pct"))
-        cost = _safe_float_optional(row.get("cost"))
-        revenue = _safe_float_or_zero(row.get("revenue"))
-        velocity = _safe_float_or_zero(row.get("velocity_per_month"))
-        base = {
-            "product_id": row.get("product_id"),
-            "sku": row.get("sku") or row.get("product_id"),
-            "desc": row.get("desc") or row.get("display_name") or row.get("product_name"),
-            "segment": row.get("segment"),
-            "quadrant": row.get("quadrant"),
-            "revenue": revenue,
-            "profit": _safe_float_or_zero(row.get("profit")),
-            "margin_pct": margin,
-            "velocity_per_month": velocity,
-        }
-        if list_name == "cost_fixes":
-            if cost is None or cost <= 0:
-                selected.append({**base, "action": "Review cost data", "reason": "Missing or invalid cost blocks reliable margin decisions."})
-            continue
-        if list_name == "promote_candidates":
-            if margin is not None and margin >= 27.0:
-                selected.append({**base, "action": "Promote / Expand distribution", "reason": "Healthy margin profile supports promotion testing."})
-            continue
-        if margin is None or margin < 27.0:
-            selected.append({**base, "action": "Increase / Review cost", "reason": "Below-target margin candidate selected from fallback rules."})
+def _resolve_row_target_margin_pct(row: Dict[str, Any]) -> float | None:
+    target_margin = _safe_float_optional(row.get("target_margin_pct"))
+    if target_margin is not None:
+        return target_margin
+    if margin_rules is None:
+        return None
+    try:
+        resolved = margin_rules.resolve_margin_rule(
+            protein=row.get("protein_family") or row.get("family") or row.get("top_protein_family"),
+            category=row.get("product_category") or row.get("category"),
+        )
+    except Exception:
+        return None
+    return _safe_float_optional((resolved or {}).get("target_gross_margin_pct"))
 
-    selected.sort(key=lambda r: (_safe_float_or_zero(r.get("revenue")), _safe_float_or_zero(r.get("velocity_per_month"))), reverse=True)
-    return selected
+
+def _fallback_execution_margin_guardrails() -> tuple[float, float]:
+    minimum_values: List[float] = []
+    target_values: List[float] = []
+    if margin_rules is not None:
+        try:
+            for rule in margin_rules.all_margin_rules():
+                min_margin = _safe_float_optional(rule.get("min_gross_margin_pct"))
+                target_margin = _safe_float_optional(rule.get("target_gross_margin_pct"))
+                if min_margin is not None:
+                    minimum_values.append(min_margin)
+                if target_margin is not None:
+                    target_values.append(target_margin)
+        except Exception:
+            minimum_values = []
+            target_values = []
+    fallback_minimum = _quantile(minimum_values, 0.25) if minimum_values else 17.0
+    fallback_target = _quantile(target_values, 0.25) if target_values else max(26.0, fallback_minimum + 9.0)
+    fallback_target = max(fallback_target, fallback_minimum + 6.0)
+    return float(fallback_minimum), float(fallback_target)
+
+
+def _fallback_execution_selection(rows: List[Dict[str, Any]], list_name: str) -> List[Dict[str, Any]]:
+    lists = _build_execution_lists(rows)
+    selected = lists.get(list_name, []) if isinstance(lists, dict) else []
+    if selected:
+        return list(selected)
+
+    fallback_minimum, fallback_target = _fallback_execution_margin_guardrails()
+    triage_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        revenue = _safe_float_optional(row.get("revenue")) or 0.0
+        if revenue <= 0:
+            continue
+        sku = row.get("sku") or row.get("product_id")
+        margin_pct = _safe_float_optional(row.get("margin_pct"))
+        velocity = _safe_float_optional(row.get("velocity_per_month"))
+        if velocity is None:
+            velocity = _safe_float_optional(row.get("orders_per_month"))
+        velocity = velocity or 0.0
+        cost_value = _safe_float_optional(row.get("cost"))
+        target_margin = _resolve_row_target_margin_pct(row)
+        minimum_margin = _safe_float_optional(row.get("minimum_margin_pct"))
+        if minimum_margin is None:
+            minimum_margin = fallback_minimum
+        if target_margin is None:
+            target_margin = fallback_target
+        target_status = row.get("target_status")
+        if not target_status and margin_pct is not None:
+            if margin_rules is not None:
+                status = margin_rules.classify_margin_status(margin_pct, minimum_margin, target_margin)
+                target_status = status.get("target_status")
+            else:
+                if margin_pct < minimum_margin:
+                    target_status = "Near minimum"
+                elif margin_pct < target_margin:
+                    target_status = "Between minimum and target"
+                else:
+                    target_status = "Above target"
+
+        if list_name == "cost_fixes":
+            if cost_value is not None and cost_value > 0 and row.get("protein_family"):
+                continue
+            action = "Review cost data" if cost_value in (None, 0.0) else "Map protein / category"
+            reason = (
+                "Cost coverage is missing, so minimum and target price guidance cannot be trusted until the row is repaired."
+                if cost_value in (None, 0.0)
+                else "Protein/category mapping is missing, so protein-aware minimum and target margin guardrails cannot be applied yet."
+            )
+            priority_score = revenue + (velocity * 50.0)
+        elif list_name == "pricing_fixes":
+            if margin_pct is None or margin_pct >= target_margin:
+                continue
+            below_minimum = margin_pct < minimum_margin
+            action = "Recover minimum price" if below_minimum else "Recover target price"
+            reason = (
+                f"Protein mapping is incomplete, so export is using fallback guardrails ({fallback_minimum:.0f}% min / {fallback_target:.0f}% target) to keep the pricing queue actionable."
+                if _resolve_row_target_margin_pct(row) is None
+                else "Current margin is below the mapped minimum/target guardrail for this SKU."
+            )
+            priority_score = revenue + (max(0.0, target_margin - margin_pct) * 140.0) + (velocity * 35.0)
+        else:
+            if margin_pct is None or margin_pct < target_margin or velocity > 4.0:
+                continue
+            action = "Promote / Expand distribution"
+            reason = "Healthy margin with modest velocity. Use the export queue to push distribution or feature support."
+            priority_score = revenue + (margin_pct - target_margin) * 110.0 + max(0.0, 4.0 - velocity) * 60.0
+
+        triage_rows.append(
+            {
+                **row,
+                "sku": sku,
+                "product_id": row.get("product_id") or sku,
+                "display_name": row.get("display_name") or row.get("product_name") or row.get("desc") or sku,
+                "velocity_per_month": velocity,
+                "minimum_margin_pct": minimum_margin,
+                "target_margin_pct": target_margin,
+                "target_status": target_status,
+                "action": action,
+                "reason": reason,
+                "priority_score": round(priority_score, 2),
+            }
+        )
+
+    triage_rows.sort(
+        key=lambda item: (
+            _safe_float_optional(item.get("priority_score")) or 0.0,
+            _safe_float_optional(item.get("revenue")) or 0.0,
+        ),
+        reverse=True,
+    )
+    return triage_rows
 
 
 @bp.route("/export/execution.csv")
@@ -4792,13 +5017,25 @@ def export_execution_csv():
     fields = [
         "product_id",
         "sku",
-        "desc",
+        "display_name",
         "segment",
-        "quadrant",
+        "protein_family",
+        "product_category",
         "revenue",
         "profit",
         "margin_pct",
+        "minimum_margin_pct",
+        "target_margin_pct",
+        "gap_to_minimum",
+        "gap_to_target",
+        "target_achievement_pct",
+        "profit_uplift_target",
+        "customer_count",
+        "top_customer_share",
+        "status_key",
+        "target_status",
         "velocity_per_month",
+        "priority_score",
         "action",
         "reason",
     ]
@@ -5124,6 +5361,8 @@ def drilldown(product_id: str):
             classification=context.get("classification") or {},
             lifecycle=context.get("lifecycle") or {},
             lifecycle_insights=context.get("lifecycle_insights") or {},
+            family_context=context.get("family_context") or {},
+            margin_profile=context.get("margin_profile") or {},
             performance_story=context.get("performance_story") or {},
             price_volume=context.get("price_volume") or {},
             margin_risk=context.get("margin_risk") or {},
@@ -5482,7 +5721,7 @@ def export_product(product_id: str):
     qty_series = _qty_basis_series(sub)
     qty_label = _qty_label(sub)
 
-    if sub.empty and not status.available:
+    if sub.empty and base_df.empty and not status.available:
         return _json_response(
             _attach_parquet_warning({"data": []}, status, add_empty_data=True),
             status=200,

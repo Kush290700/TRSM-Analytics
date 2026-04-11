@@ -45,6 +45,7 @@ def _stub_options_payload(params: Any) -> dict[str, Any]:
 @pytest.fixture
 def sticky_client(app, client, monkeypatch):
     app.config["STICKY_FILTERS"] = True
+    app.config["FILTERS_CANONICAL_V2"] = False
 
     def _fake_get_user(*_args, **_kwargs):
         uid = request.headers.get("X-User", "u1")
@@ -113,6 +114,7 @@ def test_reset_clears_sticky_filters(sticky_client):
 
 def test_sticky_filters_isolated_by_session_and_user(app, monkeypatch):
     app.config["STICKY_FILTERS"] = True
+    app.config["FILTERS_CANONICAL_V2"] = False
 
     def _fake_get_user(*_args, **_kwargs):
         uid = request.headers.get("X-User", "u1")

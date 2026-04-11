@@ -1,9 +1,9 @@
 <section class="overview-panel" id="moversPanel">
   <div class="panel-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div>
-      <div class="panel-eyebrow">Top movers</div>
-      <h2 class="panel-title">Monitored movement panel</h2>
-      <div class="panel-subtitle">Meaningful gainers and decliners stay separated, low-base guardrails stay explicit, and exports remain fully aligned with what users investigate here.</div>
+      <div class="panel-eyebrow">Top 10 customer movers</div>
+      <h2 class="panel-title">Customer-first movement panel</h2>
+      <div class="panel-subtitle">Customer gainers and decliners lead this workspace by default, while product and region movement remain available from the same governed table contract.</div>
     </div>
     <div class="d-flex align-items-center gap-2">
       <div class="btn-group btn-group-sm" role="group" id="moversDimToggle">
@@ -21,6 +21,26 @@
     </div>
   </div>
   <div class="panel-body">
+    <div class="focus-summary-grid">
+      <article class="focus-summary-card">
+        <div class="focus-label">Lead customer gainer</div>
+        <div class="focus-title" id="focusLeadCustomerTitle">Loading…</div>
+        <div class="focus-value" id="focusLeadCustomerValue">-</div>
+        <div class="focus-detail" id="focusLeadCustomerDetail">Preparing strongest current-window customer expansion signal.</div>
+      </article>
+      <article class="focus-summary-card">
+        <div class="focus-label">Lead customer decliner</div>
+        <div class="focus-title" id="focusDecliningCustomerTitle">Loading…</div>
+        <div class="focus-value" id="focusDecliningCustomerValue">-</div>
+        <div class="focus-detail" id="focusDecliningCustomerDetail">Preparing highest-dollar current-window customer decline.</div>
+      </article>
+      <article class="focus-summary-card">
+        <div class="focus-label">Customer movement readout</div>
+        <div class="focus-title" id="focusCustomerMotionTitle">Customer breadth</div>
+        <div class="focus-value" id="focusCustomerMotionValue">-</div>
+        <div class="focus-detail" id="focusCustomerMotionDetail">Preparing the top-10 customer movement summary.</div>
+      </article>
+    </div>
     <div class="section-meta-row">
       <div class="summary" id="moversSummaryText">Comparing the current filtered window versus the prior comparable window.</div>
       <div class="movers-legend">Labels use New, Lost, and Low base guardrails so unstable percentages do not overstate movement.</div>

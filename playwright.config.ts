@@ -1,7 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Base URL for the app under test. Override via PLAYWRIGHT_BASE_URL.
-const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5000';
+const host = process.env.PLAYWRIGHT_HOST || '127.0.0.1';
+const port = process.env.PLAYWRIGHT_PORT || '4173';
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://${host}:${port}`;
 
 export default defineConfig({
   testDir: 'tests/playwright',
@@ -12,8 +13,15 @@ export default defineConfig({
     headless: true,
     viewport: { width: 1440, height: 900 },
     ignoreHTTPSErrors: true,
-    // Set PLAYWRIGHT_AUTH_STATE to a storage state file if login is required.
     storageState: process.env.PLAYWRIGHT_AUTH_STATE || undefined,
+  },
+  webServer: {
+    command: `${process.env.PYTHON || 'python3'} tests/playwright/theme_audit_boot.py`,
+    url: baseURL,
+    timeout: 180_000,
+    reuseExistingServer: false,
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
   projects: [
     {

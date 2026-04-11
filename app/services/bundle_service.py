@@ -259,6 +259,12 @@ def _requested_sections(args: Any) -> Optional[Tuple[str, ...]]:
         "overview": "overview",
         "summary": "overview",
         "kpis": "overview",
+        "strategy": "strategy",
+        "demand": "demand",
+        "pricing": "pricing",
+        "execution": "execution",
+        "assortment": "assortment",
+        "table": "table",
         "clv": "clv",
         "rfm": "rfm",
         "cohort": "cohorts",
@@ -296,7 +302,24 @@ def _bundle_query_budget(page: str, meta: Mapping[str, Any]) -> Optional[int]:
         if sections in ({"clv"}, {"rfm"}, {"cohorts"}):
             return 7
         return 9
-    if page in {"products", "regions", "suppliers", "salesreps"}:
+    if page == "products":
+        sections = {
+            str(section).strip().lower()
+            for section in (meta.get("sections") or [])
+            if str(section).strip()
+        }
+        if not sections:
+            return 3
+        if sections == {"table"}:
+            return 1
+        if sections.issubset({"overview", "strategy", "demand"}):
+            return 1
+        if "table" in sections:
+            return 2
+        return 2
+    if page == "salesreps":
+        return 4
+    if page in {"regions", "suppliers"}:
         return 3
     return None
 
@@ -570,7 +593,12 @@ def _build_bundle(page: str, filters: Any, scope: Dict[str, Any], args: Any) -> 
         )
     if page == "products":
         # Rich bundle for product intelligence
-        return products_bundle.build_products_bundle(filters, scope, args)
+        return products_bundle.build_products_bundle(
+            filters,
+            scope,
+            args,
+            requested_sections=_requested_sections(args),
+        )
     if page == "regions":
         return regions_bundle.build_regions_bundle(filters, scope, args)
     if page == "suppliers":
@@ -706,6 +734,9 @@ def bundle(page: str, args: Any) -> Dict[str, Any]:
         "export_all": getter("export_all", None),
         "dataset": getter("dataset") or getter("export_type", None),
         "tab": getter("tab", None),
+        "attribution_mode": getter("attribution_mode") or getter("mode", None),
+        "roster_mode": getter("roster_mode") or getter("rep_roster") or getter("rep_status", None),
+        "transfer_only": getter("transfer_only") or getter("transfers_only", None),
     }
     requested_sections = _requested_sections(args)
     if requested_sections:
@@ -897,6 +928,9 @@ def drilldown(entity: str, args: Any) -> Dict[str, Any]:
         "extras": getter("extras") or getter("include_extras"),
         "export_all": str(getter("export_all") or getter("drilldown_export_all") or "").strip().lower() in {"1", "true", "yes", "on"},
         "drilldown_v2": str(getter("drilldown_v2") or "").strip().lower() in {"1", "true", "yes", "on"},
+        "attribution_mode": getter("attribution_mode") or getter("mode", None),
+        "roster_mode": getter("roster_mode") or getter("rep_roster") or getter("rep_status", None),
+        "transfer_only": getter("transfer_only") or getter("transfers_only", None),
     }
 
     def _builder() -> Dict[str, Any]:

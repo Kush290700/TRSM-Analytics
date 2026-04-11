@@ -10,6 +10,7 @@ import pandas as pd
 from app.services import fact_schema as fs
 from app.services import fact_store
 from app.services.filters import normalize_filters
+from app.services import margin_rules
 
 CHURN_THRESHOLD_DAYS = 90
 TOP_N_DEFAULT = 25
@@ -106,6 +107,19 @@ def _parse_top_n(args: Any, default: int = TOP_N_DEFAULT) -> int:
 
 def _quote(col: str) -> str:
     return fact_store.quote_identifier(col)
+
+
+def _coalesce_numeric_expr(candidates: list[str], default: str) -> str:
+    expressions: list[str] = []
+    seen: set[str] = set()
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        expressions.append(f"CAST({_quote(cand)} AS DOUBLE)")
+    if not expressions:
+        return default
+    return f"COALESCE({', '.join(expressions + [default])})"
 
 
 def _month_from_label(label: str) -> Tuple[int, int] | None:
@@ -270,12 +284,16 @@ def _extract_quick_filter(args: Any) -> str:
     return str(getter("quick_filter") or getter("quick") or "").strip().lower()
 
 
-def _required_columns(cols: set[str]) -> Dict[str, str]:
+def _required_columns(cols: set[str]) -> Dict[str, Any]:
     date_col = _safe_col(cols, fs.CANON.date, "Date")
     region_col = _safe_col(cols, fs.CANON.region, "RegionName", "Region")
     revenue_col = _safe_col(cols, fs.CANON.revenue, "Revenue")
-    cost_col = _safe_col(cols, fs.CANON.cost, "Cost", "CostPrice")
-    qty_col = _safe_col(cols, fs.CANON.qty_units, "QuantityShipped", "QuantityOrdered")
+    cost_candidates = [cand for cand in (fs.CANON.cost, "Cost", "CostPrice") if cand in cols]
+    qty_candidates = [
+        cand
+        for cand in (fs.CANON.qty_units, "ShippedItems", "QuantityOrdered", "Qty", "Quantity", "Units", "ItemCount", "pack_item_count_sum")
+        if cand in cols
+    ]
     order_col = _safe_col(cols, fs.CANON.order_id, "OrderId", "OrderID")
     customer_col = _safe_col(cols, fs.CANON.customer_id, "CustomerId", "CustomerID")
     customer_name_col = _safe_col(cols, fs.CANON.customer_name, "CustomerName", "Customer")
@@ -284,14 +302,18 @@ def _required_columns(cols: set[str]) -> Dict[str, str]:
     ship_method_col = _safe_col(cols, fs.CANON.ship_method, "ShippingMethodName", "ShippingMethodLabel", "ShipMethod_Name")
     supplier_col = _safe_col(cols, fs.CANON.supplier_id, "SupplierId", "SupplierID", "SupplierName")
     supplier_name_col = _safe_col(cols, fs.CANON.supplier_name, "SupplierName", "Supplier")
-    weight_col = _safe_col(cols, fs.CANON.weight_lb, "WeightLb", "Weight", "pack_weight_lb_sum")
+    weight_candidates = [cand for cand in (fs.CANON.weight_lb, "Weight", "WeightLb", "ShippedLb", "pack_weight_lb_sum") if cand in cols]
+    protein_col = _safe_col(cols, "Protein", "ProteinType", "ProteinName", "Category", "ProductCategory")
+    category_col = _safe_col(cols, "Category", "ProductCategory", "Protein", "ProteinType", "ProteinName")
     missing_packs_col = _safe_col(cols, "missing_packs")
     return {
         "date": date_col,
         "region": region_col,
         "revenue": revenue_col,
-        "cost": cost_col,
-        "qty": qty_col,
+        "cost": cost_candidates[0] if cost_candidates else None,
+        "cost_candidates": cost_candidates,
+        "qty": qty_candidates[0] if qty_candidates else None,
+        "qty_candidates": qty_candidates,
         "order": order_col,
         "customer": customer_col,
         "customer_name": customer_name_col,
@@ -300,16 +322,18 @@ def _required_columns(cols: set[str]) -> Dict[str, str]:
         "ship_method": ship_method_col,
         "supplier": supplier_col,
         "supplier_name": supplier_name_col,
-        "weight": weight_col,
+        "weight": weight_candidates[0] if weight_candidates else None,
+        "weight_candidates": weight_candidates,
+        "protein": protein_col,
+        "category": category_col,
         "missing_packs": missing_packs_col,
     }
 
 
-def _region_scoped_sql(cols_map: Dict[str, str], where_sql: str) -> str:
+def _region_scoped_sql(cols_map: Dict[str, Any], where_sql: str) -> str:
     date_col = _quote(cols_map["date"])
     region_col = _quote(cols_map["region"])
     revenue_col = _quote(cols_map["revenue"])
-    cost_col = _quote(cols_map["cost"]) if cols_map.get("cost") else None
     order_col = _quote(cols_map["order"])
     customer_col = _quote(cols_map["customer"])
     customer_name_col = _quote(cols_map["customer_name"]) if cols_map.get("customer_name") else None
@@ -318,20 +342,30 @@ def _region_scoped_sql(cols_map: Dict[str, str], where_sql: str) -> str:
     ship_col = _quote(cols_map["ship_method"]) if cols_map.get("ship_method") else None
     supplier_col = _quote(cols_map["supplier"]) if cols_map.get("supplier") else None
     supplier_name_col = _quote(cols_map["supplier_name"]) if cols_map.get("supplier_name") else None
-    qty_col = _quote(cols_map["qty"]) if cols_map.get("qty") else None
-    weight_col = _quote(cols_map["weight"]) if cols_map.get("weight") else None
+    cost_candidates = list(cols_map.get("cost_candidates") or ([cols_map["cost"]] if cols_map.get("cost") else []))
+    qty_candidates = list(cols_map.get("qty_candidates") or ([cols_map["qty"]] if cols_map.get("qty") else []))
+    weight_candidates = list(cols_map.get("weight_candidates") or ([cols_map["weight"]] if cols_map.get("weight") else []))
+    protein_col = _quote(cols_map["protein"]) if cols_map.get("protein") else None
+    category_col = _quote(cols_map["category"]) if cols_map.get("category") else None
     missing_packs_col = _quote(cols_map["missing_packs"]) if cols_map.get("missing_packs") else None
 
-    cost_expr = f"CAST({cost_col} AS DOUBLE)" if cost_col else "NULL::DOUBLE"
+    base_cost_expr = _coalesce_numeric_expr(cost_candidates, "NULL::DOUBLE")
     customer_name_expr = f"CAST({customer_name_col} AS VARCHAR)" if customer_name_col else "NULL::VARCHAR"
     product_expr = f"CAST({product_col} AS VARCHAR)" if product_col else "NULL::VARCHAR"
     product_name_expr = f"CAST({product_name_col} AS VARCHAR)" if product_name_col else "NULL::VARCHAR"
     ship_expr = f"CAST({ship_col} AS VARCHAR)" if ship_col else "NULL::VARCHAR"
     supplier_expr = f"CAST({supplier_col} AS VARCHAR)" if supplier_col else "NULL::VARCHAR"
     supplier_name_expr = f"CAST({supplier_name_col} AS VARCHAR)" if supplier_name_col else "NULL::VARCHAR"
-    qty_expr = f"CAST({qty_col} AS DOUBLE)" if qty_col else "NULL::DOUBLE"
-    weight_expr = f"CAST({weight_col} AS DOUBLE)" if weight_col else "NULL::DOUBLE"
+    qty_expr = _coalesce_numeric_expr(qty_candidates, "0::DOUBLE")
+    weight_expr = _coalesce_numeric_expr(weight_candidates, "0::DOUBLE")
+    protein_expr = f"CAST({protein_col} AS VARCHAR)" if protein_col else "NULL::VARCHAR"
+    category_expr = f"CAST({category_col} AS VARCHAR)" if category_col else "NULL::VARCHAR"
     missing_packs_expr = f"CAST({missing_packs_col} AS BOOLEAN)" if missing_packs_col else "NULL::BOOLEAN"
+    protein_family_expr = f"COALESCE(NULLIF({protein_expr}, ''), NULLIF({category_expr}, ''), 'Unassigned')"
+    product_category_expr = f"COALESCE(NULLIF({category_expr}, ''), NULLIF({protein_expr}, ''), 'Unassigned')"
+    effective_cost_expr = margin_rules.sql_effective_cost_expr(base_cost_expr, weight_expr, qty_expr, fallback="NULL::DOUBLE")
+    minimum_margin_expr = margin_rules.sql_margin_rule_expr(protein_family_expr, product_category_expr, "min_gross_margin_pct")
+    target_margin_expr = margin_rules.sql_margin_rule_expr(protein_family_expr, product_category_expr, "target_gross_margin_pct")
 
     return f"""
         SELECT
@@ -345,10 +379,15 @@ def _region_scoped_sql(cols_map: Dict[str, str], where_sql: str) -> str:
             {ship_expr} AS ship_method,
             {supplier_expr} AS supplier_id,
             {supplier_name_expr} AS supplier_name,
+            {protein_family_expr} AS protein_family,
+            {product_category_expr} AS product_category,
             CAST({revenue_col} AS DOUBLE) AS revenue,
-            {cost_expr} AS cost,
+            {base_cost_expr} AS base_cost,
+            ({effective_cost_expr}) AS cost,
             {qty_expr} AS qty,
             {weight_expr} AS weight_lb,
+            ({minimum_margin_expr}) AS minimum_margin_pct,
+            ({target_margin_expr}) AS target_margin_pct,
             {missing_packs_expr} AS missing_packs
         FROM fact
         WHERE {where_sql}
@@ -429,6 +468,16 @@ def _risk_profile(row: Dict[str, Any]) -> tuple[str, int, list[str]]:
     reasons: list[str] = []
     score = 0
     margin_pct = _clean_optional_float(row.get("margin_pct"))
+    status_key = str(row.get("status_key") or "").strip().lower()
+    if not status_key:
+        status_key = str(
+            margin_rules.classify_margin_status(
+                margin_pct,
+                row.get("minimum_margin_pct"),
+                row.get("target_margin_pct"),
+            ).get("status_key")
+            or ""
+        ).strip().lower()
     churn_pct = _clean_float(row.get("churn_pct"), 0.0)
     at_risk_pct = _clean_float(row.get("at_risk_pct"), 0.0)
     top_customer_share = _clean_float(row.get("top_customer_share_pct"), 0.0)
@@ -440,7 +489,7 @@ def _risk_profile(row: Dict[str, Any]) -> tuple[str, int, list[str]]:
     if top_customer_share >= 40.0 or top_product_share >= 30.0:
         score += 1
         reasons.append("Concentration")
-    if margin_pct is not None and margin_pct < 15.0:
+    if status_key in {"red", "orange"}:
         score += 1
         reasons.append("Low margin")
     if churn_pct >= 15.0 or at_risk_pct >= 20.0:
@@ -671,6 +720,18 @@ def _regions_overview_context(filters: Any, scope: Dict[str, Any]) -> Dict[str, 
                 SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_cost,
                 CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
                 CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
+                CASE
+                    WHEN SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue * minimum_margin_pct ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue ELSE 0 END), 0)
+                    ELSE NULL
+                END AS minimum_margin_pct,
+                CASE
+                    WHEN SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue * target_margin_pct ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue ELSE 0 END), 0)
+                    ELSE NULL
+                END AS target_margin_pct,
                 CASE WHEN COUNT(DISTINCT order_id) > 0 THEN SUM(revenue) / COUNT(DISTINCT order_id) ELSE 0 END AS avg_order_value,
                 CASE WHEN COUNT(*) > 0 THEN SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) * 100 ELSE NULL END AS cost_coverage_pct
             FROM scoped
@@ -719,6 +780,18 @@ def _regions_overview_context(filters: Any, scope: Dict[str, Any]) -> Dict[str, 
                 SUM(cost) AS cost,
                 CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit,
                 CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct,
+                CASE
+                    WHEN SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue * minimum_margin_pct ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue ELSE 0 END), 0)
+                    ELSE NULL
+                END AS minimum_margin_pct,
+                CASE
+                    WHEN SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue * target_margin_pct ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue ELSE 0 END), 0)
+                    ELSE NULL
+                END AS target_margin_pct,
                 COUNT(DISTINCT order_id) AS orders,
                 COUNT(DISTINCT customer_id) AS customers,
                 SUM(COALESCE(qty, 0)) AS qty,
@@ -872,6 +945,8 @@ def _regions_overview_context(filters: Any, scope: Dict[str, Any]) -> Dict[str, 
             c.cost,
             c.profit,
             c.margin_pct,
+            c.minimum_margin_pct,
+            c.target_margin_pct,
             c.orders,
             c.customers,
             c.qty,
@@ -977,6 +1052,8 @@ def _materialize_region_frame(context: Dict[str, Any]) -> pd.DataFrame:
         profit_prior = _clean_optional_float(row.get("profit_prior"))
         margin_pct = _clean_optional_float(row.get("margin_pct"))
         margin_pct_prior = _clean_optional_float(row.get("margin_pct_prior"))
+        minimum_margin_pct = _clean_optional_float(row.get("minimum_margin_pct"))
+        target_margin_pct = _clean_optional_float(row.get("target_margin_pct"))
         orders = _clean_int(row.get("orders"))
         orders_prior = _clean_int(row.get("orders_prior"))
         customers = _clean_int(row.get("customers"))
@@ -1035,6 +1112,7 @@ def _materialize_region_frame(context: Dict[str, Any]) -> pd.DataFrame:
         profit_delta = None
         if profit is not None and profit_prior is not None:
             profit_delta = profit - profit_prior
+        status = margin_rules.classify_margin_status(margin_pct, minimum_margin_pct, target_margin_pct)
 
         record = {
             "region_id": region,
@@ -1051,6 +1129,10 @@ def _materialize_region_frame(context: Dict[str, Any]) -> pd.DataFrame:
             "margin_pct": None if margin_pct is None else round(margin_pct, 2),
             "margin_pct_prior": None if margin_pct_prior is None else round(margin_pct_prior, 2),
             "margin_delta_pp": None if margin_delta_pp is None else round(margin_delta_pp, 2),
+            "minimum_margin_pct": None if minimum_margin_pct is None else round(minimum_margin_pct, 2),
+            "target_margin_pct": None if target_margin_pct is None else round(target_margin_pct, 2),
+            "target_gap_pct_points": None if margin_pct is None or target_margin_pct is None else round(margin_pct - target_margin_pct, 2),
+            "minimum_gap_pct_points": None if margin_pct is None or minimum_margin_pct is None else round(margin_pct - minimum_margin_pct, 2),
             "orders": orders,
             "orders_prior": orders_prior,
             "delta_orders": delta_orders,
@@ -1097,6 +1179,7 @@ def _materialize_region_frame(context: Dict[str, Any]) -> pd.DataFrame:
             "low_base": bool(low_base),
             "has_current_data": bool(revenue > 0),
             "has_prior_data": bool(revenue_prior > 0),
+            **status,
         }
         risk_band, risk_score, risk_reasons = _risk_profile(record)
         record["risk_band"] = risk_band
@@ -1173,6 +1256,7 @@ def build_regions_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Dict
     repeat_rate_pct = _safe_pct(_m("repeat_customers"), _m("repeat_total"))
     new_customer_share_pct = _safe_pct(region_frame.get("new_customer_revenue", pd.Series(dtype="float64")).sum(), revenue_total) if not region_frame.empty else None
     churn_risk_regions_count = int((region_frame.get("risk_band", pd.Series(dtype="object")).astype(str).str.lower() == "high").sum()) if not region_frame.empty else 0
+    kpi_margin_status = margin_rules.classify_margin_status(_m("margin_pct"), _m("minimum_margin_pct"), _m("target_margin_pct"))
 
     kpis = {
         "total_revenue": revenue_total,
@@ -1185,6 +1269,8 @@ def build_regions_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Dict
         "cost_coverage_pct": _m("cost_coverage_pct"),
         "profit": _m("profit"),
         "margin_pct": _m("margin_pct"),
+        "minimum_margin_pct": _m("minimum_margin_pct"),
+        "target_margin_pct": _m("target_margin_pct"),
         "yoy_growth": None if context.get("yoy_growth") is None else round(float(context["yoy_growth"]), 2),
         "mom_growth": None if mom_growth is None else round(mom_growth, 2),
         "wow_growth": None if wow_growth is None else round(wow_growth, 2),
@@ -1202,6 +1288,7 @@ def build_regions_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Dict
         "churn_risk_regions_count": churn_risk_regions_count,
         "start": start_iso,
         "end": end_iso,
+        **kpi_margin_status,
     }
 
     profitability_rows = _serialize_rows(
@@ -1211,6 +1298,12 @@ def build_regions_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Dict
             "revenue",
             "profit",
             "margin_pct",
+            "minimum_margin_pct",
+            "target_margin_pct",
+            "target_gap_pct_points",
+            "status_key",
+            "target_status",
+            "status_color",
             "aov",
             "profit_per_order",
             "revenue_per_customer",
@@ -1316,6 +1409,12 @@ def build_regions_bundle(filters: Any, scope: Dict[str, Any], args: Any) -> Dict
             "revenue",
             "profit",
             "margin_pct",
+            "minimum_margin_pct",
+            "target_margin_pct",
+            "target_gap_pct_points",
+            "status_key",
+            "target_status",
+            "status_color",
             "aov",
             "repeat_pct",
             "churn_pct",
@@ -1635,6 +1734,18 @@ def _region_drilldown_summary_frame(context: Dict[str, Any]) -> pd.DataFrame:
                 SUM(cost) AS cost_current,
                 CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit_current,
                 CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct_current,
+                CASE
+                    WHEN SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue * minimum_margin_pct ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN revenue > 0 AND minimum_margin_pct IS NOT NULL THEN revenue ELSE 0 END), 0)
+                    ELSE NULL
+                END AS minimum_margin_pct_current,
+                CASE
+                    WHEN SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue ELSE 0 END) > 0
+                    THEN SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue * target_margin_pct ELSE 0 END)
+                        / NULLIF(SUM(CASE WHEN revenue > 0 AND target_margin_pct IS NOT NULL THEN revenue ELSE 0 END), 0)
+                    ELSE NULL
+                END AS target_margin_pct_current,
                 COUNT(DISTINCT order_id) AS orders_current,
                 COUNT(DISTINCT customer_id) AS customers_current,
                 SUM(COALESCE(qty, 0)) AS qty_current,
@@ -1741,7 +1852,10 @@ def _region_drilldown_summary_frame(context: Dict[str, Any]) -> pd.DataFrame:
             SELECT
                 product_id,
                 COALESCE(MAX(product_name), product_id) AS product_name,
+                COALESCE(MAX(protein_family), MAX(product_category), 'Unassigned') AS protein_family,
+                COALESCE(MAX(product_category), MAX(protein_family), 'Unassigned') AS product_category,
                 SUM(revenue) AS revenue_current,
+                SUM(base_cost) AS base_cost_current,
                 SUM(cost) AS cost_current,
                 CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit_current,
                 CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct_current,
@@ -1986,7 +2100,10 @@ def _region_drilldown_product_frame(context: Dict[str, Any], tag: str = "regions
             SELECT
                 product_id,
                 COALESCE(MAX(product_name), product_id) AS product_name,
+                COALESCE(MAX(protein_family), MAX(product_category), 'Unassigned') AS protein_family,
+                COALESCE(MAX(product_category), MAX(protein_family), 'Unassigned') AS product_category,
                 SUM(revenue) AS revenue_current,
+                SUM(base_cost) AS base_cost_current,
                 SUM(cost) AS cost_current,
                 CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit_current,
                 CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct_current,
@@ -2001,7 +2118,10 @@ def _region_drilldown_product_frame(context: Dict[str, Any], tag: str = "regions
             SELECT
                 product_id,
                 COALESCE(MAX(product_name), product_id) AS product_name,
+                COALESCE(MAX(protein_family), MAX(product_category), 'Unassigned') AS protein_family,
+                COALESCE(MAX(product_category), MAX(protein_family), 'Unassigned') AS product_category,
                 SUM(revenue) AS revenue_prior,
+                SUM(base_cost) AS base_cost_prior,
                 SUM(cost) AS cost_prior,
                 CASE WHEN SUM(cost) IS NULL THEN NULL ELSE SUM(revenue) - SUM(cost) END AS profit_prior,
                 CASE WHEN SUM(revenue) > 0 AND SUM(cost) IS NOT NULL THEN (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 ELSE NULL END AS margin_pct_prior,
@@ -2015,8 +2135,12 @@ def _region_drilldown_product_frame(context: Dict[str, Any], tag: str = "regions
         SELECT
             COALESCE(c.product_id, p.product_id) AS product_id,
             COALESCE(c.product_name, p.product_name) AS product_name,
+            COALESCE(c.protein_family, p.protein_family, 'Unassigned') AS protein_family,
+            COALESCE(c.product_category, p.product_category, 'Unassigned') AS product_category,
             COALESCE(c.revenue_current, 0) AS revenue_current,
             COALESCE(p.revenue_prior, 0) AS revenue_prior,
+            c.base_cost_current AS base_cost_current,
+            p.base_cost_prior AS base_cost_prior,
             c.cost_current AS cost_current,
             p.cost_prior AS cost_prior,
             c.profit_current AS profit_current,
@@ -2158,12 +2282,17 @@ def _prepare_region_product_rows(product_df: pd.DataFrame, revenue_total: float)
         if not product_id:
             continue
         product_name = str(rec.get("product_name") or product_id)
+        protein_family = str(rec.get("protein_family") or "Unassigned")
+        product_category = str(rec.get("product_category") or protein_family or "Unassigned")
         revenue_current = round(_clean_float(rec.get("revenue_current"), 0.0), 2)
         revenue_prior = round(_clean_float(rec.get("revenue_prior"), 0.0), 2)
+        base_cost_current = _clean_optional_float(rec.get("base_cost_current"))
+        cost_current = _clean_optional_float(rec.get("cost_current"))
         profit_current = _clean_optional_float(rec.get("profit_current"))
         margin_current = _clean_optional_float(rec.get("margin_pct_current"))
         margin_prior = _clean_optional_float(rec.get("margin_pct_prior"))
         qty_current = _clean_float(rec.get("qty_current"), 0.0)
+        weight_current = _clean_float(rec.get("weight_lb_current"), 0.0)
         orders_current = _clean_int(rec.get("orders_current"))
         delta_revenue = round(revenue_current - revenue_prior, 2)
         delta_pct, delta_label, low_base = _mover_delta_meta(revenue_current, revenue_prior)
@@ -2189,9 +2318,14 @@ def _prepare_region_product_rows(product_df: pd.DataFrame, revenue_total: float)
             {
                 "product_id": product_id,
                 "product_name": product_name,
+                "protein_family": protein_family,
+                "product_category": product_category,
                 "revenue": revenue_current,
                 "revenue_current": revenue_current,
                 "revenue_prior": revenue_prior,
+                "base_cost": None if base_cost_current is None else round(base_cost_current, 2),
+                "cost": None if cost_current is None else round(cost_current, 2),
+                "effective_cost_basis": None if cost_current is None else round(cost_current, 2),
                 "profit": None if profit_current is None else round(profit_current, 2),
                 "profit_current": None if profit_current is None else round(profit_current, 2),
                 "margin_pct": None if margin_current is None else round(margin_current, 2),
@@ -2202,6 +2336,10 @@ def _prepare_region_product_rows(product_df: pd.DataFrame, revenue_total: float)
                 "orders_current": orders_current,
                 "qty": round(qty_current, 2),
                 "qty_current": round(qty_current, 2),
+                "weight_lb": round(weight_current, 2),
+                "weight_lb_current": round(weight_current, 2),
+                "cost_lb": None if cost_current is None or weight_current <= 0 else round(cost_current / weight_current, 4),
+                "effective_cost_lb": None if cost_current is None or weight_current <= 0 else round(cost_current / weight_current, 4),
                 "revenue_per_unit": None if revenue_per_unit is None else round(revenue_per_unit, 2),
                 "revenue_share_pct": None if share_pct is None else round(share_pct, 2),
                 "delta_revenue": delta_revenue,
@@ -2212,6 +2350,32 @@ def _prepare_region_product_rows(product_df: pd.DataFrame, revenue_total: float)
                 "risk_tag": risk_tag,
             }
         )
+
+    rows = margin_rules.annotate_margin_rows(
+        rows,
+        protein_keys=("protein_family",),
+        category_keys=("product_category",),
+        revenue_key="revenue",
+        cost_key="cost",
+        profit_key="profit",
+        margin_key="margin_pct",
+        unit_cost_key="cost_lb",
+    )
+    for row in rows:
+        margin_current = _clean_optional_float(row.get("margin_pct"))
+        status_key = str(row.get("status_key") or "").strip().lower()
+        if margin_current is None and _clean_float(row.get("revenue"), 0.0) > 0:
+            row["risk_tag"] = "Cost gap"
+        elif status_key in {"red", "orange"}:
+            row["risk_tag"] = "Margin risk"
+        elif row.get("delta_revenue_status") == "decliner":
+            row["risk_tag"] = "Declining"
+        elif row.get("delta_revenue_status") == "new":
+            row["risk_tag"] = "New"
+        elif row.get("delta_revenue_status") == "gainer" and (_clean_float(row.get("revenue_share_pct"), 0.0) < 5.0):
+            row["risk_tag"] = "Opportunity"
+        else:
+            row["risk_tag"] = "Core"
 
     rows.sort(key=lambda item: (float(item.get("revenue_current") or 0.0), item.get("product_name") or ""), reverse=True)
     return rows
@@ -2298,6 +2462,8 @@ def build_regions_drilldown(region_id: str, filters: Any, scope: Dict[str, Any],
     yoy_revenue_raw = _clean_optional_float(summary_row.get("revenue_yoy"))
     profit_current = _clean_optional_float(summary_row.get("profit_current"))
     margin_current = _clean_optional_float(summary_row.get("margin_pct_current"))
+    minimum_margin_current = _clean_optional_float(summary_row.get("minimum_margin_pct_current"))
+    target_margin_current = _clean_optional_float(summary_row.get("target_margin_pct_current"))
     orders_current = _clean_int(summary_row.get("orders_current"))
     customers_current = _clean_int(summary_row.get("customers_current"))
     qty_current = _clean_float(summary_row.get("qty_current"), 0.0)
@@ -2371,6 +2537,7 @@ def build_regions_drilldown(region_id: str, filters: Any, scope: Dict[str, Any],
     top_supplier_share_pct = _safe_pct(summary_row.get("top_supplier_revenue"), current_revenue)
     dominant_ship_method = summary_row.get("dominant_ship_method")
     dominant_ship_share_pct = _safe_pct(summary_row.get("dominant_ship_revenue"), current_revenue)
+    margin_status = margin_rules.classify_margin_status(margin_current, minimum_margin_current, target_margin_current)
 
     cost_coverage_pct = _safe_pct(rows_with_cost_current, rows_current)
     packs_coverage_pct = None
@@ -2506,6 +2673,9 @@ def build_regions_drilldown(region_id: str, filters: Any, scope: Dict[str, Any],
         "revenue_delta_window_pct": window_delta_pct,
         "total_profit": None if profit_current is None else round(profit_current, 2),
         "margin_pct": None if margin_current is None else round(margin_current, 2),
+        "minimum_margin_pct": None if minimum_margin_current is None else round(minimum_margin_current, 2),
+        "target_margin_pct": None if target_margin_current is None else round(target_margin_current, 2),
+        "target_gap_pct_points": None if margin_current is None or target_margin_current is None else round(margin_current - target_margin_current, 2),
         "orders": orders_current,
         "customers": customers_current,
         "avg_order_value": round(aov, 2),
@@ -2551,12 +2721,19 @@ def build_regions_drilldown(region_id: str, filters: Any, scope: Dict[str, Any],
         "customer_health_warning": customer_health_warning,
         "rows_current": rows_current,
         "ref_date": _iso_date_value(summary_row.get("ref_date")),
+        **margin_status,
     }
 
     kpis = {
         "revenue": current_revenue,
         "profit": scorecard.get("total_profit"),
         "margin_pct": scorecard.get("margin_pct"),
+        "minimum_margin_pct": scorecard.get("minimum_margin_pct"),
+        "target_margin_pct": scorecard.get("target_margin_pct"),
+        "target_gap_pct_points": scorecard.get("target_gap_pct_points"),
+        "status_key": scorecard.get("status_key"),
+        "target_status": scorecard.get("target_status"),
+        "status_color": scorecard.get("status_color"),
         "orders": orders_current,
         "customers": customers_current,
         "avg_order_value": scorecard.get("avg_order_value"),

@@ -3,7 +3,9 @@
 {% block title %}Sales Reps Performance{% endblock %}
 
 {% block head_extras %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260410-v7') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260411-v8') }}">
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" defer></script>
 {% endblock %}
 
@@ -130,6 +132,57 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <section class="mb-4" id="srMapSection">
+    <article class="card shadow-sm border-0">
+      <div class="card-header bg-white border-0 d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+          <div class="fw-semibold">Live Account Map</div>
+          <div class="text-muted small">
+            Switch between customer coverage, whitespace opportunity, and risk concentration without losing direct customer drilldown.
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <div class="sr-map-legend" id="srMapLegend"></div>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Map Mode">
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModeBubbles" value="bubbles" checked autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModeBubbles">Customers</label>
+
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModeOpportunity" value="opportunity" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModeOpportunity">Opportunity</label>
+
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModeRisk" value="risk" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModeRisk">Risk</label>
+
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModeHybrid" value="hybrid" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModeHybrid">Hybrid</label>
+          </div>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Account Status Filter">
+            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusActive" value="active" checked autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapStatusActive">Active</label>
+
+            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusLost" value="lost" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapStatusLost">Lost</label>
+
+            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusProspect" value="prospect" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapStatusProspect">Prospect</label>
+
+            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusAll" value="all" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapStatusAll">All</label>
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="srMapResetBtn">Reset View</button>
+        </div>
+      </div>
+      <div class="card-body p-0 position-relative">
+        <div id="srLiveMap" class="sr-live-map" aria-label="Customer account map"></div>
+        <div id="srMapPlaceholder" class="sr-map-placeholder active">
+          <div class="sr-map-placeholder-icon">&#127758;</div>
+          <div class="fw-semibold">Map loading...</div>
+          <div class="text-muted small">Customer and opportunity layers will appear when bundle data is ready.</div>
+        </div>
+      </div>
+    </article>
   </section>
 
   <section class="row g-3 mb-4">
@@ -803,5 +856,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/salesreps.js', v='20260409-v5') }}" defer></script>
+<script src="{{ url_for('static', filename='js/salesreps.js', v='20260411-v6') }}" defer></script>
 {% endblock %}

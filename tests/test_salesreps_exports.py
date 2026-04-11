@@ -78,6 +78,10 @@ def seed_salesreps_exports(tmp_path, monkeypatch):
     df.to_parquet(parquet_path)
 
     monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    monkeypatch.delenv("CUSTOMER_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("TERRITORY_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("CUSTOMER_TERRITORY_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("SALESREP_SUCCESSION_PATH", raising=False)
     fact_store.reset_duckdb_state()
     fact_store.init_views()
     yield parquet_path
@@ -183,6 +187,99 @@ def test_salesrep_export_rbac_scope_enforced(app_client, seed_salesreps_exports,
     assert denied.status_code == 403
 
 
+@pytest.fixture
+def seed_salesreps_snapshot_exports(tmp_path, monkeypatch):
+    rows = [
+        {
+            "Date": "2025-01-15",
+            "DateExpected": "2025-01-15",
+            "SalesRepId": "R1",
+            "SalesRepName": "Alex",
+            "PrimarySalesRepId": "R2",
+            "OrderId": "EXP-SNAP-1",
+            "CustomerId": "C-SNAP-01",
+            "CustomerName": "Moved Customer",
+            "ProductId": "P-SNAP-01",
+            "ProductName": "Snapshot Product",
+            "OrderStatus": "packed",
+            "Revenue": 900.0,
+            "Cost": 540.0,
+            "QuantityOrdered": 9,
+            "WeightLb": 18.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 9.0,
+            "pack_weight_lb_sum": 18.0,
+            "pack_count": 1,
+            "Price": 100.0,
+            "CostPrice": 60.0,
+        },
+        {
+            "Date": "2025-02-20",
+            "DateExpected": "2025-02-20",
+            "SalesRepId": "R2",
+            "SalesRepName": "Bea",
+            "PrimarySalesRepId": "R2",
+            "OrderId": "EXP-SNAP-2",
+            "CustomerId": "C-SNAP-02",
+            "CustomerName": "Current Customer",
+            "ProductId": "P-SNAP-02",
+            "ProductName": "Snapshot Product 2",
+            "OrderStatus": "packed",
+            "Revenue": 600.0,
+            "Cost": 360.0,
+            "QuantityOrdered": 6,
+            "WeightLb": 12.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 6.0,
+            "pack_weight_lb_sum": 12.0,
+            "pack_count": 1,
+            "Price": 100.0,
+            "CostPrice": 60.0,
+        },
+    ]
+
+    parquet_path = tmp_path / "fact_salesreps_snapshot_exports.parquet"
+    pd.DataFrame(rows).to_parquet(parquet_path)
+
+    monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    monkeypatch.delenv("CUSTOMER_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("TERRITORY_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("CUSTOMER_TERRITORY_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("SALESREP_SUCCESSION_PATH", raising=False)
+    fact_store.reset_duckdb_state()
+    fact_store.init_views()
+    yield parquet_path
+    fact_store.reset_duckdb_state()
+
+
+def test_salesreps_exports_resolve_snapshot_owner_names(seed_salesreps_snapshot_exports):
+    scope = {"is_admin": True}
+    filters = filters_service.resolve_effective_filters(
+        {"start": "2025-01-01", "end": "2025-12-31"},
+        session_obj={},
+        user_id=None,
+        sticky_enabled=False,
+    )
+    summary_df = salesreps_bundle.build_salesreps_export_frame(
+        filters,
+        scope,
+        {"attribution_mode": "current_owner", "roster_mode": "include_former"},
+    )
+    assert "Rep Name" in summary_df.columns
+    assert "Rep ID" not in summary_df.columns
+    assert "Bea" in summary_df["Rep Name"].tolist()
+
+    customers_df = salesreps_bundle.build_salesrep_export_dataset(
+        "R2",
+        filters,
+        scope,
+        {"attribution_mode": "current_owner", "roster_mode": "include_former"},
+        dataset="customers",
+    )
+    owner_names = set(customers_df["account_owner_name"].dropna().astype(str).tolist())
+    assert "Bea" in owner_names
+
+
 def test_salesrep_drilldown_rbac_scope_enforced(app_client, seed_salesreps_exports, monkeypatch):
     class _DummySalesUser:
         is_authenticated = True
@@ -247,7 +344,7 @@ def test_salesrep_drilldown_admin_can_open_all(app_client, seed_salesreps_export
     assert resp.status_code == 200
 
 
-def test_salesrep_drilldown_v2_renders_export_buttons(app_client, monkeypatch):
+def test_salesrep_drilldown_v2_renders_export_buttons(app_client, seed_salesreps_exports, monkeypatch):
     monkeypatch.setitem(app_client.application.config, "SALESREP_DRILLDOWN_V2", True)
     resp = app_client.get("/salesreps/R1")
     assert resp.status_code == 200
@@ -255,8 +352,25 @@ def test_salesrep_drilldown_v2_renders_export_buttons(app_client, monkeypatch):
     for dataset in ("trend", "mix", "customers", "products", "movers_customers", "movers_products", "margin_risk", "at_risk"):
         assert f'data-export-dataset="{dataset}"' in body
     assert 'data-v2-enabled="1"' in body
+    assert 'id="drAttributionMode"' in body
+    assert 'id="drOwnershipCompare"' in body
+    assert 'id="drWarnings"' in body
     assert "drMoversCustomersTable" in body
     assert "drMarginRiskTable" in body
+    assert "Current owner portfolio context" in body
+    assert 'id="SalesRepDrilldownBoot"' in body
+
+
+def test_salesrep_drilldown_v2_falls_back_to_legacy_when_prefetch_fails(app_client, monkeypatch):
+    monkeypatch.setitem(app_client.application.config, "SALESREP_DRILLDOWN_V2", True)
+    monkeypatch.setattr("app.blueprints.salesreps.bundle_service.drilldown", lambda *_args, **_kwargs: {"error": {"message": "synthetic salesrep bundle failure"}})
+
+    resp = app_client.get("/salesreps/R1")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'data-v2-enabled="0"' in body
+    assert "Revenue and Profit Trend (Monthly)" in body
+    assert 'id="drAttributionMode"' not in body
 
 
 def test_salesrep_drilldown_v1_fallback_renders_without_v2_blocks(app_client, monkeypatch):
@@ -270,6 +384,11 @@ def test_salesrep_drilldown_v1_fallback_renders_without_v2_blocks(app_client, mo
 
 
 def test_salesrep_export_xlsx_endpoints_return_full_data(app_client, seed_salesreps_exports):
+    try:
+        import openpyxl  # noqa: F401
+    except Exception:
+        pytest.skip("openpyxl not installed")
+
     legacy = app_client.get(
         "/salesreps/R1/export.xlsx",
         query_string={"start": "2025-01-01", "end": "2025-12-31"},
@@ -330,7 +449,120 @@ def test_salesrep_new_export_types_and_export_type_param(app_client, seed_salesr
     assert list(at_risk_df.columns)
 
 
+@pytest.fixture
+def seed_salesreps_ownership_exports(tmp_path, monkeypatch):
+    rows = [
+        {
+            "Date": "2025-01-15",
+            "DateExpected": "2025-01-15",
+            "SalesRepId": "R1",
+            "SalesRepName": "Alex",
+            "OrderId": "EXP-OWN-1",
+            "CustomerId": "C-OWN-01",
+            "CustomerName": "Moved Customer",
+            "ProductId": "P-OWN-01",
+            "ProductName": "Ownership Product",
+            "OrderStatus": "packed",
+            "Revenue": 900.0,
+            "Cost": 540.0,
+            "QuantityOrdered": 9,
+            "WeightLb": 18.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 9.0,
+            "pack_weight_lb_sum": 18.0,
+            "pack_count": 1,
+            "Price": 100.0,
+            "CostPrice": 60.0,
+        },
+        {
+            "Date": "2025-03-20",
+            "DateExpected": "2025-03-20",
+            "SalesRepId": "R1",
+            "SalesRepName": "Alex",
+            "OrderId": "EXP-OWN-2",
+            "CustomerId": "C-OWN-01",
+            "CustomerName": "Moved Customer",
+            "ProductId": "P-OWN-02",
+            "ProductName": "Ownership Product 2",
+            "OrderStatus": "packed",
+            "Revenue": 600.0,
+            "Cost": 360.0,
+            "QuantityOrdered": 6,
+            "WeightLb": 11.0,
+            "UnitOfBillingId": 1,
+            "pack_item_count_sum": 6.0,
+            "pack_weight_lb_sum": 11.0,
+            "pack_count": 1,
+            "Price": 100.0,
+            "CostPrice": 60.0,
+        },
+    ]
+    bridge = pd.DataFrame(
+        [
+            {
+                "customer_id": "C-OWN-01",
+                "rep_id": "R1",
+                "rep_name": "Alex",
+                "assignment_start_date": "2025-01-01",
+                "assignment_end_date": "2025-03-31",
+                "is_current": False,
+                "rep_is_active": False,
+            },
+            {
+                "customer_id": "C-OWN-01",
+                "rep_id": "R2",
+                "rep_name": "Bea",
+                "assignment_start_date": "2025-04-01",
+                "assignment_end_date": None,
+                "is_current": True,
+                "rep_is_active": True,
+            },
+        ]
+    )
+
+    parquet_path = tmp_path / "fact_salesreps_ownership_exports.parquet"
+    bridge_path = tmp_path / "customer_rep_history_exports.csv"
+    pd.DataFrame(rows).to_parquet(parquet_path)
+    bridge.to_csv(bridge_path, index=False)
+
+    monkeypatch.setenv("PARQUET_PATH", str(parquet_path))
+    monkeypatch.setenv("CUSTOMER_REP_HISTORY_PATH", str(bridge_path))
+    monkeypatch.delenv("TERRITORY_REP_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("CUSTOMER_TERRITORY_HISTORY_PATH", raising=False)
+    monkeypatch.delenv("SALESREP_SUCCESSION_PATH", raising=False)
+    fact_store.reset_duckdb_state()
+    fact_store.init_views()
+    yield parquet_path
+    fact_store.reset_duckdb_state()
+
+
+def test_salesreps_export_respects_current_owner_mode(app_client, seed_salesreps_ownership_exports):
+    resp = app_client.get(
+        "/salesreps/export.csv",
+        query_string={
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "attribution_mode": "current_owner",
+            "roster_mode": "include_former",
+        },
+    )
+    assert resp.status_code == 200
+    frame = _csv_frame(resp)
+    assert "Rep ID" not in frame.columns
+    owner_row = frame.loc[frame["Rep Name"] == "Bea"]
+    assert not owner_row.empty
+    row = owner_row.iloc[0]
+    assert float(row["Revenue"]) == pytest.approx(1500.0, abs=0.01)
+    assert float(row["Transferred In Revenue"]) == pytest.approx(1500.0, abs=0.01)
+    assert float(row["Current Owner Revenue"]) == pytest.approx(1500.0, abs=0.01)
+
+
 def test_salesrep_dataset_xlsx_includes_metadata_sheet(app_client, seed_salesreps_exports):
+    try:
+        import openpyxl  # noqa: F401
+    except Exception:
+        pytest.skip("openpyxl not installed")
+
     resp = app_client.get(
         "/salesreps/R1/export",
         query_string={"start": "2025-01-01", "end": "2025-12-31", "dataset": "customers", "format": "xlsx"},
@@ -344,3 +576,25 @@ def test_salesrep_dataset_xlsx_includes_metadata_sheet(app_client, seed_salesrep
         assert "Customers" in xls.sheet_names
         metadata = pd.read_excel(xls, sheet_name="Metadata")
         assert {"key", "value"}.issubset(set(metadata.columns))
+
+
+def test_salesreps_page_xlsx_export_builds_portfolio_and_rep_tabs(app_client, seed_salesreps_exports):
+    try:
+        import openpyxl  # noqa: F401
+    except Exception:
+        pytest.skip("openpyxl not installed")
+
+    resp = app_client.get(
+        "/salesreps/export.xlsx",
+        query_string={"start": "2025-01-01", "end": "2025-12-31"},
+    )
+    assert resp.status_code == 200
+    if "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" not in (resp.content_type or ""):
+        pytest.skip("XLSX engine unavailable in test environment")
+
+    with pd.ExcelFile(io.BytesIO(resp.get_data())) as xls:
+        assert "Portfolio Summary" in xls.sheet_names
+        assert "Alex" in xls.sheet_names
+        assert "Bea" in xls.sheet_names
+        alex_df = pd.read_excel(xls, sheet_name="Alex")
+        assert {"Customer", "Risk Signal", "Silent Days"}.issubset(set(alex_df.columns))

@@ -43,18 +43,35 @@
   };
   setReadyDeferred();
 
-  const pageKey = () =>
-    document.querySelector("[data-page]")?.dataset?.page ||
-    document.body?.dataset?.page ||
-    document.body?.dataset?.pageId ||
-    "unknown";
+  const pageKey = () => {
+    const explicitPage =
+      document.querySelector("[data-page]")?.dataset?.page ||
+      document.body?.dataset?.page ||
+      document.body?.dataset?.pageId ||
+      "";
+    if (explicitPage) return explicitPage;
+    try {
+      const pathname = String(window.location?.pathname || "")
+        .trim()
+        .replace(/^\/+|\/+$/g, "");
+      if (!pathname) return "home";
+      return pathname.replace(/[^a-z0-9/_-]+/gi, "_").replace(/\//g, ":");
+    } catch (_err) {
+      return "unknown";
+    }
+  };
 
   const state = {
     schemaEndpoint: "/api/filters/schema",
     optionsEndpoint: "/api/filters/options",
+    apiApplyEndpoint: "/api/filters/apply",
+    apiResetEndpoint: "/api/filters/reset",
     optionsAbort: null,
+    optionsAbortMeta: null,
+    optionsRequestId: 0,
     optionsEtag: null,
     lastOptionsPayload: null,
+    lastHealthyOptionsPayload: null,
     optionsFetchMs: null,
     datasetVersion: null,
     scopePayload: null,
@@ -70,29 +87,64 @@
     initState: "idle",
     initStartedAt: null,
     retryTimer: null,
+    deferredHydrationTimer: null,
     activeDimensionKey: "",
     loadedDimensions: new Set(),
     optionsState: "idle",
     schemaLoaded: false,
     readyPublished: false,
+    lifecycle: "idle",
+    appliedFilters: null,
+    appliedQs: "",
+    pendingFilters: null,
+    pendingHash: "",
+    applyAckTimer: null,
+    applyInFlight: false,
+    optionsFailureCount: 0,
+    optionsCooldownUntil: 0,
+    dimensionHealth: {},
+    optionsInFlightKey: "",
+    optionsInFlightPromise: null,
+    backgroundRefreshTracker: Object.create(null),
+    applySequence: 0,
+    activeApplyId: "",
+    activeApplyTargetUrl: "",
+    activeApplyQs: "",
   };
 
   const INIT_RETRY_MS = 2000;
   const INIT_RETRY_INTERVAL = 100;
-  const BOOTSTRAP_OPTIONS_TIMEOUT_MS = 1200;
-  const DEFERRED_OPTIONS_TIMEOUT_MS = 4000;
+  const BOOTSTRAP_OPTIONS_TIMEOUT_MS = 7000;
+  const DEFERRED_OPTIONS_TIMEOUT_MS = 15000;
+  const SCHEMA_REQUEST_TIMEOUT_MS = 2200;
+  const APPLY_ACK_TIMEOUT_MS = 12000;
+  const OPTIONS_FAILURE_COOLDOWN_MS = 15000;
+  const BACKGROUND_REFRESH_MIN_INTERVAL_MS = 8000;
+  const OPTIONS_STORAGE_KEY = "amw.globalFilterOptions.v1";
+  const OPTIONS_STORAGE_TTL_MS = 1000 * 60 * 60 * 48;
   const INIT_EVENTS = ["DOMContentLoaded", "pageshow"];
   const CUSTOM_INIT_EVENTS = ["page:ready"];
-  const BOOTSTRAP_OPTION_DIMENSIONS = ["statuses", "regions", "methods", "suppliers", "sales_reps"];
-  const FILTER_KEY_REGEX = /^(start|start_date|end|end_date|date_preset|preset|range_preset|statuses|regions|methods|shipping_methods|customers|suppliers|products|sales_reps|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|full_months_only|_gf)$/i;
+  const BOOTSTRAP_OPTION_DIMENSIONS = ["statuses", "regions", "methods"];
+  const FILTER_KEY_REGEX = /^(start|start_date|end|end_date|date_preset|preset|range_preset|date_type|statuses|regions|methods|shipping_methods|customers|suppliers|products|sales_reps|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|full_months_only|_gf)$/i;
+  const FISCAL_PRESETS = new Set([
+    "current_fy",
+    "previous_fy",
+    "current_fq",
+    "previous_fq",
+    "current_fm",
+    "previous_fm",
+    "fytd_comparison",
+  ]);
+  const FISCAL_START_MONTH_INDEX = 9;
+  const FISCAL_START_DAY = 1;
   const DIMENSIONS = [
     { id: "fStatuses", key: "statuses", label: "Status", emptyLabel: "All statuses", countId: "statusesCount" },
     { id: "fRegions", key: "regions", label: "Region", emptyLabel: "All regions", countId: "regionsCount" },
     { id: "fMethods", key: "methods", label: "Shipping Method", emptyLabel: "All methods", countId: "methodsCount" },
     { id: "fCustomers", key: "customers", label: "Customer", emptyLabel: "All customers", countId: "customersCount" },
+    { id: "fSalesReps", key: "sales_reps", label: "Sales Rep", emptyLabel: "All sales reps", countId: "salesRepsCount" },
     { id: "fSuppliers", key: "suppliers", label: "Supplier", emptyLabel: "All suppliers", countId: "suppliersCount" },
     { id: "fProducts", key: "products", label: "Product", emptyLabel: "All products", countId: "productsCount" },
-    { id: "fSalesReps", key: "sales_reps", label: "Sales Rep", emptyLabel: "All sales reps", countId: "salesRepsCount" },
   ];
   const LABEL_ALIASES = {
     methods: ["methods", "shipping_methods", "ship_methods"],
@@ -100,6 +152,13 @@
     sales_reps: ["sales_reps", "sales_rep_ids"],
   };
   const PRESET_LABELS = {
+    current_fy: "Current FY",
+    previous_fy: "Previous FY",
+    current_fq: "Current FQ",
+    previous_fq: "Previous FQ",
+    current_fm: "Current FM",
+    previous_fm: "Previous FM",
+    fytd_comparison: "FYTD Comparison",
     today: "Today",
     yesterday: "Yesterday",
     "7d": "Last 7 Days",
@@ -119,6 +178,116 @@
     custom: "Custom",
     all: "All Time",
     all_time: "All Time",
+  };
+
+  const isBackgroundOptionsPhase = (phase) => ["deferred", "post-apply"].includes(String(phase || "").toLowerCase());
+  const isTimeoutError = (err) => /timed out/i.test(String(err?.message || err || ""));
+  const clonePayload =
+    typeof structuredClone === "function"
+      ? (value) => structuredClone(value)
+      : (value) => {
+          try {
+            return JSON.parse(JSON.stringify(value));
+          } catch (_err) {
+            return value;
+          }
+        };
+  const cloneOptionsList = (items = []) =>
+    Array.isArray(items)
+      ? items.map((item) => (item && typeof item === "object" ? { ...item } : item))
+      : [];
+
+  const recordOptionsFailure = ({ phase = "interactive" } = {}) => {
+    if (isBackgroundOptionsPhase(phase)) return;
+    state.optionsFailureCount += 1;
+    if (state.optionsFailureCount >= 3) {
+      state.optionsCooldownUntil = Date.now() + OPTIONS_FAILURE_COOLDOWN_MS;
+    }
+  };
+
+  const rootEl = () => document.getElementById("GlobalFilters");
+
+  const setLifecycle = (next, detail = "") => {
+    state.lifecycle = String(next || "idle");
+    const root = rootEl();
+    if (root) root.dataset.filtersState = state.lifecycle;
+    if (detail) dlog("filters lifecycle", { state: state.lifecycle, detail });
+  };
+
+  const clearApplyAckTimer = () => {
+    if (!state.applyAckTimer) return;
+    window.clearTimeout(state.applyAckTimer);
+    state.applyAckTimer = null;
+  };
+
+  const normalizeApplyId = (value) => String(value || "").trim();
+
+  const nextApplyId = () => `${pageKey()}-${Date.now()}-${++state.applySequence}`;
+
+  const clearActiveApply = () => {
+    state.activeApplyId = "";
+    state.activeApplyTargetUrl = "";
+    state.activeApplyQs = "";
+  };
+
+  const clearDeferredHydrationTimer = () => {
+    if (!state.deferredHydrationTimer) return;
+    window.clearTimeout(state.deferredHydrationTimer);
+    state.deferredHydrationTimer = null;
+  };
+
+  const dimensionsKey = (dimensions = []) => normalizeDimensionList(dimensions).join(",");
+
+  const backgroundRefreshKey = ({ dimensions = [], phase = "interactive" } = {}) =>
+    `${String(phase || "interactive").toLowerCase()}:${dimensionsKey(dimensions)}:${state.appliedQs || window.location.search || ""}`;
+
+  const shouldSkipBackgroundRefresh = (key) => {
+    if (!key || !state.lastOptionsPayload) return false;
+    const entry = state.backgroundRefreshTracker[key];
+    if (!entry || !entry.at) return false;
+    return Date.now() - Number(entry.at) < BACKGROUND_REFRESH_MIN_INTERVAL_MS;
+  };
+
+  const markBackgroundRefresh = (key, status) => {
+    if (!key) return;
+    state.backgroundRefreshTracker[key] = {
+      at: Date.now(),
+      status: String(status || ""),
+    };
+  };
+
+  const clearFilterError = () => {
+    const banner = document.getElementById("filtersErrorBanner");
+    const retryWrap = document.getElementById("filtersRetryWrap");
+    const retryBtn = document.getElementById("filtersRetryBtn");
+    if (banner) {
+      banner.classList.add("d-none");
+      banner.textContent = "";
+    }
+    retryWrap?.classList.add("d-none");
+    retryBtn?.classList.add("d-none");
+  };
+
+  const showFilterError = (message) => {
+    const banner = document.getElementById("filtersErrorBanner");
+    const retryWrap = document.getElementById("filtersRetryWrap");
+    const retryBtn = document.getElementById("filtersRetryBtn");
+    if (banner) {
+      banner.textContent = message || "Filters are temporarily unavailable.";
+      banner.classList.remove("d-none");
+    }
+    retryWrap?.classList.remove("d-none");
+    retryBtn?.classList.remove("d-none");
+  };
+
+  const parseInlineJson = (id) => {
+    try {
+      const node = document.getElementById(id);
+      const raw = node?.textContent || "";
+      return raw ? JSON.parse(raw) : null;
+    } catch (_err) {
+      return null;
+    }
   };
 
   const labelKeys = (key) => LABEL_ALIASES[key] || [key];
@@ -155,16 +324,26 @@
     window.getFilterLabel = (key, value) => labelFor(key, value);
     window.getFilterLabels = (key, values = []) => labelsFor(key, values);
     window.getGlobalFilterState = () => {
-      const filters =
-        (window.FilterState && typeof window.FilterState.get === "function" && window.FilterState.get()) ||
-        gatherFilters();
-      const qs = window.FilterState ? window.FilterState.toQueryString(filters) : localBuildFilterQS();
+      const filters = getAppliedFilters();
+      const qs = state.appliedQs || buildQueryStringForFilters(filters);
+      const pendingFilters = stableFilters(state.pendingFilters || gatherFilters());
       return {
         filters,
         qs,
+        pendingFilters,
+        pendingQs: buildQueryStringForFilters(pendingFilters),
         datasetVersion: state.datasetVersion,
         scope: state.scopePayload,
         detail: state.lastReadyDetail,
+      };
+    };
+    window.getPendingGlobalFilterState = () => {
+      const pendingFilters = stableFilters(state.pendingFilters || gatherFilters());
+      return {
+        filters: pendingFilters,
+        qs: buildQueryStringForFilters(pendingFilters),
+        datasetVersion: state.datasetVersion,
+        scope: state.scopePayload,
       };
     };
   }
@@ -434,12 +613,68 @@
     return token.replace(/[_-]+/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
   };
 
+  const normalizeDateType = (dateType, preset = "") => {
+    const explicit = String(dateType || "").trim().toLowerCase();
+    const token = String(preset || "").trim().toLowerCase();
+    if (FISCAL_PRESETS.has(token)) return "fiscal";
+    if (explicit === "fiscal" || explicit === "calendar") return explicit;
+    return explicit || null;
+  };
+
+  const getFiscalPeriods = (referenceDate = new Date()) => {
+    const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+    const fiscalYearStartYear =
+      today.getMonth() < FISCAL_START_MONTH_INDEX ||
+      (today.getMonth() === FISCAL_START_MONTH_INDEX && today.getDate() < FISCAL_START_DAY)
+        ? today.getFullYear() - 1
+        : today.getFullYear();
+    const currentFyStart = new Date(fiscalYearStartYear, FISCAL_START_MONTH_INDEX, FISCAL_START_DAY);
+    const previousFyStart = new Date(fiscalYearStartYear - 1, FISCAL_START_MONTH_INDEX, FISCAL_START_DAY);
+    const previousFyEnd = new Date(currentFyStart.getTime() - 86400000);
+    const priorFyStart = new Date(fiscalYearStartYear - 2, FISCAL_START_MONTH_INDEX, FISCAL_START_DAY);
+    const priorFyEnd = new Date(previousFyStart.getTime() - 86400000);
+
+    const monthsSinceFyStart = (today.getFullYear() - currentFyStart.getFullYear()) * 12 + (today.getMonth() - currentFyStart.getMonth());
+    const currentFqStart = new Date(currentFyStart.getFullYear(), currentFyStart.getMonth() + Math.floor(monthsSinceFyStart / 3) * 3, 1);
+    const previousFqStart = new Date(currentFqStart.getFullYear(), currentFqStart.getMonth() - 3, 1);
+    const previousFqEnd = new Date(currentFqStart.getTime() - 86400000);
+    const priorFqStart = new Date(previousFqStart.getFullYear(), previousFqStart.getMonth() - 3, 1);
+    const priorFqEnd = new Date(previousFqStart.getTime() - 86400000);
+
+    const currentFmStart = new Date(currentFyStart.getFullYear(), currentFyStart.getMonth() + monthsSinceFyStart, 1);
+    const previousFmStart = new Date(currentFmStart.getFullYear(), currentFmStart.getMonth() - 1, 1);
+    const previousFmEnd = new Date(currentFmStart.getTime() - 86400000);
+    const priorFmStart = new Date(previousFmStart.getFullYear(), previousFmStart.getMonth() - 1, 1);
+    const priorFmEnd = new Date(previousFmStart.getTime() - 86400000);
+
+    const fyElapsedDays = Math.max(0, Math.round((today.getTime() - currentFyStart.getTime()) / 86400000));
+    const fqElapsedDays = Math.max(0, Math.round((today.getTime() - currentFqStart.getTime()) / 86400000));
+    const fmElapsedDays = Math.max(0, Math.round((today.getTime() - currentFmStart.getTime()) / 86400000));
+    const previousFyYtdEnd = new Date(previousFyStart.getFullYear(), previousFyStart.getMonth(), previousFyStart.getDate() + fyElapsedDays);
+    const previousFqQtdEnd = new Date(previousFqStart.getFullYear(), previousFqStart.getMonth(), previousFqStart.getDate() + fqElapsedDays);
+    const previousFmMtdEnd = new Date(previousFmStart.getFullYear(), previousFmStart.getMonth(), previousFmStart.getDate() + fmElapsedDays);
+
+    return {
+      current_fy: { start: currentFyStart, end: today, compareStart: previousFyStart, compareEnd: previousFyYtdEnd > previousFyEnd ? previousFyEnd : previousFyYtdEnd },
+      previous_fy: { start: previousFyStart, end: previousFyEnd, compareStart: priorFyStart, compareEnd: priorFyEnd },
+      current_fq: { start: currentFqStart, end: today, compareStart: previousFqStart, compareEnd: previousFqQtdEnd > previousFqEnd ? previousFqEnd : previousFqQtdEnd },
+      previous_fq: { start: previousFqStart, end: previousFqEnd, compareStart: priorFqStart, compareEnd: priorFqEnd },
+      current_fm: { start: currentFmStart, end: today, compareStart: previousFmStart, compareEnd: previousFmMtdEnd > previousFmEnd ? previousFmEnd : previousFmMtdEnd },
+      previous_fm: { start: previousFmStart, end: previousFmEnd, compareStart: priorFmStart, compareEnd: priorFmEnd },
+      fytd_comparison: { start: currentFyStart, end: today, compareStart: previousFyStart, compareEnd: previousFyYtdEnd > previousFyEnd ? previousFyEnd : previousFyYtdEnd },
+    };
+  };
+
   const presetRange = (preset) => {
     const today = new Date();
     const token = String(preset || "").trim().toLowerCase();
     let start = null;
     let end = null;
-    if (token === "today") {
+    if (FISCAL_PRESETS.has(token)) {
+      const period = getFiscalPeriods(today)[token];
+      start = period?.start || null;
+      end = period?.end || null;
+    } else if (token === "today") {
       start = new Date(today);
       end = new Date(today);
     } else if (token === "yesterday") {
@@ -516,6 +751,7 @@
     start: raw?.start || null,
     end: raw?.end || null,
     date_preset: raw?.date_preset || null,
+    date_type: normalizeDateType(raw?.date_type, raw?.date_preset),
     statuses: stableList(raw?.statuses),
     regions: stableList(raw?.regions),
     methods: stableList(raw?.methods),
@@ -531,6 +767,13 @@
 
   const filtersHash = (filters) => JSON.stringify(stableFilters(filters));
 
+  const normalizeServerFilters = (raw) => {
+    if (window.FilterState && typeof window.FilterState.sanitize === "function") {
+      return stableFilters(window.FilterState.sanitize(raw || {}, buildOptionsIndex(state.lastOptionsPayload?.options || {})));
+    }
+    return stableFilters(raw || {});
+  };
+
   const gatherFilters = () => {
     const form = document.getElementById("filtersForm");
     if (window.FilterState && typeof window.FilterState.fromForm === "function") {
@@ -540,6 +783,7 @@
       start: document.getElementById("fStart")?.value || null,
       end: document.getElementById("fEnd")?.value || null,
       date_preset: document.getElementById("fDatePreset")?.value || null,
+      date_type: document.getElementById("fDateType")?.value || null,
       statuses: multiValues(document.getElementById("fStatuses")),
       regions: multiValues(document.getElementById("fRegions")),
       methods: multiValues(document.getElementById("fMethods")),
@@ -549,6 +793,59 @@
       sales_reps: multiValues(document.getElementById("fSalesReps")),
     });
   };
+
+  const getAppliedFilters = () => stableFilters(state.appliedFilters || gatherFilters());
+
+  const buildQueryStringForFilters = (filters) => {
+    if (window.FilterState && typeof window.FilterState.toQueryString === "function") {
+      return window.FilterState.toQueryString(stableFilters(filters));
+    }
+    return localBuildFilterQS(filters);
+  };
+
+  const setAppliedState = (filters, { syncForm = false } = {}) => {
+    const normalized = stableFilters(filters);
+    state.appliedFilters = normalized;
+    state.appliedQs = buildQueryStringForFilters(normalized);
+    state.baselineHash = filtersHash(normalized);
+    if (syncForm && window.FilterState && typeof window.FilterState.set === "function") {
+      window.FilterState.set(normalized, { persist: true });
+      if (typeof window.FilterState.hydrateForm === "function") {
+        window.FilterState.hydrateForm(document.getElementById("filtersForm"));
+      }
+    }
+  };
+
+  const dispatchGlobalFiltersApply = (detail) => {
+    try {
+      document.dispatchEvent(new CustomEvent("globalFilters:apply", { detail }));
+    } catch (_err) {
+      /* ignore */
+    }
+    try {
+      window.dispatchEvent(new CustomEvent("globalFilters:apply", { detail }));
+    } catch (_err) {
+      /* ignore */
+    }
+  };
+
+  const dispatchGlobalFiltersApplied = (detail = {}) => {
+    try {
+      document.dispatchEvent(new CustomEvent("globalFilters:applied", { detail }));
+    } catch (_err) {
+      /* ignore */
+    }
+    try {
+      window.dispatchEvent(new CustomEvent("globalFilters:applied", { detail }));
+    } catch (_err) {
+      /* ignore */
+    }
+  };
+
+  if (typeof window !== "undefined") {
+    window.dispatchGlobalFiltersApply = dispatchGlobalFiltersApply;
+    window.dispatchGlobalFiltersApplied = dispatchGlobalFiltersApplied;
+  }
 
   const formatDateLabel = (filters) => {
     const preset = humanizePreset(filters?.date_preset);
@@ -635,6 +932,7 @@
     if (merged.start) params.set("start", merged.start);
     if (merged.end) params.set("end", merged.end);
     if (merged.date_preset) params.set("date_preset", merged.date_preset);
+    if (merged.date_type) params.set("date_type", merged.date_type);
     ["statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps"].forEach((key) => {
       (merged[key] || []).forEach((value) => params.append(key, value));
     });
@@ -833,6 +1131,35 @@
     });
   };
 
+  const applyDimensionHealth = (dimensionMeta = {}) => {
+    state.dimensionHealth = dimensionMeta || {};
+    DIMENSIONS.forEach((config) => {
+      const tile = document.querySelector(`.filter-tile[data-filter-key="${config.key}"]`);
+      const panel = document.querySelector(`.filter-workspace[data-filter-key="${config.key}"]`);
+      const hint = tile?.querySelector(".filter-tile__hint");
+      const help = panel?.querySelector(".filter-workspace__help");
+      const meta = state.dimensionHealth[config.key] || {};
+      const hasError = meta.status === "error" && !meta.preserved;
+      const hasPreservedFallback = meta.status === "error" && !!meta.preserved;
+      if (tile) {
+        tile.classList.toggle("is-error", hasError);
+        tile.dataset.error = hasError ? "1" : "0";
+      }
+      if (panel) panel.dataset.error = hasError ? "1" : "0";
+      if (hint && tile?.dataset.unavailable !== "1") {
+        hint.textContent = hasError ? "Retry unavailable" : hasPreservedFallback ? "Using saved values" : "Open selector";
+      }
+      if (help) {
+        if (!help.dataset.baseText) help.dataset.baseText = help.textContent || "";
+        help.textContent = hasError
+          ? `${help.dataset.baseText} This dimension is temporarily unavailable.`
+          : hasPreservedFallback
+            ? `${help.dataset.baseText} Using last known values while live refresh is unavailable.`
+            : help.dataset.baseText;
+      }
+    });
+  };
+
   const normalizeDimensionList = (values = []) => {
     const list = Array.isArray(values) ? values : [values];
     const normalized = [];
@@ -865,22 +1192,274 @@
       DIMENSIONS.map((config) => config.key).filter((key) => !state.loadedDimensions.has(key))
     );
 
+  const resolveDomBootstrapDimensions = () =>
+    normalizeDimensionList(
+      DIMENSIONS.filter((config) => document.getElementById(config.id)).map((config) => config.key)
+    );
+
+  const countOptionItems = (options = {}) => {
+    const counts = {};
+    Object.entries(options || {}).forEach(([key, items]) => {
+      counts[key] = Array.isArray(items) ? items.length : 0;
+    });
+    return counts;
+  };
+
+  const extractDomOptionsForDimension = (key) => {
+    const config = DIMENSIONS.find((candidate) => candidate.key === key);
+    const el = config ? document.getElementById(config.id) : null;
+    if (!el) return [];
+    return Array.from(el.options || [])
+      .map((option) => {
+        const value = String(option?.value || "").trim();
+        if (!value || /^all$/i.test(value)) return null;
+        const label = String(option?.textContent || option?.label || value).trim() || value;
+        return { id: value, label, bucket: key, value };
+      })
+      .filter(Boolean);
+  };
+
+  const buildDomOptionsPayload = ({ dimensions = [], source = "dom-select-fallback" } = {}) => {
+    const requested = normalizeDimensionList(dimensions.length ? dimensions : resolveDomBootstrapDimensions());
+    const options = {};
+    const dimensionMeta = {};
+    requested.forEach((key) => {
+      const items = extractDomOptionsForDimension(key);
+      options[key] = items;
+      if (key === "methods") {
+        options.ship_methods = items.map((item) => ({ ...item, bucket: "ship_methods" }));
+      }
+      dimensionMeta[key] = {
+        status: items.length ? "ready" : "unavailable",
+        duration_ms: 0,
+        error: null,
+        option_count: items.length,
+        cached: true,
+        source,
+      };
+    });
+    return {
+      options,
+      dataset_version: state.datasetVersion || null,
+      scope: state.scopePayload || {},
+      filters: stableFilters(gatherFilters()),
+      meta: {
+        requested_dimensions: requested,
+        option_counts: countOptionItems(options),
+        dimension_meta: dimensionMeta,
+        partial_failures: [],
+        degraded: false,
+        source,
+        dom_fallback: true,
+      },
+    };
+  };
+
+  const hasUsableOptionsPayload = (payload, requestedDimensions = []) => {
+    const requested = normalizeDimensionList(
+      requestedDimensions.length ? requestedDimensions : payload?.meta?.requested_dimensions || Object.keys(payload?.options || {})
+    );
+    if (!requested.length) return false;
+    return requested.every((key) => {
+      const available = resolveOptionsList(payload?.options || {}, key) || [];
+      if (available.length) return true;
+      const config = DIMENSIONS.find((candidate) => candidate.key === key);
+      const el = config ? document.getElementById(config.id) : null;
+      if (!el) return false;
+      const selected = stableList(gatherFilters()?.[key]);
+      if (!selected.length) return false;
+      const domValues = new Set(
+        Array.from(el.options || [])
+          .map((option) => String(option?.value || "").trim())
+          .filter(Boolean)
+      );
+      return selected.every((value) => domValues.has(String(value)));
+    });
+  };
+
+  const hasHydratableOptionsPayload = (payload) => {
+    const requested = normalizeDimensionList(payload?.meta?.requested_dimensions || Object.keys(payload?.options || {}));
+    if (!requested.length) return false;
+    return requested.some((key) => {
+      const available = resolveOptionsList(payload?.options || {}, key) || [];
+      if (available.length) return true;
+      return stableList(payload?.filters?.[key]).length > 0;
+    });
+  };
+
+  const resolveInlineDeferredDimensions = (payload) =>
+    normalizeDimensionList([
+      ...resolveRemainingDimensions(),
+      ...(payload?.meta?.partial_failures || []),
+      ...(payload?.meta?.stale_dimensions || []),
+    ]);
+
+  const optionsStorageUserId = () => {
+    try {
+      return String((window.__FILTER_CTX__ && window.__FILTER_CTX__.user_id) || "anon").trim() || "anon";
+    } catch (_err) {
+      return "anon";
+    }
+  };
+
+  const optionsStorageKey = () => `${OPTIONS_STORAGE_KEY}::${pageKey()}::${optionsStorageUserId()}`;
+
+  const persistOptionsPayload = (payload) => {
+    if (typeof window === "undefined" || !payload) return;
+    try {
+      if (!window.localStorage) return;
+      const normalized = normalizeOptionsPayload(payload || {});
+      const requested = normalizeDimensionList(normalized?.meta?.requested_dimensions || Object.keys(normalized?.options || {}));
+      if (!requested.length) return;
+      window.localStorage.setItem(
+        optionsStorageKey(),
+        JSON.stringify({
+          saved_at: Date.now(),
+          dataset_version: normalized?.dataset_version || normalized?.datasetVersion || state.datasetVersion || null,
+          scope_hash: state.scopePayload?.scope_hash || null,
+          etag: state.optionsEtag || normalized?.etag || normalized?.meta?.etag || null,
+          requested_dimensions: requested,
+          payload: normalized,
+        })
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  };
+
+  const readPersistedOptionsPayload = ({ dimensions = [] } = {}) => {
+    if (typeof window === "undefined") return null;
+    try {
+      if (!window.localStorage) return null;
+      const key = optionsStorageKey();
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return null;
+      const envelope = JSON.parse(raw);
+      if (!envelope || typeof envelope !== "object") return null;
+
+      const savedAt = Number(envelope.saved_at || 0);
+      if (savedAt && Date.now() - savedAt > OPTIONS_STORAGE_TTL_MS) {
+        window.localStorage.removeItem(key);
+        return null;
+      }
+
+      const currentDatasetVersion = state.datasetVersion || null;
+      const cachedDatasetVersion = envelope.dataset_version || null;
+      if (currentDatasetVersion && cachedDatasetVersion && currentDatasetVersion !== cachedDatasetVersion) {
+        return null;
+      }
+
+      const currentScopeHash = state.scopePayload?.scope_hash || null;
+      const cachedScopeHash = envelope.scope_hash || null;
+      if (currentScopeHash && cachedScopeHash && currentScopeHash !== cachedScopeHash) {
+        return null;
+      }
+
+      const payload = normalizeOptionsPayload(envelope.payload || {});
+      const requested = normalizeDimensionList(
+        dimensions.length
+          ? dimensions
+          : envelope.requested_dimensions || payload?.meta?.requested_dimensions || Object.keys(payload?.options || {})
+      );
+      if (!requested.length || !hasUsableOptionsPayload(payload, requested)) {
+        return null;
+      }
+
+      payload.meta = {
+        ...(payload.meta || {}),
+        requested_dimensions: requested,
+        cached: true,
+        stale: true,
+        persisted: true,
+        source: "local-storage",
+        persisted_at: savedAt || null,
+      };
+      if (envelope.etag) payload.etag = envelope.etag;
+      if (!payload.dataset_version && cachedDatasetVersion) payload.dataset_version = cachedDatasetVersion;
+      if ((!payload.scope || typeof payload.scope !== "object" || !Object.keys(payload.scope).length) && state.scopePayload) {
+        payload.scope = state.scopePayload;
+      }
+      return payload;
+    } catch (_err) {
+      return null;
+    }
+  };
+
+  const hydratePersistedOptions = ({ dimensions = [], syncFilters = false, source = "local-storage" } = {}) => {
+    const payload = readPersistedOptionsPayload({ dimensions });
+    if (!payload) return null;
+    payload.meta = { ...(payload.meta || {}), source };
+    return applyOptionsPayload(payload, { syncFilters, persist: false });
+  };
+
   const mergeOptionsPayload = (payload) => {
     const normalized = normalizeOptionsPayload(payload || {});
     const requested = normalizeDimensionList(normalized?.meta?.requested_dimensions || Object.keys(normalized?.options || {}));
     const base = state.lastOptionsPayload && typeof state.lastOptionsPayload === "object"
       ? state.lastOptionsPayload
       : { options: {} };
+    const baseDimensionMeta =
+      base?.meta?.dimension_meta && typeof base.meta.dimension_meta === "object"
+        ? base.meta.dimension_meta
+        : {};
+    const incomingDimensionMeta =
+      normalized?.meta?.dimension_meta && typeof normalized.meta.dimension_meta === "object"
+        ? normalized.meta.dimension_meta
+        : {};
+    const mergedDimensionMeta = { ...baseDimensionMeta, ...incomingDimensionMeta };
     const merged = {
       ...base,
       ...normalized,
       options: { ...(base.options || {}) },
-      meta: { ...(base.meta || {}), ...(normalized.meta || {}) },
+      meta: { ...(base.meta || {}), ...(normalized.meta || {}), dimension_meta: mergedDimensionMeta },
     };
     requested.forEach((key) => {
-      merged.options[key] = resolveOptionsList(normalized.options || {}, key) || [];
+      const nextList = cloneOptionsList(resolveOptionsList(normalized.options || {}, key) || []);
+      const previousList = cloneOptionsList(resolveOptionsList(base.options || {}, key) || []);
+      const meta =
+        mergedDimensionMeta[key] && typeof mergedDimensionMeta[key] === "object"
+          ? { ...mergedDimensionMeta[key] }
+          : {};
+      const shouldPreserve = meta.status === "error" && previousList.length > 0 && nextList.length === 0;
+      merged.options[key] = shouldPreserve ? previousList : nextList;
+      if (shouldPreserve) {
+        mergedDimensionMeta[key] = {
+          ...meta,
+          preserved: true,
+          option_count: previousList.length,
+        };
+      } else if (Object.keys(meta).length) {
+        mergedDimensionMeta[key] = {
+          ...meta,
+          preserved: false,
+        };
+      }
       if (key === "methods") {
-        merged.options.ship_methods = normalized.options?.ship_methods || merged.options.methods || [];
+        const nextShipMethods = cloneOptionsList(normalized.options?.ship_methods || merged.options.methods || []);
+        const previousShipMethods = cloneOptionsList((base.options || {}).ship_methods || previousList);
+        const shipMethodMeta =
+          mergedDimensionMeta.ship_methods && typeof mergedDimensionMeta.ship_methods === "object"
+            ? { ...mergedDimensionMeta.ship_methods }
+            : mergedDimensionMeta.methods && typeof mergedDimensionMeta.methods === "object"
+              ? { ...mergedDimensionMeta.methods }
+              : {};
+        const preserveShipMethods =
+          (shipMethodMeta.status === "error" || shouldPreserve) &&
+          previousShipMethods.length > 0 &&
+          nextShipMethods.length === 0;
+        merged.options.ship_methods = preserveShipMethods ? previousShipMethods : nextShipMethods;
+        if (preserveShipMethods) {
+          mergedDimensionMeta.ship_methods = {
+            ...shipMethodMeta,
+            preserved: true,
+            option_count: previousShipMethods.length,
+          };
+        } else if (Object.keys(shipMethodMeta).length) {
+          mergedDimensionMeta.ship_methods = {
+            ...shipMethodMeta,
+            preserved: false,
+          };
+        }
       }
       state.loadedDimensions.add(key);
     });
@@ -890,10 +1469,11 @@
   };
 
   const publishReady = () => {
-    const currentFilters = updateSummary();
+    const currentFilters = getAppliedFilters();
+    updateSummary();
     state.lastReadyDetail = {
       filters: currentFilters,
-      qs: window.FilterState ? window.FilterState.toQueryString(currentFilters) : localBuildFilterQS(),
+      qs: state.appliedQs || buildQueryStringForFilters(currentFilters),
       datasetVersion: state.datasetVersion,
       scope: state.scopePayload,
       optionsEtag: state.optionsEtag,
@@ -909,41 +1489,112 @@
     return state.lastReadyDetail;
   };
 
-  const hydrateOptions = async ({ dimensions = [], timeoutMs = null } = {}) => {
-    const requested = normalizeDimensionList(dimensions);
-    if (!requested.length) return state.lastOptionsPayload;
-    state.optionsState = "loading";
-    const payload = await fetchOptions({ dimensions: requested, timeoutMs });
+  const applyOptionsPayload = (payload, { syncFilters = false, persist = true } = {}) => {
+    if (!payload) return state.lastOptionsPayload;
     const mergedPayload = mergeOptionsPayload(payload);
     validateOptionsPayload(mergedPayload);
-    state.datasetVersion = mergedPayload?.dataset_version || state.datasetVersion;
+    state.datasetVersion = mergedPayload?.dataset_version || mergedPayload?.datasetVersion || state.datasetVersion;
     state.scopePayload = mergedPayload?.scope || state.scopePayload;
     state.scopeNotice = mergedPayload?.meta?.filters_notice || state.scopeNotice;
+    state.optionsEtag = mergedPayload?.etag || mergedPayload?.meta?.etag || state.optionsEtag;
+    const activeFilters = syncFilters
+      ? normalizeServerFilters(
+          mergedPayload && typeof mergedPayload.filters === "object" ? mergedPayload.filters : gatherFilters()
+        )
+      : stableFilters(state.pendingFilters || gatherFilters());
 
-    const optionsIndex = buildOptionsIndex(mergedPayload.options || {});
-    let activeFilters =
-      mergedPayload && typeof mergedPayload.filters === "object"
-        ? mergedPayload.filters
-        : gatherFilters();
-    if (window.FilterState && typeof window.FilterState.sanitize === "function") {
-      activeFilters = window.FilterState.sanitize(activeFilters, optionsIndex);
-    }
-    if (window.FilterState && typeof window.FilterState.set === "function") {
-      window.FilterState.set(activeFilters, { persist: true });
+    if (syncFilters) {
+      setAppliedState(activeFilters);
+      if (window.FilterState && typeof window.FilterState.set === "function") {
+        window.FilterState.set(activeFilters, { persist: true });
+      }
     }
 
     applyOptions(mergedPayload.options || {}, activeFilters);
     applyDimensionAvailability(mergedPayload.options || {}, activeFilters);
-    if (window.FilterState && typeof window.FilterState.hydrateForm === "function") {
+    applyDimensionHealth(mergedPayload?.meta?.dimension_meta || {});
+    if (syncFilters && window.FilterState && typeof window.FilterState.hydrateForm === "function") {
       window.FilterState.hydrateForm(document.getElementById("filtersForm"));
     }
     enhanceSelects();
     ensureDefaultPreset();
     updateNoticeBanner(state.scopeNotice);
-    state.baselineHash = filtersHash(gatherFilters());
+    clearFilterError();
+    if (syncFilters) {
+      state.baselineHash = filtersHash(activeFilters);
+    }
     publishReady();
-    state.optionsState = "ready";
+    state.optionsState = mergedPayload?.meta?.degraded ? "failed_partial" : "ready";
+    if (!mergedPayload?.meta?.degraded && hasUsableOptionsPayload(mergedPayload, Array.from(state.loadedDimensions))) {
+      state.lastHealthyOptionsPayload = clonePayload(mergedPayload);
+    }
+    state.optionsFailureCount = 0;
+    state.optionsCooldownUntil = 0;
+    if (persist) persistOptionsPayload(mergedPayload);
     return mergedPayload;
+  };
+
+  const hydrateDomOptions = ({ dimensions = [], syncFilters = false, source = "dom-select-fallback" } = {}) => {
+    const requested = normalizeDimensionList(dimensions.length ? dimensions : resolveDomBootstrapDimensions());
+    if (!requested.length) return null;
+    const payload = buildDomOptionsPayload({ dimensions: requested, source });
+    if (!hasUsableOptionsPayload(payload, requested)) return null;
+    return applyOptionsPayload(payload, { syncFilters, persist: false });
+  };
+
+  const hydrateOptions = async ({ dimensions = [], timeoutMs = null, syncFilters = false, bypassCooldown = false, phase = "interactive" } = {}) => {
+    const requested = normalizeDimensionList(dimensions);
+    if (!requested.length) return state.lastOptionsPayload;
+    state.optionsState = "loading";
+    const payload = await fetchOptions({ dimensions: requested, timeoutMs, bypassCooldown, phase });
+    if (!payload) return state.lastOptionsPayload;
+    return applyOptionsPayload(payload, { syncFilters, persist: true });
+  };
+
+  const refreshOptionsInBackground = ({ dimensions = [], timeoutMs = DEFERRED_OPTIONS_TIMEOUT_MS, phase = "interactive" } = {}) => {
+    const requested = normalizeDimensionList(dimensions);
+    if (!requested.length) return Promise.resolve(state.lastOptionsPayload);
+    const refreshKey = backgroundRefreshKey({ dimensions: requested, phase });
+    if (shouldSkipBackgroundRefresh(refreshKey)) {
+      dlog("filters options refresh skipped", { page: pageKey(), phase, dimensions: requested });
+      return Promise.resolve(state.lastOptionsPayload);
+    }
+    markBackgroundRefresh(refreshKey, "started");
+    return hydrateOptions({ dimensions: requested, timeoutMs, phase })
+      .then((payload) => {
+        markBackgroundRefresh(refreshKey, "success");
+        if (state.optionsState === "ready" || state.optionsState === "failed_partial") clearFilterError();
+        return payload;
+      })
+      .catch((err) => {
+        markBackgroundRefresh(refreshKey, "failed");
+        if (!state.lastOptionsPayload) {
+          const persistedPayload = hydratePersistedOptions({
+            dimensions: requested,
+            syncFilters: false,
+            source: `local-storage-${phase}-fallback`,
+          });
+          if (!persistedPayload) {
+            const fallbackPayload = buildDomOptionsPayload({ dimensions: requested, source: `dom-${phase}-fallback` });
+            if (hasUsableOptionsPayload(fallbackPayload, requested)) {
+              applyOptionsPayload(fallbackPayload, { syncFilters: false, persist: false });
+            }
+          }
+        }
+        const hasUsableOptions = !!(state.lastHealthyOptionsPayload || state.lastOptionsPayload);
+        state.optionsState = hasUsableOptions && state.lastHealthyOptionsPayload ? "ready" : hasUsableOptions ? "failed_partial" : "failed";
+        if (hasUsableOptions) {
+          if (isBackgroundOptionsPhase(phase) || isTimeoutError(err)) {
+            dlog("filters options fallback", { page: pageKey(), phase, error: err?.message || err });
+          } else {
+            console.warn(`filters.options.${phase}.fail page=${pageKey()} err=${err?.message || err}`);
+          }
+        } else {
+          console.error(`filters.options.${phase}.fail page=${pageKey()} err=${err?.message || err}`);
+          showFilterError(err?.message || "Some filter options are temporarily unavailable.");
+        }
+        return state.lastOptionsPayload;
+      });
   };
 
   const enhanceSelects = () => {
@@ -977,6 +1628,11 @@
     const token = String(preset || "").trim().toLowerCase();
     const hidden = document.getElementById("fDatePreset");
     if (hidden) hidden.value = token;
+    const dateTypeInput = document.getElementById("fDateType");
+    if (dateTypeInput) {
+      dateTypeInput.value = normalizeDateType(dateTypeInput.value, token) || "fiscal";
+      if (token === "all") dateTypeInput.value = "fiscal";
+    }
     const picker = document.getElementById("date-range-preset-picker");
     if (picker && syncPicker) picker.value = token;
 
@@ -1012,7 +1668,7 @@
   const ensureDefaultPreset = () => {
     const filters = gatherFilters();
     if (!filters.start && !filters.end && !filters.date_preset) {
-      setPreset("last_3_months");
+      setPreset("current_fy");
     } else {
       updateQuickRangeButtons();
     }
@@ -1083,6 +1739,22 @@
     banner.classList.toggle("d-none", !text);
   };
 
+  const updateLastAppliedLabel = (stamp) => {
+    const label = document.getElementById("filtersLastAppliedLabel");
+    if (!label) return;
+    const raw = String(stamp || "").trim();
+    if (!raw) {
+      label.textContent = "Last applied not recorded";
+      return;
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      label.textContent = `Last applied ${raw}`;
+      return;
+    }
+    label.textContent = `Last applied ${parsed.toLocaleString()}`;
+  };
+
   const updateSavedViewButtons = (filters) => {
     const loadBtn = document.getElementById("loadViewBtn");
     const deleteBtn = document.getElementById("deleteViewBtn");
@@ -1138,6 +1810,36 @@
     updateSavedViewButtons(filters);
   };
 
+  const updateActionState = (filters = null) => {
+    const pendingFilters = stableFilters(filters || state.pendingFilters || gatherFilters());
+    state.pendingFilters = pendingFilters;
+    state.pendingHash = filtersHash(pendingFilters);
+    const appliedHash = state.baselineHash || filtersHash(getAppliedFilters());
+    const hasPendingChanges = appliedHash !== state.pendingHash;
+    const applyBtn = document.getElementById("filtersApply");
+    const spinner = document.getElementById("filtersApplySpinner");
+    const icon = document.getElementById("filtersApplyIcon");
+    const busy = ["bootstrapping", "applying", "saving_view", "loading_view"].includes(state.lifecycle);
+    if (applyBtn) {
+      applyBtn.disabled = busy || !hasPendingChanges;
+      applyBtn.setAttribute("aria-disabled", applyBtn.disabled ? "true" : "false");
+    }
+    if (spinner) spinner.classList.toggle("d-none", state.lifecycle !== "applying");
+    if (icon) icon.classList.toggle("d-none", state.lifecycle === "applying");
+    const pendingState = document.getElementById("filtersPendingState");
+    if (pendingState && state.lifecycle === "bootstrapping") {
+      pendingState.textContent = "Loading filters";
+      pendingState.dataset.pending = "0";
+    } else if (pendingState && state.lifecycle === "failed_partial") {
+      pendingState.textContent = hasPendingChanges ? "Pending changes" : "Partial filter outage";
+      pendingState.dataset.pending = hasPendingChanges ? "1" : "0";
+    } else if (pendingState && state.lifecycle === "failed_fatal") {
+      pendingState.textContent = "Filters unavailable";
+      pendingState.dataset.pending = "0";
+    }
+    return hasPendingChanges;
+  };
+
   const visibleTileButtons = () =>
     Array.from(document.querySelectorAll(".filter-tile[data-filter-key]")).filter((button) => !button.disabled);
 
@@ -1164,6 +1866,12 @@
     });
 
     document.getElementById("filtersWorkspaceEmpty")?.classList.toggle("d-none", !!state.activeDimensionKey);
+
+    const workspace = document.getElementById("filtersDimensionWorkspace");
+    if (workspace) {
+      workspace.classList.toggle("is-open", !!state.activeDimensionKey);
+    }
+
     if (!focusSearch || !state.activeDimensionKey || !nextPanelId) return;
     window.requestAnimationFrame(() => {
       document.querySelector(`#${nextPanelId} .msx-search`)?.focus();
@@ -1183,6 +1891,7 @@
 
   const updateSummary = () => {
     const filters = gatherFilters();
+    state.pendingFilters = filters;
     const summary = buildSummary(filters);
     const activeCount = document.getElementById("filtersActiveCount");
     const dateSummary = document.getElementById("filtersDateSummary");
@@ -1201,6 +1910,7 @@
     renderAppliedChips(summary);
     renderSavedViewState(filters);
     updateQuickRangeButtons();
+    updateActionState(filters);
     return filters;
   };
 
@@ -1228,11 +1938,60 @@
       start: filters.start || "",
       end: filters.end || "",
       date_preset: filters.date_preset || "",
+      date_type: filters.date_type || "",
     };
     ["statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps"].forEach((key) => {
       if (filters[key] && filters[key].length) data[key] = filters[key];
     });
     return data;
+  };
+
+  const csrfToken = () =>
+    rootEl()?.dataset?.csrfToken ||
+    document.getElementById("filtersCsrf")?.value ||
+    document.getElementById("svCsrf")?.value ||
+    document.querySelector('#filtersForm input[name="csrf_token"]')?.value ||
+    "";
+
+  const buildFilterPersistParams = (filters, { reset = false } = {}) => {
+    const params = new URLSearchParams();
+    const token = csrfToken();
+    if (token) params.set("csrf_token", token);
+    if (reset) return params;
+    const normalized = stableFilters(filters || gatherFilters());
+    if (normalized.start) params.set("start", normalized.start);
+    if (normalized.end) params.set("end", normalized.end);
+    if (normalized.date_preset) params.set("date_preset", normalized.date_preset);
+    if (normalized.date_type) params.set("date_type", normalized.date_type);
+    ["statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps"].forEach((key) => {
+      (normalized[key] || []).forEach((value) => params.append(key, value));
+    });
+    if (normalized.protein_min !== null && normalized.protein_min !== undefined && `${normalized.protein_min}` !== "") {
+      params.set("protein_min", String(normalized.protein_min));
+    }
+    if (normalized.protein_max !== null && normalized.protein_max !== undefined && `${normalized.protein_max}` !== "") {
+      params.set("protein_max", String(normalized.protein_max));
+    }
+    if (normalized.protein_name_like) params.set("protein_name_like", normalized.protein_name_like);
+    if (normalized.complete_months_only !== null && normalized.complete_months_only !== undefined) {
+      params.set("complete_months_only", normalized.complete_months_only ? "1" : "0");
+    }
+    return params;
+  };
+
+  const persistFilterState = async ({ action = "apply", filters = null } = {}) => {
+    const isReset = action === "reset";
+    const endpoint = isReset ? state.apiResetEndpoint : state.apiApplyEndpoint;
+    const response = await authFetch(endpoint, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: buildFilterPersistParams(filters, { reset: isReset }),
+    });
+    if (!response.ok) {
+      throw new Error(`Filter ${action} request failed (${response.status})`);
+    }
+    return response.json();
   };
 
   const loadSavedViews = () => {
@@ -1271,6 +2030,7 @@
         return;
       }
       try {
+        setLifecycle("saving_view");
         await postForm("/views/save", {
           csrf_token: document.getElementById("svCsrf")?.value || "",
           next: document.getElementById("svNext")?.value || window.location.pathname,
@@ -1278,7 +2038,9 @@
           ...currentFiltersFormData(),
         });
       } catch (err) {
+        setLifecycle("failed_partial", "save-view");
         console.error("save view failed", err);
+        updateActionState();
       }
     });
     document.querySelectorAll(".saved-view-card[data-view-id]").forEach((button) => {
@@ -1294,12 +2056,15 @@
     document.getElementById("loadViewBtn")?.addEventListener("click", async () => {
       if (!state.selectedSavedViewId) return;
       try {
+        setLifecycle("loading_view");
         await postForm(`/views/load/${state.selectedSavedViewId}`, {
           csrf_token: document.getElementById("svCsrf")?.value || "",
           next: document.getElementById("svNext")?.value || window.location.pathname,
         });
       } catch (err) {
+        setLifecycle("failed_partial", "load-view");
         console.error("load saved view failed", err);
+        updateActionState();
       }
     });
 
@@ -1307,25 +2072,31 @@
       if (!state.selectedSavedViewId) return;
       if (!window.confirm("Delete this saved view?")) return;
       try {
+        setLifecycle("loading_view");
         await postForm(`/views/delete/${state.selectedSavedViewId}`, {
           csrf_token: document.getElementById("svCsrf")?.value || "",
           next: document.getElementById("svNext")?.value || window.location.pathname,
         });
       } catch (err) {
+        setLifecycle("failed_partial", "delete-view");
         console.error("delete saved view failed", err);
+        updateActionState();
       }
     });
 
     document.getElementById("updateSavedViewBtn")?.addEventListener("click", async () => {
       if (!state.selectedSavedViewId) return;
       try {
+        setLifecycle("saving_view");
         await postForm(`/views/update/${state.selectedSavedViewId}`, {
           csrf_token: document.getElementById("svCsrf")?.value || "",
           next: document.getElementById("svNext")?.value || window.location.pathname,
           ...currentFiltersFormData(),
         });
       } catch (err) {
+        setLifecycle("failed_partial", "update-view");
         console.error("update saved view failed", err);
+        updateActionState();
       }
     });
 
@@ -1342,7 +2113,7 @@
 
   const clearFilterChip = (key) => {
     if (key === "date") {
-      setPreset("all");
+      setPreset("current_fy");
     } else {
       const config = DIMENSIONS.find((entry) => entry.key === key);
       if (config) setMultiValue(config.id, []);
@@ -1414,11 +2185,15 @@
     document.getElementById("fStart")?.addEventListener("change", () => {
       const preset = document.getElementById("fDatePreset");
       if (preset) preset.value = "custom";
+      const dateType = document.getElementById("fDateType");
+      if (dateType && !dateType.value) dateType.value = "fiscal";
       updateSummary();
     });
     document.getElementById("fEnd")?.addEventListener("change", () => {
       const preset = document.getElementById("fDatePreset");
       if (preset) preset.value = "custom";
+      const dateType = document.getElementById("fDateType");
+      if (dateType && !dateType.value) dateType.value = "fiscal";
       updateSummary();
     });
   };
@@ -1447,6 +2222,7 @@
             start: null,
             end: null,
             date_preset: null,
+            date_type: null,
             statuses: [],
             regions: [],
             methods: [],
@@ -1465,12 +2241,13 @@
       }
 
       clearDimensions();
-      setPreset("last_3_months");
+      setPreset("current_fy");
       if (window.FilterState && typeof window.FilterState.set === "function") {
         window.FilterState.set({
           start: document.getElementById("fStart")?.value || null,
           end: document.getElementById("fEnd")?.value || null,
-          date_preset: document.getElementById("fDatePreset")?.value || "last_3_months",
+          date_preset: document.getElementById("fDatePreset")?.value || "current_fy",
+          date_type: document.getElementById("fDateType")?.value || "fiscal",
           statuses: [],
           regions: [],
           methods: [],
@@ -1487,65 +2264,260 @@
 
   const wireFormSubmit = () => {
     const form = document.getElementById("filtersForm");
-    const applyBtn = document.getElementById("filtersApply");
-    const spinner = document.getElementById("filtersApplySpinner");
     const prgMode = String(form?.dataset?.prg || "0") === "1";
     form?.addEventListener("submit", async (event) => {
-      const filters = gatherFilters();
+      if (state.applyInFlight) {
+        event.preventDefault();
+        dlog("ignoring submit while apply is already in flight", {
+          page: pageKey(),
+          activeApplyId: state.activeApplyId,
+        });
+        updateActionState();
+        return;
+      }
+      const filters = stableFilters(gatherFilters());
+      state.pendingFilters = filters;
       if (window.FilterState && typeof window.FilterState.set === "function") {
         window.FilterState.set(filters);
       }
-      applyBtn?.setAttribute("disabled", "disabled");
-      spinner?.classList.remove("d-none");
+      setLifecycle("applying");
+      state.applyInFlight = true;
+      updateActionState(filters);
 
       if (prgMode) return;
       event.preventDefault();
 
-      let qs = window.FilterState ? window.FilterState.toQueryString(filters) : localBuildFilterQS();
-      if (window.__gfResetPending === true) {
-        qs = qs ? `${qs}&_gf_reset=1` : "_gf_reset=1";
-        window.__gfResetPending = false;
-      }
-
-      const detail = window.FilterState && typeof window.FilterState.apply === "function"
-        ? window.FilterState.apply(filters, { source: "form" })
-        : { filters, qs };
-
-      const targetUrl = qs ? `${(form.action || window.location.pathname).split("?")[0]}?${qs}` : (form.action || window.location.pathname);
+      const handlerMode = ((document.body.dataset && document.body.dataset.filtersHandler) || "ssr").toLowerCase();
+      const isReset = window.__gfResetPending === true;
+      const banner = document.getElementById("filtersErrorBanner");
+      const retryWrap = document.getElementById("filtersRetryWrap");
+      const retryBtn = document.getElementById("filtersRetryBtn");
       try {
+        let appliedFilters = filters;
+        let responsePayload = null;
+        if (handlerMode === "ajax") {
+          responsePayload = await persistFilterState({ action: isReset ? "reset" : "apply", filters });
+          appliedFilters = normalizeServerFilters(responsePayload?.filters || filters);
+          state.scopePayload = responsePayload?.scope || state.scopePayload;
+          setAppliedState(appliedFilters, { syncForm: true });
+          state.scopeNotice = responsePayload?.meta?.filters_notice || state.scopeNotice;
+          updateNoticeBanner(state.scopeNotice);
+          updateLastAppliedLabel(responsePayload?.last_applied_at || "");
+        }
+
+        const qs = buildQueryStringForFilters(appliedFilters);
+        const targetUrl = qs ? `${(form.action || window.location.pathname).split("?")[0]}?${qs}` : (form.action || window.location.pathname);
+        const applyId = handlerMode === "ajax" ? nextApplyId() : "";
         if (window.history && typeof window.history.replaceState === "function") {
           window.history.replaceState({}, "", targetUrl);
         }
-      } catch (err) {
-        console.warn("filters history replace failed", err);
-      }
+        if (banner) {
+          banner.classList.add("d-none");
+          banner.textContent = "";
+        }
+        retryWrap?.classList.add("d-none");
+        retryBtn?.classList.add("d-none");
+        window.__gfResetPending = false;
 
-      const handlerMode = ((document.body.dataset && document.body.dataset.filtersHandler) || "ssr").toLowerCase();
-      if (handlerMode !== "ajax") window.location.assign(targetUrl);
-      else window.dispatchEvent(new CustomEvent("globalFilters:apply", { detail: detail || { filters, qs } }));
+        if (handlerMode !== "ajax") {
+          clearActiveApply();
+          window.location.assign(targetUrl);
+          return;
+        }
+
+        state.activeApplyId = applyId;
+        state.activeApplyTargetUrl = targetUrl;
+        state.activeApplyQs = qs;
+        clearApplyAckTimer();
+        state.applyAckTimer = window.setTimeout(() => {
+          if (state.activeApplyId !== applyId) return;
+          clearApplyAckTimer();
+          state.applyInFlight = false;
+          setLifecycle("failed_partial", "apply-timeout");
+          const fallbackUrl = state.activeApplyTargetUrl || targetUrl;
+          clearActiveApply();
+          if (banner) {
+            banner.textContent = "The page did not confirm the filter refresh. Reloading once to recover.";
+            banner.classList.remove("d-none");
+          }
+          retryWrap?.classList.remove("d-none");
+          retryBtn?.classList.remove("d-none");
+          updateActionState();
+          if (fallbackUrl) {
+            window.location.assign(fallbackUrl);
+          }
+        }, APPLY_ACK_TIMEOUT_MS);
+
+        dispatchGlobalFiltersApply({
+          applyId,
+          filters: appliedFilters,
+          qs,
+          meta: responsePayload?.meta || {},
+          summary: responsePayload?.summary || null,
+          datasetVersion: state.datasetVersion,
+          scope: state.scopePayload,
+        });
+      } catch (err) {
+        window.__gfResetPending = false;
+        state.applyInFlight = false;
+        clearApplyAckTimer();
+        clearActiveApply();
+        setLifecycle(state.readyPublished ? "failed_partial" : "failed_fatal", "apply-request");
+        if (banner) {
+          banner.textContent = err?.message || "Failed to apply filters.";
+          banner.classList.remove("d-none");
+        }
+        retryWrap?.classList.remove("d-none");
+        retryBtn?.classList.remove("d-none");
+        updateActionState();
+        console.error("filters apply failed", err);
+      }
     });
 
-    window.addEventListener("globalFilters:applied", () => {
-      state.baselineHash = filtersHash(gatherFilters());
-      applyBtn?.removeAttribute("disabled");
-      spinner?.classList.add("d-none");
+    window.addEventListener("globalFilters:applied", (evt) => {
+      if (!state.applyInFlight && !state.applyAckTimer) {
+        dlog("ignoring unsolicited globalFilters:applied", evt?.detail || {});
+        return;
+      }
+      const incomingApplyId = normalizeApplyId(evt?.detail?.applyId);
+      if (normalizeApplyId(state.activeApplyId) && incomingApplyId !== normalizeApplyId(state.activeApplyId)) {
+        dlog("ignoring stale globalFilters:applied", {
+          page: pageKey(),
+          activeApplyId: state.activeApplyId,
+          incomingApplyId,
+          detail: evt?.detail || {},
+        });
+        return;
+      }
+      clearApplyAckTimer();
+      state.applyInFlight = false;
+      clearActiveApply();
+      const detailFilters = evt?.detail?.filters ? normalizeServerFilters(evt.detail.filters) : getAppliedFilters();
+      setAppliedState(detailFilters);
+      setLifecycle("ready");
       updateSummary();
+      try {
+        const detail = {
+          applyId: incomingApplyId,
+          filters: getAppliedFilters(),
+          qs: state.appliedQs || buildQueryStringForFilters(getAppliedFilters()),
+          datasetVersion: state.datasetVersion,
+          scope: state.scopePayload,
+        };
+        document.dispatchEvent(new CustomEvent("globalFilters:changed", { detail }));
+        window.dispatchEvent(new CustomEvent("globalFilters:changed", { detail }));
+      } catch (_err) {
+        /* ignore */
+      }
+      clearDeferredHydrationTimer();
+      refreshOptionsInBackground({
+        dimensions: Array.from(state.loadedDimensions),
+        timeoutMs: DEFERRED_OPTIONS_TIMEOUT_MS,
+        phase: "post-apply",
+      });
     });
   };
 
   const applyRootConfig = (root) => {
     state.schemaEndpoint = root.dataset.schemaEndpoint || state.schemaEndpoint;
     state.optionsEndpoint = root.dataset.optionsEndpoint || state.optionsEndpoint;
+    state.apiApplyEndpoint = root.dataset.apiApplyEndpoint || state.apiApplyEndpoint;
+    state.apiResetEndpoint = root.dataset.apiResetEndpoint || state.apiResetEndpoint;
+    state.datasetVersion = root.dataset.datasetVersion || state.datasetVersion;
     state.activeSavedViewId = String(root.dataset.activeSavedViewId || "");
+    updateLastAppliedLabel(root.dataset.lastApplied || "");
   };
 
-  const fetchSchema = async () => {
-    const response = await authFetch(state.schemaEndpoint, { credentials: "same-origin" });
-    if (!response.ok) throw new Error(`Schema request failed (${response.status})`);
-    return response.json();
+  const readInlineSchemaPayload = () => {
+    const payload = parseInlineJson("filtersBootstrapData");
+    return payload && typeof payload === "object" ? payload : null;
   };
 
-  const fetchOptions = async ({ dimensions = [], timeoutMs = null } = {}) => {
+  const readInlineOptionsPayload = () => {
+    const payload = readInlineSchemaPayload();
+    const optionsPayload = payload?.options_payload;
+    return optionsPayload && typeof optionsPayload === "object" ? optionsPayload : null;
+  };
+
+  const buildLocalSchemaPayload = (root) => ({
+    defaults: stableFilters(gatherFilters()),
+    dataset_version: root?.dataset?.datasetVersion || state.datasetVersion || null,
+    scope: state.scopePayload || {},
+    meta: {
+      filters_notice: state.scopeNotice || "",
+      source: "dom-fallback",
+    },
+  });
+
+  const applySchemaPayload = (schemaPayload, { hydrateForm = true } = {}) => {
+    const payload = schemaPayload && typeof schemaPayload === "object" ? schemaPayload : {};
+    state.schemaLoaded = true;
+    state.schemaDefaults = payload?.defaults || state.schemaDefaults || {};
+    state.datasetVersion = payload?.dataset_version || payload?.datasetVersion || state.datasetVersion;
+    state.scopePayload = payload?.scope || state.scopePayload;
+    state.scopeNotice = payload?.meta?.filters_notice || state.scopeNotice || "";
+
+    const userId = (window.__FILTER_CTX__ && window.__FILTER_CTX__.user_id) || "anon";
+    const scopeKey = state.scopePayload ? JSON.stringify(state.scopePayload) : undefined;
+
+    if (window.FilterState && typeof window.FilterState.configure === "function") {
+      window.FilterState.configure({
+        datasetVersion: state.datasetVersion,
+        userId,
+        scopeKey,
+        resetOnChange: true,
+      });
+    }
+    if (window.FilterState && typeof window.FilterState.setDefaults === "function") {
+      window.FilterState.setDefaults(state.schemaDefaults, { applyLocation: false });
+      if (hydrateForm && typeof window.FilterState.hydrateForm === "function") {
+        window.FilterState.hydrateForm(document.getElementById("filtersForm"));
+      }
+    }
+    updateNoticeBanner(state.scopeNotice);
+    return payload;
+  };
+
+  const fetchSchema = async ({ timeoutMs = SCHEMA_REQUEST_TIMEOUT_MS } = {}) => {
+    const controller = new AbortController();
+    let timeoutId = null;
+    if (timeoutMs && Number(timeoutMs) > 0 && typeof window !== "undefined" && typeof window.setTimeout === "function") {
+      timeoutId = window.setTimeout(() => {
+        try {
+          controller.abort();
+        } catch (_err) {
+          /* ignore */
+        }
+      }, Number(timeoutMs));
+    }
+    try {
+      const response = await authFetch(state.schemaEndpoint, { credentials: "same-origin", signal: controller.signal });
+      if (!response.ok) throw new Error(`Schema request failed (${response.status})`);
+      return response.json();
+    } catch (err) {
+      if (err?.name === "AbortError" && timeoutMs) {
+        throw new Error(`Schema request timed out (${timeoutMs}ms)`);
+      }
+      throw err;
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
+  };
+
+  const refreshSchemaInBackground = ({ timeoutMs = SCHEMA_REQUEST_TIMEOUT_MS } = {}) => {
+    return fetchSchema({ timeoutMs })
+      .then((payload) => applySchemaPayload(payload, { hydrateForm: false }))
+      .catch((err) => {
+        console.warn(`filters.schema.refresh.fail page=${pageKey()} err=${err?.message || err}`);
+        return null;
+      });
+  };
+
+  const fetchOptions = async ({ dimensions = [], timeoutMs = null, bypassCooldown = false, phase = "interactive" } = {}) => {
+    const requestPhase = String(phase || "interactive");
+    if (!bypassCooldown && state.optionsCooldownUntil && Date.now() < state.optionsCooldownUntil) {
+      throw new Error("Filters are temporarily cooling down after repeated failures. Use Retry filters.");
+    }
     const locationParams = new URLSearchParams(window.location.search || "");
     const passthrough = new URLSearchParams();
     locationParams.forEach((value, key) => {
@@ -1557,25 +2529,44 @@
     if (requestedDimensions.length) {
       passthrough.set("dimensions", requestedDimensions.join(","));
     }
+    passthrough.set("page", pageKey());
+    passthrough.set("phase", String(phase || "interactive"));
 
     const url = passthrough.toString() ? `${state.optionsEndpoint}?${passthrough.toString()}` : state.optionsEndpoint;
+    const requestKeyParams = new URLSearchParams(passthrough);
+    requestKeyParams.delete("phase");
+    const requestKey = JSON.stringify({
+      url: requestKeyParams.toString() ? `${state.optionsEndpoint}?${requestKeyParams.toString()}` : state.optionsEndpoint,
+      etag: state.optionsEtag || "",
+    });
+    if (state.optionsInFlightPromise && state.optionsInFlightKey === requestKey) {
+      return state.optionsInFlightPromise;
+    }
     const headers = {};
     if (state.optionsEtag) headers["If-None-Match"] = state.optionsEtag;
 
     if (state.optionsAbort) {
       try {
+        if (state.optionsAbortMeta && state.optionsAbortMeta.controller === state.optionsAbort) {
+          state.optionsAbortMeta.reason = "superseded";
+        }
         state.optionsAbort.abort();
       } catch (err) {
-        /* ignore */
+          /* ignore */
       }
     }
 
+    state.optionsRequestId += 1;
+    const requestId = state.optionsRequestId;
     const controller = new AbortController();
+    const abortMeta = { controller, reason: "", phase: requestPhase };
     state.optionsAbort = controller;
+    state.optionsAbortMeta = abortMeta;
     let timeoutId = null;
     if (timeoutMs && Number(timeoutMs) > 0 && typeof window !== "undefined" && typeof window.setTimeout === "function") {
       timeoutId = window.setTimeout(() => {
         try {
+          abortMeta.reason = "timeout";
           controller.abort();
         } catch (err) {
           /* ignore */
@@ -1583,130 +2574,192 @@
       }, Number(timeoutMs));
     }
     const startedAt = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-    try {
-      const response = await authFetch(url, { credentials: "same-origin", headers, signal: controller.signal });
-      const durationMs = Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now()) - startedAt);
-      state.optionsFetchMs = durationMs;
-      if (response.status === 304 && state.lastOptionsPayload) {
-        return state.lastOptionsPayload;
+    let requestPromise = null;
+    requestPromise = (async () => {
+      try {
+        const response = await authFetch(url, { credentials: "same-origin", headers, signal: controller.signal });
+        if (requestId !== state.optionsRequestId) return null;
+        const durationMs = Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now()) - startedAt);
+        state.optionsFetchMs = durationMs;
+        if (response.status === 304 && state.lastOptionsPayload) {
+          return state.lastOptionsPayload;
+        }
+        if (!response.ok) throw new Error(`Options request failed (${response.status})`);
+        state.optionsEtag = response.headers.get("ETag") || state.optionsEtag;
+        const payload = await response.json();
+        if (requestId !== state.optionsRequestId) return null;
+        return payload;
+      } catch (err) {
+        if (requestId !== state.optionsRequestId) {
+          return null;
+        }
+        if (err?.name === "AbortError") {
+          if (abortMeta.reason === "superseded") {
+            return null;
+          }
+          if (abortMeta.reason === "timeout" && timeoutMs) {
+            recordOptionsFailure({ phase: requestPhase });
+            throw new Error(`Options request timed out (${timeoutMs}ms)`);
+          }
+          return null;
+        }
+        recordOptionsFailure({ phase: requestPhase });
+        throw err;
+      } finally {
+        if (timeoutId) window.clearTimeout(timeoutId);
+        if (state.optionsAbort === controller) {
+          state.optionsAbort = null;
+        }
+        if (state.optionsAbortMeta === abortMeta) {
+          state.optionsAbortMeta = null;
+        }
+        if (state.optionsInFlightPromise === requestPromise) {
+          state.optionsInFlightPromise = null;
+          state.optionsInFlightKey = "";
+        }
       }
-      if (!response.ok) throw new Error(`Options request failed (${response.status})`);
-      state.optionsEtag = response.headers.get("ETag") || state.optionsEtag;
-      const payload = await response.json();
-      return payload;
-    } catch (err) {
-      if (err?.name === "AbortError" && timeoutMs) {
-        throw new Error(`Options request timed out (${timeoutMs}ms)`);
-      }
-      throw err;
-    } finally {
-      if (timeoutId) window.clearTimeout(timeoutId);
-      state.optionsAbort = null;
-    }
+    })();
+    state.optionsInFlightKey = requestKey;
+    state.optionsInFlightPromise = requestPromise;
+    return requestPromise;
   };
 
   const bootstrap = async (root) => {
     const overlay = root.querySelector("#filtersLoadingOverlay") || document.getElementById("filtersLoadingOverlay");
-    const banner = document.getElementById("filtersErrorBanner");
-    const retryWrap = document.getElementById("filtersRetryWrap");
-    const retryBtn = document.getElementById("filtersRetryBtn");
-    if (banner) {
-      banner.classList.add("d-none");
-      banner.textContent = "";
-    }
-    retryWrap?.classList.add("d-none");
-    retryBtn?.classList.add("d-none");
+    clearDeferredHydrationTimer();
+    clearFilterError();
     overlay?.classList.remove("d-none");
+    setLifecycle("bootstrapping");
 
     try {
       state.loadedDimensions = new Set();
       state.readyPublished = false;
       state.optionsState = "idle";
       state.schemaLoaded = false;
-      const schemaPayload = await fetchSchema();
-      state.schemaLoaded = true;
-      state.schemaDefaults = schemaPayload?.defaults || {};
-      state.datasetVersion = schemaPayload?.dataset_version || state.datasetVersion;
-      state.scopePayload = schemaPayload?.scope || state.scopePayload;
-      state.scopeNotice = schemaPayload?.meta?.filters_notice || "";
-      const userId = (window.__FILTER_CTX__ && window.__FILTER_CTX__.user_id) || "anon";
-      const scopeKey = schemaPayload?.scope ? JSON.stringify(schemaPayload.scope) : undefined;
-
-      if (window.FilterState && typeof window.FilterState.configure === "function") {
-        window.FilterState.configure({
-          datasetVersion: schemaPayload?.dataset_version,
-          userId,
-          scopeKey,
-          resetOnChange: true,
-        });
-      }
-      if (window.FilterState && typeof window.FilterState.setDefaults === "function") {
-        window.FilterState.setDefaults(state.schemaDefaults);
-        window.FilterState.hydrateForm(document.getElementById("filtersForm"));
+      const inlineSchemaPayload = readInlineSchemaPayload();
+      if (inlineSchemaPayload) {
+        applySchemaPayload(inlineSchemaPayload);
+      } else {
+        applySchemaPayload(buildLocalSchemaPayload(root));
+        console.warn(`filters.schema.bootstrap.inline-missing page=${pageKey()} source=dom-fallback`);
       }
 
       ensureDefaultPreset();
+      setAppliedState(gatherFilters());
       loadSavedViews();
       setActiveDimension("");
-      state.baselineHash = filtersHash(gatherFilters());
+      state.baselineHash = filtersHash(getAppliedFilters());
       updateNoticeBanner(state.scopeNotice);
       const bootstrapDimensions = resolveBootstrapDimensions(gatherFilters());
-      try {
-        await hydrateOptions({ dimensions: bootstrapDimensions, timeoutMs: BOOTSTRAP_OPTIONS_TIMEOUT_MS });
-      } catch (optionsErr) {
-        state.optionsState = "failed";
-        console.error(`filters.options.bootstrap.fail page=${pageKey()} err=${optionsErr?.message || optionsErr}`);
-        if (banner) {
-          banner.textContent = optionsErr?.message || "Filters are temporarily unavailable.";
-          banner.classList.remove("d-none");
+      const inlineOptionsPayload = readInlineOptionsPayload();
+      let bootstrappedFromInline = false;
+      let bootstrappedFromDom = false;
+      let bootstrappedFromStorage = false;
+      if (inlineOptionsPayload && hasHydratableOptionsPayload(inlineOptionsPayload)) {
+        applyOptionsPayload(
+          {
+            ...inlineOptionsPayload,
+            meta: {
+              ...(inlineOptionsPayload.meta || {}),
+              source: inlineOptionsPayload?.meta?.source || "server-inline",
+            },
+          },
+          { syncFilters: false, persist: true }
+        );
+        bootstrappedFromInline = !!state.lastOptionsPayload;
+      }
+      const domBootstrapDimensions = resolveDomBootstrapDimensions();
+      if (!bootstrappedFromInline && domBootstrapDimensions.length) {
+        bootstrappedFromDom = !!hydrateDomOptions({
+          dimensions: domBootstrapDimensions,
+          syncFilters: true,
+          source: "dom-bootstrap",
+        });
+      }
+      if (!bootstrappedFromInline && !bootstrappedFromDom) {
+        bootstrappedFromStorage = !!hydratePersistedOptions({
+          dimensions: bootstrapDimensions,
+          syncFilters: false,
+          source: "local-storage-bootstrap",
+        });
+      }
+      if (!bootstrappedFromInline && !bootstrappedFromDom && !bootstrappedFromStorage) {
+        try {
+          await hydrateOptions({
+            dimensions: bootstrapDimensions,
+            timeoutMs: BOOTSTRAP_OPTIONS_TIMEOUT_MS,
+            syncFilters: true,
+            phase: "bootstrap",
+          });
+        } catch (optionsErr) {
+          const persistedPayload = hydratePersistedOptions({
+            dimensions: bootstrapDimensions,
+            syncFilters: false,
+            source: "local-storage-bootstrap-fallback",
+          });
+          const domFallbackPayload = persistedPayload
+            ? null
+            : hydrateDomOptions({
+                dimensions: bootstrapDimensions,
+                syncFilters: true,
+                source: "dom-bootstrap-fallback",
+              });
+          if (persistedPayload || domFallbackPayload) {
+            bootstrappedFromStorage = bootstrappedFromStorage || !!persistedPayload;
+            bootstrappedFromDom = bootstrappedFromDom || !!domFallbackPayload;
+            state.optionsState = "ready";
+            dlog("filters bootstrap fallback", {
+              page: pageKey(),
+              error: optionsErr?.message || optionsErr,
+              source: persistedPayload ? "local-storage" : "dom",
+            });
+          } else {
+            state.optionsState = "failed";
+            setLifecycle("failed_partial", "bootstrap-options");
+            console.error(`filters.options.bootstrap.fail page=${pageKey()} err=${optionsErr?.message || optionsErr}`);
+            showFilterError(optionsErr?.message || "Filters are temporarily unavailable.");
+          }
         }
-        retryWrap?.classList.remove("d-none");
-        retryBtn?.classList.remove("d-none");
       }
 
       state.initState = "done";
       const detail = publishReady();
-      console.info(`filters.init.ok page=${pageKey()} options_ms=${state.optionsFetchMs ?? "n/a"} options_etag=${state.optionsEtag ?? "none"}`);
+      if (state.lifecycle !== "failed_partial") {
+        setLifecycle("ready");
+      }
+      if (state.lastOptionsPayload && state.optionsState === "ready") {
+        console.info(`filters.init.ok page=${pageKey()} options_ms=${state.optionsFetchMs ?? "n/a"} options_etag=${state.optionsEtag ?? "none"}`);
+      } else {
+        console.warn(`filters.init.degraded page=${pageKey()} options_state=${state.optionsState}`);
+      }
 
-      const deferredDimensions = resolveRemainingDimensions();
+      const deferredDimensions = bootstrappedFromInline
+        ? resolveInlineDeferredDimensions(inlineOptionsPayload)
+        : bootstrappedFromDom || bootstrappedFromStorage
+          ? normalizeDimensionList(DIMENSIONS.map((config) => config.key))
+          : resolveRemainingDimensions();
       if (deferredDimensions.length) {
-        window.setTimeout(() => {
-          hydrateOptions({ dimensions: deferredDimensions, timeoutMs: DEFERRED_OPTIONS_TIMEOUT_MS })
-            .then(() => {
-              if (banner && state.optionsState === "ready") {
-                banner.classList.add("d-none");
-                banner.textContent = "";
-              }
-              retryWrap?.classList.add("d-none");
-              retryBtn?.classList.add("d-none");
-            })
-            .catch((optionsErr) => {
-              state.optionsState = "failed";
-              console.error(`filters.options.deferred.fail page=${pageKey()} err=${optionsErr?.message || optionsErr}`);
-              if (banner) {
-                banner.textContent = optionsErr?.message || "Some filter options are still unavailable.";
-                banner.classList.remove("d-none");
-              }
-              retryWrap?.classList.remove("d-none");
-              retryBtn?.classList.remove("d-none");
-            });
-        }, 250);
+        state.deferredHydrationTimer = window.setTimeout(() => {
+          state.deferredHydrationTimer = null;
+          refreshOptionsInBackground({
+            dimensions: deferredDimensions,
+            timeoutMs: DEFERRED_OPTIONS_TIMEOUT_MS,
+            phase: "deferred",
+          });
+        }, bootstrappedFromInline || bootstrappedFromDom || bootstrappedFromStorage ? 100 : 250);
       }
       return detail;
     } catch (err) {
       state.initState = "failed";
+      setLifecycle("failed_fatal", "bootstrap-fatal");
       window.__FILTERS_READY = false;
       readyDeferred.reject(err);
       console.error(`filters.init.fail page=${pageKey()} err=${err?.message || err}`);
-      if (banner) {
-        banner.textContent = err?.message || "Filters are temporarily unavailable.";
-        banner.classList.remove("d-none");
-      }
-      retryWrap?.classList.remove("d-none");
-      retryBtn?.classList.remove("d-none");
+      showFilterError(err?.message || "Filters are temporarily unavailable.");
       throw err;
     } finally {
       overlay?.classList.add("d-none");
+      updateActionState();
     }
   };
 
@@ -1735,6 +2788,17 @@
 
     document.getElementById("filtersRetryBtn")?.addEventListener("click", () => {
       state.initStartedAt = null;
+      state.optionsFailureCount = 0;
+      state.optionsCooldownUntil = 0;
+      clearApplyAckTimer();
+      clearDeferredHydrationTimer();
+      if (state.optionsAbort) {
+        try {
+          state.optionsAbort.abort();
+        } catch (_err) {
+          /* ignore */
+        }
+      }
       const shouldResetReady = state.initState !== "done" || !state.readyPublished;
       state.initState = "idle";
       if (shouldResetReady) setReadyDeferred();
@@ -1768,7 +2832,10 @@
 
     if (state.initState === "in-progress" && !force) return window.filtersReady;
     if (state.initState === "done" && !force) return window.filtersReady;
-    if (state.initState === "failed") setReadyDeferred();
+    if (state.initState === "failed") {
+      setReadyDeferred();
+      setLifecycle("idle", "retry-init");
+    }
 
     applyRootConfig(root);
     wireListeners();

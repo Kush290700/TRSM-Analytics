@@ -62,8 +62,53 @@
 .ciw-hero__grid {
   display: grid;
   gap: 1.25rem;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.98fr);
+  grid-template-columns: minmax(0, 1.72fr) minmax(340px, 1.08fr);
   padding: 1.5rem;
+}
+
+.ciw-hero__main {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+}
+
+.ciw-hero__summary-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.4rem;
+}
+
+.ciw-hero-stat {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(23, 49, 61, 0.1);
+  border-radius: 18px;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.ciw-hero-stat__label {
+  color: var(--ciw-muted);
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ciw-hero-stat__value {
+  color: var(--ciw-ink);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.ciw-hero-stat__detail {
+  color: var(--ciw-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .ciw-eyebrow {
@@ -96,6 +141,73 @@
 .ciw-subtitle {
   font-size: 0.95rem;
   margin-bottom: 0.85rem;
+}
+
+.ciw-subtitle--dense {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  margin-bottom: 0;
+}
+
+.ciw-copy--hero {
+  font-size: 1rem;
+  max-width: 78ch;
+}
+
+.ciw-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ciw-hero-meta span {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(23, 49, 61, 0.08);
+  border-radius: 999px;
+  color: var(--ciw-ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 0.45rem 0.75rem;
+}
+
+.ciw-hero-fact-band {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.ciw-hero-fact {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(23, 49, 61, 0.08);
+  border-radius: 18px;
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+}
+
+.ciw-hero-fact__label {
+  color: var(--ciw-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ciw-hero-fact__value {
+  color: var(--ciw-ink);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.ciw-hero-fact__detail {
+  color: var(--ciw-muted);
+  font-size: 0.79rem;
+  line-height: 1.4;
 }
 
 .ciw-badge-row,
@@ -157,6 +269,50 @@
   flex-direction: column;
   gap: 0.9rem;
   min-width: 0;
+}
+
+.ciw-hero-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  height: 100%;
+}
+
+.ciw-hero-action-lead {
+  background: linear-gradient(180deg, rgba(44, 111, 134, 0.1), rgba(255, 255, 255, 0.72));
+  border: 1px solid rgba(44, 111, 134, 0.14);
+  border-radius: 18px;
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.95rem 1rem;
+}
+
+.ciw-hero-action-lead__label {
+  color: #255a73;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ciw-hero-action-lead__title {
+  color: var(--ciw-ink);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.ciw-hero-action-lead__detail {
+  color: var(--ciw-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.ciw-lane-pill-row,
+.ciw-lane-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
 }
 
 .ciw-card-head {
@@ -236,6 +392,12 @@
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.ciw-next-actions-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
 .ciw-story-grid {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
@@ -310,6 +472,21 @@
   min-height: 100%;
 }
 
+.is-drillable,
+[data-drilldown-payload] {
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.is-drillable:hover,
+.is-drillable:focus-visible,
+[data-drilldown-payload]:hover,
+[data-drilldown-payload]:focus-visible {
+  border-color: rgba(44, 111, 134, 0.22);
+  box-shadow: 0 14px 28px rgba(17, 32, 41, 0.08);
+  transform: translateY(-1px);
+}
+
 .ciw-lane {
   background: var(--ciw-surface-soft);
   display: flex;
@@ -317,6 +494,11 @@
   gap: 0.85rem;
   min-width: 0;
   padding: 1rem;
+}
+
+.ciw-lane--compact {
+  gap: 0.75rem;
+  padding: 0.95rem;
 }
 
 .ciw-tone--positive {
@@ -526,6 +708,10 @@
   text-align: center;
 }
 
+.ciw-empty--compact {
+  min-height: 112px;
+}
+
 .ciw-lane-list {
   display: grid;
   gap: 0.85rem;
@@ -555,12 +741,110 @@
 .ciw-copy,
 .ciw-card-subtitle,
 .ciw-score-detail,
+.ciw-score-implication,
 .ciw-action-why,
 .ciw-kv-detail,
 .ciw-metric-detail,
 .ciw-note,
 .ciw-section-copy {
   line-height: 1.45;
+}
+
+.ciw-score-implication {
+  color: var(--ciw-ink);
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.ciw-export-grid {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ciw-export-card {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--ciw-border);
+  border-radius: 16px;
+  color: var(--ciw-ink);
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.85rem 0.95rem;
+  text-decoration: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.ciw-export-card span {
+  color: var(--ciw-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.ciw-export-card strong {
+  font-size: 0.98rem;
+  line-height: 1.2;
+}
+
+.ciw-export-card:hover,
+.ciw-export-card:focus-visible {
+  border-color: rgba(44, 111, 134, 0.24);
+  box-shadow: 0 16px 34px rgba(17, 32, 41, 0.1);
+  transform: translateY(-1px);
+}
+
+.ciw-focus-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.9rem;
+}
+
+.ciw-focus-chip {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(23, 49, 61, 0.12);
+  border-radius: 999px;
+  color: var(--ciw-ink);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.5rem 0.78rem;
+}
+
+.ciw-focus-chip.is-active {
+  background: rgba(47, 124, 255, 0.16);
+  border-color: rgba(44, 111, 134, 0.32);
+  color: #1c5371;
+  font-weight: 700;
+}
+
+.ciw-whitespace-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.ciw-whitespace-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(23, 49, 61, 0.08);
+  border-radius: 16px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem;
+}
+
+.ciw-whitespace-card h4 {
+  color: var(--ciw-ink);
+  font-size: 0.96rem;
+  margin: 0;
+}
+
+.ciw-whitespace-card p {
+  color: var(--ciw-muted);
+  margin: 0;
 }
 
 .ciw-copy {
@@ -575,6 +859,7 @@
 
 @media (max-width: 991px) {
   .ciw-hero__grid,
+  .ciw-hero__summary-grid,
   .ciw-two-col,
   .ciw-three-col,
   .ciw-four-col,
@@ -601,7 +886,55 @@
   .ciw-lane-grid,
   .ciw-kv-grid,
   .ciw-action-meta,
-  .ciw-metric-grid {
+  .ciw-metric-grid,
+  .ciw-export-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============================================
+   TRSM 2026 customer drilldown alignment
+   ============================================ */
+
+:root {
+  --ciw-ink: var(--trsm-text-strong);
+  --ciw-muted: var(--trsm-text-muted);
+  --ciw-border: rgba(29, 42, 67, 0.12);
+  --ciw-surface: rgba(255, 255, 255, 0.9);
+  --ciw-surface-soft: rgba(246, 249, 252, 0.88);
+  --ciw-surface-strong: rgba(237, 243, 250, 0.92);
+  --ciw-hero: linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(243, 247, 252, 0.88) 55%, rgba(247, 239, 228, 0.82) 100%);
+  --ciw-positive: var(--trsm-success);
+  --ciw-positive-soft: rgba(30, 157, 114, 0.12);
+  --ciw-warning: var(--trsm-warning);
+  --ciw-warning-soft: rgba(208, 139, 35, 0.13);
+  --ciw-danger: var(--trsm-danger);
+  --ciw-danger-soft: rgba(204, 90, 98, 0.12);
+  --ciw-info: var(--trsm-intel);
+  --ciw-info-soft: rgba(47, 124, 255, 0.12);
+  --ciw-shadow: var(--trsm-shadow-sm);
+}
+
+.theme-trsm-future .ciw-surface,
+.theme-trsm-future .ciw-surface-soft,
+.theme-trsm-future .ciw-hero {
+  backdrop-filter: none;
+  box-shadow: var(--ciw-shadow);
+}
+
+.theme-trsm-future .ciw-surface {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.88));
+}
+
+.theme-trsm-future .ciw-surface-soft {
+  background: linear-gradient(180deg, rgba(246, 249, 252, 0.9), rgba(255, 255, 255, 0.78));
+}
+
+.theme-trsm-future .ciw-eyebrow {
+  color: var(--trsm-primary);
+}
+
+.theme-trsm-future .ciw-badge,
+.theme-trsm-future .ciw-pill {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }

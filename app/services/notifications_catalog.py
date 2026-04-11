@@ -49,7 +49,7 @@ NOTIFICATION_CATALOG: List[AlertDefinition] = [
             "frequency": "daily",
             "scope_mode": "rbac",
             "delivery": ["email"],
-            "config": {"margin_target_pct": 27, "min_revenue": 5000, "cooldown_hours": 24},
+            "config": {"min_revenue": 5000, "cooldown_hours": 24},
         },
     },
     {

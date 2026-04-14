@@ -1,0 +1,405 @@
+{
+  "nodes": [
+    {
+      "id": "scripts_perf_smoke_py",
+      "label": "scripts/perf_smoke.py",
+      "file_type": "code",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "scripts_perf_smoke_describe_frame",
+      "label": "_describe_frame()",
+      "file_type": "code",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L13"
+    },
+    {
+      "id": "scripts_perf_smoke_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L21"
+    },
+    {
+      "id": "scripts_verify_overview_parity_py",
+      "label": "scripts/verify_overview_parity.py",
+      "file_type": "code",
+      "source_file": "scripts/verify_overview_parity.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "scripts_verify_overview_parity_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "scripts/verify_overview_parity.py",
+      "source_location": "L63"
+    },
+    {
+      "id": "tests_test_suppliers_products_export_py",
+      "label": "tests/test_suppliers_products_export.py",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_products_export.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_suppliers_products_export_seed_supplier_products",
+      "label": "seed_supplier_products()",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_products_export.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "tests_test_universal_drilldowns_py",
+      "label": "tests/test_universal_drilldowns.py",
+      "file_type": "code",
+      "source_file": "tests/test_universal_drilldowns.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_universal_drilldowns_test_universal_drilldown_go_redirects_to_entity_with_inherited_filters",
+      "label": "test_universal_drilldown_go_redirects_to_entity_with_inherited_filters()",
+      "file_type": "code",
+      "source_file": "tests/test_universal_drilldowns.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "tests_test_assistant_provider_py",
+      "label": "tests/test_assistant_provider.py",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_provider.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_assistant_provider_test_build_provider_supports_llama_cpp_alias",
+      "label": "test_build_provider_supports_llama_cpp_alias()",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_provider.py",
+      "source_location": "L29"
+    },
+    {
+      "id": "tests_test_salesreps_lost_accounts_py",
+      "label": "tests/test_salesreps_lost_accounts.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_lost_accounts.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_lost_accounts_test_lost_accounts_key_present_in_drilldown_bundle",
+      "label": "test_lost_accounts_key_present_in_drilldown_bundle()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_lost_accounts.py",
+      "source_location": "L156"
+    },
+    {
+      "id": "tests_test_products_overview_service_py",
+      "label": "tests/test_products_overview_service.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_overview_service.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_overview_service_test_avg_price_and_weighted_margin",
+      "label": "test_avg_price_and_weighted_margin()",
+      "file_type": "code",
+      "source_file": "tests/test_products_overview_service.py",
+      "source_location": "L85"
+    },
+    {
+      "id": "tests_test_cache_manager_py",
+      "label": "tests/test_cache_manager.py",
+      "file_type": "code",
+      "source_file": "tests/test_cache_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_cache_manager_test_cache_manager_refresh_updates_watermark_and_rows",
+      "label": "test_cache_manager_refresh_updates_watermark_and_rows()",
+      "file_type": "code",
+      "source_file": "tests/test_cache_manager.py",
+      "source_location": "L63"
+    },
+    {
+      "id": "tests_test_data_loader_product_family_py",
+      "label": "tests/test_data_loader_product_family.py",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_product_family.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_py",
+      "label": "tests/test_overview.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_smoke_endpoints_py",
+      "label": "tests/test_smoke_endpoints.py",
+      "file_type": "code",
+      "source_file": "tests/test_smoke_endpoints.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_filter_form_contract_py",
+      "label": "tests/test_filter_form_contract.py",
+      "file_type": "code",
+      "source_file": "tests/test_filter_form_contract.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_regions_bundle_py",
+      "label": "tests/test_regions_bundle.py",
+      "file_type": "code",
+      "source_file": "tests/test_regions_bundle.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_admin_user_select_py",
+      "label": "tests/test_admin_user_select.py",
+      "file_type": "code",
+      "source_file": "tests/test_admin_user_select.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_rbac_scope_py",
+      "label": "tests/test_rbac_scope.py",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_scope.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_suppliers_metrics_py",
+      "label": "tests/test_suppliers_metrics.py",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_metrics.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_filters_canonical_v2_py",
+      "label": "tests/test_filters_canonical_v2.py",
+      "file_type": "code",
+      "source_file": "tests/test_filters_canonical_v2.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_labor_blueprint_py",
+      "label": "tests/test_labor_blueprint.py",
+      "file_type": "code",
+      "source_file": "tests/test_labor_blueprint.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_blueprint_logic_py",
+      "label": "tests/test_products_blueprint_logic.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_blueprint_logic.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_bundle_py",
+      "label": "tests/test_overview_bundle.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_bundle.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_regions_drilldown_fix_py",
+      "label": "tests/test_regions_drilldown_fix.py",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_fix.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_assistant_quality_py",
+      "label": "tests/test_assistant_quality.py",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_quality.py",
+      "source_location": "L1"
+    }
+  ],
+  "edges": [
+    {
+      "source": "scripts_perf_smoke_main",
+      "target": "data_loader_get_dataframe",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L24",
+      "weight": 0.8
+    },
+    {
+      "source": "scripts_verify_overview_parity_main",
+      "target": "app_services_overview_query_compute_overview",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "scripts/verify_overview_parity.py",
+      "source_location": "L85",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_suppliers_products_export_seed_supplier_products",
+      "target": "app_services_fact_store_init_views",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_suppliers_products_export.py",
+      "source_location": "L74",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_universal_drilldowns_test_universal_drilldown_go_redirects_to_entity_with_inherited_filters",
+      "target": "tests_test_universal_drilldowns_encode_context",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_universal_drilldowns.py",
+      "source_location": "L51",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_assistant_provider_test_build_provider_supports_llama_cpp_alias",
+      "target": "app_assistant_provider_build_provider",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_assistant_provider.py",
+      "source_location": "L30",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesreps_lost_accounts_test_lost_accounts_key_present_in_drilldown_bundle",
+      "target": "app_services_salesreps_bundle_build_salesreps_drilldown",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_lost_accounts.py",
+      "source_location": "L215",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_overview_service_test_avg_price_and_weighted_margin",
+      "target": "app_services_products_get_products_overview",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_overview_service.py",
+      "source_location": "L86",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_cache_manager_test_cache_manager_refresh_updates_watermark_and_rows",
+      "target": "app_services_cache_manager_CacheManager",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_cache_manager.py",
+      "source_location": "L83",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_data_loader_product_family_test_canonicalize_columns_preserves_text_protein_dimension",
+      "target": "data_loader_canonicalize_columns",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_data_loader_product_family.py",
+      "source_location": "L25",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_smoke_endpoints_test_smoke_core_endpoints",
+      "target": "app_services_bundle_service_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_smoke_endpoints.py",
+      "source_location": "L127",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_filter_form_contract_test_build_global_filter_form_supports_statuses_and_shipping_methods",
+      "target": "app_core_filters_build_global_filter_form",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_filter_form_contract.py",
+      "source_location": "L26",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_regions_bundle_test_regions_risk_profile_uses_shared_margin_status_when_status_missing",
+      "target": "app_services_regions_bundle_risk_profile",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_regions_bundle.py",
+      "source_location": "L117",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_rbac_scope_test_admin_scope_is_all",
+      "target": "app_core_access_policy_scope_for_user",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_rbac_scope.py",
+      "source_location": "L53",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_suppliers_metrics_test_product_details_metrics_with_units_and_cost",
+      "target": "app_blueprints_suppliers_build_supplier_product_details",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_suppliers_metrics.py",
+      "source_location": "L36",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_filters_canonical_v2_test_consistency_bundle_drilldown_export_use_same_filters",
+      "target": "app_services_filters_resolve_filters",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_filters_canonical_v2.py",
+      "source_location": "L261",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_labor_blueprint_test_labor_page_renders_enterprise_workspace",
+      "target": "app_services_labor_store_reset_duckdb_state",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_labor_blueprint.py",
+      "source_location": "L28",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_blueprint_logic_test_placeholder_created_when_auto_create_enabled",
+      "target": "app_blueprints_products_ensure_products_parquet_available",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_blueprint_logic.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_bundle_test_overview_bundle_endpoint_real_bundle_regression",
+      "target": "app_services_overview_v2_build_overview_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_bundle.py",
+      "source_location": "L209",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_regions_drilldown_fix_test_build_drilldown_payload",
+      "target": "app_blueprints_regions_build_drilldown_payload",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_regions_drilldown_fix.py",
+      "source_location": "L54",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_assistant_quality_test_ranking_and_definition_answers_expose_compatibility_shape",
+      "target": "app_assistant_service_execute_tool",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_assistant_quality.py",
+      "source_location": "L112",
+      "weight": 0.8
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

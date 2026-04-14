@@ -125,7 +125,7 @@
   const INIT_EVENTS = ["DOMContentLoaded", "pageshow"];
   const CUSTOM_INIT_EVENTS = ["page:ready"];
   const BOOTSTRAP_OPTION_DIMENSIONS = ["statuses", "regions", "methods"];
-  const FILTER_KEY_REGEX = /^(start|start_date|end|end_date|date_preset|preset|range_preset|date_type|statuses|regions|methods|shipping_methods|customers|suppliers|products|sales_reps|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|full_months_only|_gf)$/i;
+  const FILTER_KEY_REGEX = /^(start|start_date|end|end_date|date_preset|preset|range_preset|date_type|statuses|regions|methods|shipping_methods|customers|suppliers|products|sales_reps|protein_groups|yield_min|yield_max|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|full_months_only|_gf)$/i;
   const FISCAL_PRESETS = new Set([
     "current_fy",
     "previous_fy",
@@ -145,6 +145,8 @@
     { id: "fSalesReps", key: "sales_reps", label: "Sales Rep", emptyLabel: "All sales reps", countId: "salesRepsCount" },
     { id: "fSuppliers", key: "suppliers", label: "Supplier", emptyLabel: "All suppliers", countId: "suppliersCount" },
     { id: "fProducts", key: "products", label: "Product", emptyLabel: "All products", countId: "productsCount" },
+    { id: "fProteinGroups", key: "protein_groups", label: "Protein Group", emptyLabel: "All species", countId: "proteinGroupsCount" },
+    { id: "fYieldRange", key: "yield_range", label: "Yield Performance", emptyLabel: "All yields", countId: "yieldRangeCount" },
   ];
   const LABEL_ALIASES = {
     methods: ["methods", "shipping_methods", "ship_methods"],
@@ -759,6 +761,9 @@
     suppliers: stableList(raw?.suppliers),
     products: stableList(raw?.products),
     sales_reps: stableList(raw?.sales_reps),
+    protein_groups: stableList(raw?.protein_groups),
+    yield_min: raw?.yield_min ?? null,
+    yield_max: raw?.yield_max ?? null,
     protein_min: raw?.protein_min ?? null,
     protein_max: raw?.protein_max ?? null,
     protein_name_like: raw?.protein_name_like || null,
@@ -791,6 +796,9 @@
       suppliers: multiValues(document.getElementById("fSuppliers")),
       products: multiValues(document.getElementById("fProducts")),
       sales_reps: multiValues(document.getElementById("fSalesReps")),
+      protein_groups: multiValues(document.getElementById("fProteinGroups")),
+      yield_min: document.getElementById("fYieldMin")?.value || null,
+      yield_max: document.getElementById("fYieldMax")?.value || null,
     });
   };
 
@@ -900,6 +908,23 @@
         summary: String(filters.protein_name_like),
       });
     }
+
+    const yieldBounds = [];
+    if (filters?.yield_min !== null && filters?.yield_min !== undefined && `${filters.yield_min}`.trim() !== "") {
+      yieldBounds.push(`>= ${filters.yield_min}%`);
+    }
+    if (filters?.yield_max !== null && filters?.yield_max !== undefined && `${filters.yield_max}`.trim() !== "") {
+      yieldBounds.push(`<= ${filters.yield_max}%`);
+    }
+    if (yieldBounds.length) {
+      advancedChips.push({
+        key: "yield_range",
+        label: "Yield",
+        count: yieldBounds.length,
+        summary: yieldBounds.join(" "),
+      });
+    }
+
     if (filters?.complete_months_only === true) {
       advancedChips.push({
         key: "complete_months_only",
@@ -1973,6 +1998,12 @@
       params.set("protein_max", String(normalized.protein_max));
     }
     if (normalized.protein_name_like) params.set("protein_name_like", normalized.protein_name_like);
+    if (normalized.yield_min !== null && normalized.yield_min !== undefined && `${normalized.yield_min}` !== "") {
+      params.set("yield_min", String(normalized.yield_min));
+    }
+    if (normalized.yield_max !== null && normalized.yield_max !== undefined && `${normalized.yield_max}` !== "") {
+      params.set("yield_max", String(normalized.yield_max));
+    }
     if (normalized.complete_months_only !== null && normalized.complete_months_only !== undefined) {
       params.set("complete_months_only", normalized.complete_months_only ? "1" : "0");
     }

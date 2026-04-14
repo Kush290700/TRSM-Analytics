@@ -55,6 +55,23 @@
           <input class="form-control" id="reasonFilter" name="reason" value="{{ filters.reason }}">
         </div>
         <div class="col-md-2">
+          <label class="form-label" for="companyFilter">Company</label>
+          <select class="form-select" id="companyFilter" name="company">
+            <option value="">All</option>
+            <option value="Two Rivers Meats" {% if filters.company == 'Two Rivers Meats' %}selected{% endif %}>Two Rivers</option>
+            <option value="Black Forest" {% if filters.company == 'Black Forest' %}selected{% endif %}>Black Forest</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="approverFilter">Approver</label>
+          <select class="form-select" id="approverFilter" name="approver">
+            <option value="">All</option>
+            <option value="Scott" {% if filters.approver == 'Scott' %}selected{% endif %}>Scott</option>
+            <option value="Brian" {% if filters.approver == 'Brian' %}selected{% endif %}>Brian</option>
+            <option value="Kyle" {% if filters.approver == 'Kyle' %}selected{% endif %}>Kyle</option>
+          </select>
+        </div>
+        <div class="col-md-2">
           <label class="form-label" for="customerFilter">Customer</label>
           <input class="form-control" id="customerFilter" name="customer" value="{{ filters.customer }}">
         </div>
@@ -80,50 +97,58 @@
     </div>
   </div>
 
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-3">
+        {# ... existing filters ... #}
+      </form>
+      <div id="bulkActionsRow" class="mt-3 d-none">
+        <div class="d-flex align-items-center gap-3 p-2 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded">
+          <span class="fw-bold text-primary small"><span id="selectedCount">0</span> returns selected</span>
+          <div class="vr"></div>
+          <button class="btn btn-sm btn-outline-primary" type="button" id="bulkExportSage">Batch Sage Export</button>
+          {% if can_finance or can_mgr_approve %}
+          <button class="btn btn-sm btn-outline-success" type="button" id="bulkMarkComplete">Batch Close</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="card shadow-sm border-0">
     <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
+      <table class="table table-hover align-middle mb-0" id="returnsTable">
         <thead class="table-light">
           <tr>
+            <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="selectAll"></th>
             <th>RMA #</th>
+            <th>Company</th>
             <th>Customer</th>
             <th>Order #</th>
             <th>Rep</th>
-            <th>Order Date</th>
-            <th>Date Submitted</th>
             <th>Status</th>
             <th>Total Credit</th>
-            <th>Total Weight</th>
-            <th>Total Packs</th>
-            <th>Primary Reason</th>
-            <th>Category</th>
-            <th>Follow-up</th>
-            <th>Rec/Prod Signoff</th>
+            <th>Approver</th>
             <th>Last Updated</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rmas %}
-          <tr>
+          <tr data-rma-id="{{ row.id }}">
+            <td><input type="checkbox" class="form-check-input row-select" value="{{ row.id }}"></td>
             <td class="fw-semibold"><a class="link-dark text-decoration-none" href="{{ url_for('returns_portal.detail', rma_id=row.id) }}">{{ row.rma_number }}</a></td>
+            <td><span class="small text-muted">{{ row.company or '-' }}</span></td>
             <td>{{ row.customer_name or row.customer_id }}</td>
             <td>{{ row.order_id }}</td>
             <td>{{ row.rep_name or '-' }}</td>
-            <td>{{ row.order_date or '-' }}</td>
-            <td>{{ row.date_submitted or row.created_at }}</td>
             <td><span class="badge text-bg-light border">{{ row.status_label }}</span></td>
             <td>{{ row.total_credit_amount|currency }}</td>
-            <td>{{ '%.3f'|format(row.total_weight_lb or 0) }}</td>
-            <td>{{ row.total_packs or 0 }}</td>
-            <td>{{ row.primary_reason or '-' }}</td>
-            <td>{{ row.primary_category or '-' }}</td>
-            <td>{{ row.primary_follow_up or '-' }}</td>
-            <td>{{ 'Yes' if row.rec_prod_signoff else 'No' }}</td>
+            <td><span class="small">{{ row.approval_target or '-' }}</span></td>
             <td>{{ row.last_updated or row.updated_at or row.created_at }}</td>
           </tr>
           {% else %}
           <tr>
-            <td class="text-muted" colspan="15">No returns match the current filters.</td>
+            <td class="text-muted" colspan="10">No returns match the current filters.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -131,4 +156,63 @@
     </div>
   </div>
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const selectAll = document.getElementById('selectAll');
+  const rowSelects = document.querySelectorAll('.row-select');
+  const bulkRow = document.getElementById('bulkActionsRow');
+  const selectedCount = document.getElementById('selectedCount');
+  
+  function updateBulkRow() {
+    const selected = Array.from(rowSelects).filter(cb => cb.checked);
+    if (selected.length > 0) {
+      bulkRow.classList.remove('d-none');
+      selectedCount.textContent = selected.length;
+    } else {
+      bulkRow.classList.add('d-none');
+    }
+  }
+
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      rowSelects.forEach(cb => cb.checked = selectAll.checked);
+      updateBulkRow();
+    });
+  }
+
+  rowSelects.forEach(cb => {
+    cb.addEventListener('change', updateBulkRow);
+  });
+
+  document.getElementById('bulkExportSage')?.addEventListener('click', function() {
+    const ids = Array.from(rowSelects).filter(cb => cb.checked).map(cb => cb.value);
+    if (ids.length === 0) return;
+    window.location.href = "{{ url_for('returns_portal.export_sage_csv_batch') }}?ids=" + ids.join(',');
+  });
+
+  document.getElementById('bulkMarkComplete')?.addEventListener('click', async function() {
+    const ids = Array.from(rowSelects).filter(cb => cb.checked).map(cb => cb.value);
+    if (!ids.length || !confirm('Mark ' + ids.length + ' returns as completed?')) return;
+    
+    const formData = new FormData();
+    formData.append('csrf_token', '{{ csrf_token() }}');
+    ids.forEach(id => formData.append('ids', id));
+    
+    try {
+      const response = await fetch("{{ url_for('returns_portal.batch_complete') }}", {
+        method: 'POST',
+        body: formData
+      });
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        alert('Bulk update failed. Check logs.');
+      }
+    } catch (err) {
+      alert('Error during bulk update.');
+    }
+  });
+});
+</script>
 {% endblock %}

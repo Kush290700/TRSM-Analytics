@@ -113,6 +113,37 @@ def reset_password_cmd(username: str, password: str | None):
         log_audit("cli", "reset_password", {"username": username})
 
 
+@cli.command("check-config")
+def check_config_cmd():
+    """Validate environment variables and directory structure."""
+    from app.config import Config
+    import os
+
+    click.secho("🔍 Checking TRSM-Analytics configuration...", fg="cyan")
+    
+    required_dirs = ["data", "logs", "cache", "instance"]
+    for d in required_dirs:
+        if os.path.isdir(d):
+            click.echo(f"  ✅ Directory '{d}' exists.")
+        else:
+            click.echo(f"  ⚠️ Directory '{d}' missing (will be auto-created if app starts).")
+
+    # Check for .env file
+    if os.path.exists(".env"):
+        click.echo("  ✅ .env file found.")
+    else:
+        click.echo("  ⚠️ .env file missing (using system env or defaults).")
+
+    # Check core analytic dependencies
+    parquet_path = os.getenv("PARQUET_PATH", "data/sales_fact.parquet")
+    if os.path.exists(parquet_path):
+        click.echo(f"  ✅ Parquet dataset found at '{parquet_path}'.")
+    else:
+        click.echo(f"  ❌ Parquet dataset MISSING at '{parquet_path}'. Run ETL first.")
+
+    click.secho("🌟 Configuration check complete.", fg="green")
+
+
 @cli.command("enable-2fa")
 @click.option("--username", required=True, help="Username to enable 2FA for")
 @click.option("--issuer", required=False, default="TRSM Analytics", show_default=True)

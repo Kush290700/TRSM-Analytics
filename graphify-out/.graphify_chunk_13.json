@@ -1,0 +1,223 @@
+{
+  "nodes": [
+    {
+      "id": "assistant_api_routes",
+      "label": "Assistant API Routes",
+      "file_type": "code",
+      "source_file": "app/assistant/routes.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_ai_provider",
+      "label": "Assistant AI Provider",
+      "file_type": "code",
+      "source_file": "app/assistant/provider.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_service_layer",
+      "label": "Assistant Service Layer",
+      "file_type": "code",
+      "source_file": "app/assistant/service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_toolset",
+      "label": "Assistant Toolset",
+      "file_type": "code",
+      "source_file": "app/assistant/tools.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "partition_writer_etl",
+      "label": "Partitioned Dataset Writer",
+      "file_type": "code",
+      "source_file": "etl/partition_writer.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_store_helper",
+      "label": "Data Store Access Helper",
+      "file_type": "code",
+      "source_file": "data/store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_module",
+      "label": "Assistant Module Package",
+      "file_type": "code",
+      "source_file": "app/assistant/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "workers_package",
+      "label": "Workers Package",
+      "file_type": "code",
+      "source_file": "workers/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_package",
+      "label": "Data Package",
+      "file_type": "code",
+      "source_file": "data/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "assistant_api_routes",
+      "target": "assistant_service_layer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/routes.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_service_layer",
+      "target": "assistant_ai_provider",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/service.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_service_layer",
+      "target": "assistant_toolset",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/service.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_overview_context",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "customers_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_module_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "products_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_module_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_entity_resolution_candidates",
+      "weight": 1.0
+    },
+    {
+      "source": "partition_writer_etl",
+      "target": "watermark_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "etl/partition_writer.py",
+      "source_location": "upsert_dataset",
+      "weight": 1.0
+    },
+    {
+      "source": "data_store_helper",
+      "target": "fact_store",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "data/store.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "data_store_helper",
+      "target": "cache_manager",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "data/store.py",
+      "source_location": "_meta",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "assistant_core_pattern",
+      "label": "Assistant Core Execution Pattern",
+      "nodes": [
+        "assistant_api_routes",
+        "assistant_service_layer",
+        "assistant_ai_provider",
+        "assistant_toolset"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/assistant/service.py"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

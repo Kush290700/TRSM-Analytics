@@ -1,0 +1,546 @@
+{
+  "nodes": [
+    {
+      "id": "salesrep_drilldown_js",
+      "label": "SalesRep Drilldown Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/salesrep_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_js",
+      "label": "Executive Overview Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/overview.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_js",
+      "label": "Suppliers Index Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_legacy_js",
+      "label": "Legacy SalesReps Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/salesreps_legacy.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_js",
+      "label": "Labor Analytics Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/labor.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "global_filters_js",
+      "label": "Global Filters State Manager",
+      "file_type": "code",
+      "source_file": "app/static/js/global_filters.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_v2_js",
+      "label": "Regions Dashboard v2",
+      "file_type": "code",
+      "source_file": "app/static/js/regions_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_v2_js",
+      "label": "Executive Overview v2",
+      "file_type": "code",
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_js",
+      "label": "AI Assistant Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/assistant.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_js",
+      "label": "Products Intelligence Dashboard",
+      "file_type": "code",
+      "source_file": "app/static/js/products.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_v2_js",
+      "label": "Region Drilldown v2",
+      "file_type": "code",
+      "source_file": "app/static/js/regions_drilldown_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_js",
+      "label": "Legacy Region Drilldown",
+      "file_type": "code",
+      "source_file": "app/static/js/regions_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_legacy_js",
+      "label": "Legacy Overview Dashboard",
+      "file_type": "code",
+      "source_file": "app/static/js/overview_legacy.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_fetch_js",
+      "label": "Auth-aware Fetch Wrapper",
+      "file_type": "code",
+      "source_file": "app/static/js/auth-fetch.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bundle_adapter_js",
+      "label": "API Bundle Adapter",
+      "file_type": "code",
+      "source_file": "app/static/js/bundle-adapter.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_js",
+      "label": "SalesReps Dashboard",
+      "file_type": "code",
+      "source_file": "app/static/js/salesreps.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_drilldown_js",
+      "label": "Supplier Drilldown Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_v2_js",
+      "label": "Suppliers Dashboard v2",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dev_bundle_helper_js",
+      "label": "Dev Bundle Debug Helper",
+      "file_type": "code",
+      "source_file": "app/static/js/dev-bundle-helper.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_drilldown_v2_js",
+      "label": "Supplier Drilldown v2",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers_drilldown_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "chart_utils_js",
+      "label": "Shared Chart Utilities",
+      "file_type": "code",
+      "source_file": "app/static/js/chart-utils.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "exports_js",
+      "label": "Client-side Export Utilities",
+      "file_type": "code",
+      "source_file": "app/static/js/exports.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "salesrep_drilldown_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesrep_drilldown.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_legacy_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesreps_legacy.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/regions_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "products_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/products.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_drilldown_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/regions_drilldown_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesreps.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_drilldown_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_drilldown_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/regions_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "products_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/products.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_drilldown_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_drilldown_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "bundle_adapter_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "normalizeBundlePayload",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_js",
+      "target": "bundle_adapter_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesreps.js",
+      "source_location": "normalizeBundlePayload",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2_js",
+      "target": "bundle_adapter_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": "normalizeBundlePayload",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_js",
+      "target": "chart_utils_js",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/static/js/overview.js",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "exports_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "ExportKit",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_js",
+      "target": "overview_analytics",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": "/overview/api/context",
+      "weight": 1.0
+    },
+    {
+      "source": "products_js",
+      "target": "products_analytics",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/products.js",
+      "source_location": "/api/products/bundle",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "frontend_dashboards",
+      "label": "Main Analytics Dashboards",
+      "nodes": [
+        "overview_js",
+        "overview_v2_js",
+        "products_js",
+        "regions_v2_js",
+        "suppliers_v2_js",
+        "salesreps_js"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/static/js/overview_v2.js"
+    },
+    {
+      "id": "frontend_utilities",
+      "label": "Frontend Infrastructure Utilities",
+      "nodes": [
+        "auth_fetch_js",
+        "global_filters_js",
+        "bundle_adapter_js",
+        "chart_utils_js",
+        "exports_js"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/static/js/bundle-adapter.js"
+    },
+    {
+      "id": "drilldown_views",
+      "label": "Entity Drilldown Views",
+      "nodes": [
+        "salesrep_drilldown_js",
+        "regions_drilldown_v2_js",
+        "suppliers_drilldown_v2_js"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/static/js/salesrep_drilldown.js"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

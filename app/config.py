@@ -73,7 +73,7 @@ class Config:
     DEFAULT_MONTH_WINDOW: int = _get_int("DEFAULT_MONTH_WINDOW", 3)
 
     # Flask settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
     WTF_CSRF_ENABLED: bool = True
     LOGIN_DISABLED: bool = _get_bool("LOGIN_DISABLED", False)
     STICKY_FILTERS: bool = _get_bool("STICKY_FILTERS", True)
@@ -125,6 +125,7 @@ class Config:
     SMTP_USE_TLS: bool = _get_bool("SMTP_USE_TLS", False)
     SMTP_TIMEOUT_SECONDS: int = _get_int("SMTP_TIMEOUT_SECONDS", 20)
     MAIL_FROM: str = (os.getenv("MAIL_FROM", "TRSM Analytics <no-reply@tworiversmeats.com>") or "").strip()
+    MAIL_SUPPRESS_SEND: bool = _get_bool("MAIL_SUPPRESS_SEND", False)
     INVITES_ENABLED: bool = _get_bool("INVITES_ENABLED", True)
     NOTIFICATIONS_MAX_EMAILS_PER_HOUR: int = _get_int("NOTIFICATIONS_MAX_EMAILS_PER_HOUR", 10)
     RESET_TOKEN_TTL_SECONDS: int = _get_int("RESET_TOKEN_TTL_SECONDS", 86400)

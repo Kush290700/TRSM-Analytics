@@ -425,27 +425,20 @@ VIEW_ROLES = ("production", "gm", "owner", "sales_manager", "admin", "sales", "a
 
 
 def login_required(fn):
-    """Respects LOGIN_DISABLED / AUTHZ_DISABLED for demo/local."""
-    protected = _login_required(fn)
-
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if current_app.config.get("LOGIN_DISABLED") or current_app.config.get("AUTHZ_DISABLED"):
-            return fn(*args, **kwargs)
-        return protected(*args, **kwargs)
-
-    return wrapper
+    """Delegates to centralized AccessPolicy logic."""
+    from app.core.access_policy import require_login
+    return require_login(fn)
 
 
 def requires_roles(*roles: str):
-    """Lightweight role gate; supports current_user.roles (list) or current_user.role (string)."""
+    """Lightweight role gate using centralized RBAC logic."""
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            if current_app.config.get("AUTHZ_DISABLED"):
+            from app.core.access_policy import _cfg_flag
+            if _cfg_flag("AUTHZ_DISABLED", False) or _cfg_flag("LOGIN_DISABLED", False):
                 return fn(*args, **kwargs)
-            if current_app.config.get("LOGIN_DISABLED"):
-                return fn(*args, **kwargs)
+            
             if callable(route_permission_override_allows_request):
                 try:
                     allow_override = route_permission_override_allows_request()

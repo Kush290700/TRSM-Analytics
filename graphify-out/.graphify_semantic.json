@@ -1,0 +1,5985 @@
+{
+  "nodes": [
+    {
+      "id": "trsm_analytics",
+      "label": "TRSM Analytics",
+      "file_type": "code",
+      "source_file": "README.md"
+    },
+    {
+      "id": "blueprint_overview",
+      "label": "Overview Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/overview.py"
+    },
+    {
+      "id": "blueprint_customers",
+      "label": "Customers Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/customers.py"
+    },
+    {
+      "id": "blueprint_products",
+      "label": "Products Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/products.py"
+    },
+    {
+      "id": "blueprint_suppliers",
+      "label": "Suppliers Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/suppliers.py"
+    },
+    {
+      "id": "blueprint_regions",
+      "label": "Regions Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/regions.py"
+    },
+    {
+      "id": "blueprint_salesreps",
+      "label": "Sales Reps Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/salesreps.py"
+    },
+    {
+      "id": "blueprint_labor",
+      "label": "Labor Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/labor.py"
+    },
+    {
+      "id": "blueprint_returns",
+      "label": "Returns Blueprint",
+      "file_type": "code",
+      "source_file": "app/returns/blueprints.py"
+    },
+    {
+      "id": "blueprint_assistant",
+      "label": "Assistant Blueprint",
+      "file_type": "code",
+      "source_file": "app/assistant/routes.py"
+    },
+    {
+      "id": "service_fact_store",
+      "label": "Fact Store Service",
+      "file_type": "code",
+      "source_file": "app/services/fact_store.py"
+    },
+    {
+      "id": "service_bundle",
+      "label": "Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/bundle_service.py"
+    },
+    {
+      "id": "service_overview_v2",
+      "label": "Overview V2 Service",
+      "file_type": "code",
+      "source_file": "app/services/overview_v2.py"
+    },
+    {
+      "id": "core_access_policy",
+      "label": "Access Policy Core",
+      "file_type": "code",
+      "source_file": "app/core/access_policy.py"
+    },
+    {
+      "id": "core_rbac",
+      "label": "RBAC Core",
+      "file_type": "code",
+      "source_file": "app/core/rbac.py"
+    },
+    {
+      "id": "core_sensitive_data",
+      "label": "Sensitive Data Core",
+      "file_type": "code",
+      "source_file": "app/core/sensitive_data.py"
+    },
+    {
+      "id": "concept_filter_params",
+      "label": "FilterParams",
+      "file_type": "document",
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "concept_bundle",
+      "label": "Bundle",
+      "file_type": "document",
+      "source_file": "CODEX.md"
+    },
+    {
+      "id": "concept_drilldown",
+      "label": "Drilldown",
+      "file_type": "document",
+      "source_file": "CODEX.md"
+    },
+    {
+      "id": "concept_revenue_weighted_margin",
+      "label": "Revenue-Weighted Margin",
+      "file_type": "document",
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "concept_safe_division",
+      "label": "Safe Division",
+      "file_type": "document",
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "doc_filters_runbook",
+      "label": "FILTERS_CANONICAL_V2 Runbook",
+      "file_type": "document",
+      "source_file": "docs/FILTERS_CANONICAL_V2_RUNBOOK.md"
+    },
+    {
+      "id": "doc_products_arch",
+      "label": "Products Architecture",
+      "file_type": "document",
+      "source_file": "docs/products_architecture.md"
+    },
+    {
+      "id": "doc_customers_arch",
+      "label": "Customers Architecture",
+      "file_type": "document",
+      "source_file": "docs/customers_architecture.md"
+    },
+    {
+      "id": "doc_testing_matrix",
+      "label": "Testing Matrix",
+      "file_type": "document",
+      "source_file": "docs/TESTING_MATRIX.md"
+    },
+    {
+      "id": "rationale_revenue_weighted_margin",
+      "label": "Rationale for Revenue-Weighted Margin",
+      "file_type": "document",
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "rationale_safe_division",
+      "label": "Rationale for Safe Division",
+      "file_type": "document",
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "data_loader",
+      "label": "Data Loader",
+      "file_type": "code",
+      "source_file": "data_loader.py"
+    },
+    {
+      "id": "duckdb",
+      "label": "DuckDB",
+      "file_type": "code",
+      "source_file": "requirements.txt"
+    },
+    {
+      "id": "parquet",
+      "label": "Parquet",
+      "file_type": "code",
+      "source_file": "requirements.txt"
+    },
+    {
+      "id": "mssql",
+      "label": "MSSQL",
+      "file_type": "code",
+      "source_file": "README.md"
+    },
+    {
+      "id": "jinja_templates",
+      "label": "Jinja Templates",
+      "file_type": "code",
+      "source_file": "app/templates/"
+    },
+    {
+      "id": "rma_returns",
+      "label": "Returns RMA",
+      "file_type": "document",
+      "source_file": "app/templates/emails/returns/update.txt"
+    },
+    {
+      "id": "alerts_notifications",
+      "label": "Alerts & Notifications",
+      "file_type": "document",
+      "source_file": "app/templates/emails/digest_daily.txt"
+    },
+    {
+      "id": "doc_notifications_runbook",
+      "label": "Notifications & Alerts Runbook",
+      "file_type": "document",
+      "source_file": "docs/notifications_runbook.md"
+    },
+    {
+      "id": "run_runner",
+      "label": "Dev/Production Runner",
+      "file_type": "code",
+      "source_file": "run.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_checkpoints",
+      "label": "Fact Lifecycle Checkpoints",
+      "file_type": "code",
+      "source_file": "fact_checkpoints.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "manage_cli",
+      "label": "Admin/Utility CLI",
+      "file_type": "code",
+      "source_file": "manage.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "worker_etl",
+      "label": "API-to-PG Worker",
+      "file_type": "code",
+      "source_file": "worker.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_config",
+      "label": "Playwright Test Config",
+      "file_type": "code",
+      "source_file": "playwright.config.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_loader_etl",
+      "label": "MSSQL-to-Parquet ETL",
+      "file_type": "code",
+      "source_file": "data_loader.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "wsgi_entry",
+      "label": "WSGI Entry Point",
+      "file_type": "code",
+      "source_file": "wsgi.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_freshness_check",
+      "label": "Fact Freshness Check",
+      "file_type": "code",
+      "source_file": "scripts/fact_freshness_check.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "smoke_rbac",
+      "label": "RBAC Smoke Test",
+      "file_type": "code",
+      "source_file": "scripts/smoke_rbac.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_golden_smoke",
+      "label": "Overview Golden Smoke",
+      "file_type": "code",
+      "source_file": "scripts/overview_golden_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_bundle_health",
+      "label": "Products Bundle Health/Perf",
+      "file_type": "code",
+      "source_file": "scripts/check_products_bundle_health.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "parquet_smoke",
+      "label": "Parquet Smoke Test",
+      "file_type": "code",
+      "source_file": "scripts/smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "production_housekeeping",
+      "label": "Production Housekeeping",
+      "file_type": "code",
+      "source_file": "scripts/production_housekeeping.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "alerts_runner",
+      "label": "Alerts/Notifications Runner",
+      "file_type": "code",
+      "source_file": "scripts/alerts_runner.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "refresh_idempotency_check",
+      "label": "Refresh Idempotency Check",
+      "file_type": "code",
+      "source_file": "scripts/check_refresh_idempotency.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_window_diagnostics",
+      "label": "Fact Window Diagnostics",
+      "file_type": "code",
+      "source_file": "scripts/fact_window_diagnostics.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "backup_utility",
+      "label": "Backup Creator",
+      "file_type": "code",
+      "source_file": "scripts/backup.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "refresh_parquet_wrapper",
+      "label": "Parquet Refresh Wrapper",
+      "file_type": "code",
+      "source_file": "scripts/refresh_parquet.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dedupe_fact_rebuild",
+      "label": "Fact Dedupe/Rebuild",
+      "file_type": "code",
+      "source_file": "scripts/dedupe_fact_dataset.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "totals_calculator",
+      "label": "Totals/Margin Calculator",
+      "file_type": "code",
+      "source_file": "scripts/compute_totals.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_smoke_duckdb",
+      "label": "Fact Smoke (DuckDB)",
+      "file_type": "code",
+      "source_file": "scripts/fact_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "scripts_perf_smoke_py",
+      "label": "scripts/perf_smoke.py",
+      "file_type": "code",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "scripts_perf_smoke_describe_frame",
+      "label": "_describe_frame()",
+      "file_type": "code",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L13"
+    },
+    {
+      "id": "scripts_perf_smoke_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L21"
+    },
+    {
+      "id": "scripts_verify_overview_parity_py",
+      "label": "scripts/verify_overview_parity.py",
+      "file_type": "code",
+      "source_file": "scripts/verify_overview_parity.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "scripts_verify_overview_parity_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "scripts/verify_overview_parity.py",
+      "source_location": "L63"
+    },
+    {
+      "id": "tests_test_suppliers_products_export_py",
+      "label": "tests/test_suppliers_products_export.py",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_products_export.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_suppliers_products_export_seed_supplier_products",
+      "label": "seed_supplier_products()",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_products_export.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "tests_test_universal_drilldowns_py",
+      "label": "tests/test_universal_drilldowns.py",
+      "file_type": "code",
+      "source_file": "tests/test_universal_drilldowns.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_universal_drilldowns_test_universal_drilldown_go_redirects_to_entity_with_inherited_filters",
+      "label": "test_universal_drilldown_go_redirects_to_entity_with_inherited_filters()",
+      "file_type": "code",
+      "source_file": "tests/test_universal_drilldowns.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "tests_test_assistant_provider_py",
+      "label": "tests/test_assistant_provider.py",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_provider.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_assistant_provider_test_build_provider_supports_llama_cpp_alias",
+      "label": "test_build_provider_supports_llama_cpp_alias()",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_provider.py",
+      "source_location": "L29"
+    },
+    {
+      "id": "tests_test_salesreps_lost_accounts_py",
+      "label": "tests/test_salesreps_lost_accounts.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_lost_accounts.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_lost_accounts_test_lost_accounts_key_present_in_drilldown_bundle",
+      "label": "test_lost_accounts_key_present_in_drilldown_bundle()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_lost_accounts.py",
+      "source_location": "L156"
+    },
+    {
+      "id": "tests_test_products_overview_service_py",
+      "label": "tests/test_products_overview_service.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_overview_service.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_overview_service_test_avg_price_and_weighted_margin",
+      "label": "test_avg_price_and_weighted_margin()",
+      "file_type": "code",
+      "source_file": "tests/test_products_overview_service.py",
+      "source_location": "L85"
+    },
+    {
+      "id": "tests_test_cache_manager_py",
+      "label": "tests/test_cache_manager.py",
+      "file_type": "code",
+      "source_file": "tests/test_cache_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_cache_manager_test_cache_manager_refresh_updates_watermark_and_rows",
+      "label": "test_cache_manager_refresh_updates_watermark_and_rows()",
+      "file_type": "code",
+      "source_file": "tests/test_cache_manager.py",
+      "source_location": "L63"
+    },
+    {
+      "id": "tests_test_data_loader_product_family_py",
+      "label": "tests/test_data_loader_product_family.py",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_product_family.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_py",
+      "label": "tests/test_overview.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_smoke_endpoints_py",
+      "label": "tests/test_smoke_endpoints.py",
+      "file_type": "code",
+      "source_file": "tests/test_smoke_endpoints.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_filter_form_contract_py",
+      "label": "tests/test_filter_form_contract.py",
+      "file_type": "code",
+      "source_file": "tests/test_filter_form_contract.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_regions_bundle_py",
+      "label": "tests/test_regions_bundle.py",
+      "file_type": "code",
+      "source_file": "tests/test_regions_bundle.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_admin_user_select_py",
+      "label": "tests/test_admin_user_select.py",
+      "file_type": "code",
+      "source_file": "tests/test_admin_user_select.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_rbac_scope_py",
+      "label": "tests/test_rbac_scope.py",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_scope.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_suppliers_metrics_py",
+      "label": "tests/test_suppliers_metrics.py",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_metrics.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_filters_canonical_v2_py",
+      "label": "tests/test_filters_canonical_v2.py",
+      "file_type": "code",
+      "source_file": "tests/test_filters_canonical_v2.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_labor_blueprint_py",
+      "label": "tests/test_labor_blueprint.py",
+      "file_type": "code",
+      "source_file": "tests/test_labor_blueprint.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_blueprint_logic_py",
+      "label": "tests/test_products_blueprint_logic.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_blueprint_logic.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_bundle_py",
+      "label": "tests/test_overview_bundle.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_bundle.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_regions_drilldown_fix_py",
+      "label": "tests/test_regions_drilldown_fix.py",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_fix.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_assistant_quality_py",
+      "label": "tests/test_assistant_quality.py",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_quality.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "test_sticky_filters",
+      "label": "Sticky Filters Tests",
+      "file_type": "code",
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "id": "test_filters_global",
+      "label": "Global Filters Tests",
+      "file_type": "code",
+      "source_file": "tests/test_filters_global.py"
+    },
+    {
+      "id": "test_customers_kpis_v3",
+      "label": "Customer KPIs V3 Tests",
+      "file_type": "code",
+      "source_file": "tests/test_customers_kpis_v3.py"
+    },
+    {
+      "id": "test_admin_permissions_v2",
+      "label": "Admin Permissions V2 Tests",
+      "file_type": "code",
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "id": "test_loader_helpers",
+      "label": "Loader Helpers Tests",
+      "file_type": "code",
+      "source_file": "tests/test_loader_helpers.py"
+    },
+    {
+      "id": "test_incremental_refresh_pipeline",
+      "label": "Incremental Refresh Pipeline Tests",
+      "file_type": "code",
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "id": "test_live_refresh",
+      "label": "Live Refresh Tests",
+      "file_type": "code",
+      "source_file": "tests/test_live_refresh.py"
+    },
+    {
+      "id": "labor_helpers",
+      "label": "Labor ETL Helpers",
+      "file_type": "code",
+      "source_file": "tests/labor_helpers.py"
+    },
+    {
+      "id": "test_partition_writer_upsert_idempotent",
+      "label": "Partition Writer Idempotency Tests",
+      "file_type": "code",
+      "source_file": "tests/test_partition_writer_upsert_idempotent.py"
+    },
+    {
+      "id": "test_products_drilldown",
+      "label": "Products Drilldown Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_products_drilldown.py"
+    },
+    {
+      "id": "test_overview_api",
+      "label": "Overview API Tests",
+      "file_type": "code",
+      "source_file": "tests/test_overview_api.py"
+    },
+    {
+      "id": "test_filters_ui_smoke",
+      "label": "Filters UI Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_filters_ui_smoke.py"
+    },
+    {
+      "id": "test_data_scoping",
+      "label": "Data Scoping Tests",
+      "file_type": "code",
+      "source_file": "tests/test_data_scoping.py"
+    },
+    {
+      "id": "test_saved_views_hardening",
+      "label": "Saved Views Hardening Tests",
+      "file_type": "code",
+      "source_file": "tests/test_saved_views_hardening.py"
+    },
+    {
+      "id": "test_product_drilldown_v2",
+      "label": "Product Drilldown V2 Tests",
+      "file_type": "code",
+      "source_file": "tests/test_product_drilldown_v2.py"
+    },
+    {
+      "id": "test_synerion_client",
+      "label": "Synerion Client Tests",
+      "file_type": "code",
+      "source_file": "tests/test_synerion_client.py"
+    },
+    {
+      "id": "test_salesreps_bundle",
+      "label": "Sales Reps Bundle Tests",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle.py"
+    },
+    {
+      "id": "test_filters_options_endpoint",
+      "label": "Filters Options Endpoint Tests",
+      "file_type": "code",
+      "source_file": "tests/test_filters_options_endpoint.py"
+    },
+    {
+      "id": "test_runtime_refresh_guard",
+      "label": "Runtime Refresh Guard Tests",
+      "file_type": "code",
+      "source_file": "tests/test_runtime_refresh_guard.py"
+    },
+    {
+      "id": "test_salesreps_exports",
+      "label": "Sales Reps Exports Tests",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_exports.py"
+    },
+    {
+      "id": "test_salesreps_bundle_accuracy",
+      "label": "Sales Reps Bundle Accuracy Tests",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py"
+    },
+    {
+      "id": "test_fact_normalization_costs",
+      "label": "Fact Normalization Costs Tests",
+      "file_type": "code",
+      "source_file": "tests/test_fact_normalization_costs.py"
+    },
+    {
+      "id": "sticky_filters",
+      "label": "Sticky Filters",
+      "file_type": "code",
+      "source_file": "app/services/filters.py"
+    },
+    {
+      "id": "filter_params",
+      "label": "FilterParams Dataclass",
+      "file_type": "code",
+      "source_file": "app/services/filters.py"
+    },
+    {
+      "id": "customers_kpis_v3",
+      "label": "Customers KPIs V3",
+      "file_type": "code",
+      "source_file": "app/services/customers_bundle.py"
+    },
+    {
+      "id": "rbac_permissions_v2",
+      "label": "RBAC Permissions V2",
+      "file_type": "code",
+      "source_file": "app/auth/models.py"
+    },
+    {
+      "id": "fact_incremental_refresh",
+      "label": "Fact Incremental Refresh",
+      "file_type": "code",
+      "source_file": "etl/incremental_refresh.py"
+    },
+    {
+      "id": "live_refresh_sse",
+      "label": "Live Refresh (SSE)",
+      "file_type": "code",
+      "source_file": "app/services/event_bus.py"
+    },
+    {
+      "id": "partition_upsert_idempotency",
+      "label": "Partition Upsert Idempotency",
+      "file_type": "code",
+      "source_file": "etl/partition_writer.py"
+    },
+    {
+      "id": "product_intelligence_workspace",
+      "label": "Product Intelligence Workspace (V2)",
+      "file_type": "code",
+      "source_file": "app/services/product_drilldown_service.py"
+    },
+    {
+      "id": "salesreps_current_owner_attribution",
+      "label": "Current Owner Attribution",
+      "file_type": "code",
+      "source_file": "app/services/salesreps_bundle.py"
+    },
+    {
+      "id": "revenue_weighted_margin",
+      "label": "Revenue-Weighted Margin",
+      "file_type": "code",
+      "source_file": "app/services/salesreps_bundle.py"
+    },
+    {
+      "id": "fact_cost_normalization",
+      "label": "Fact Cost Normalization",
+      "file_type": "code",
+      "source_file": "app/services/analytics_utils.py"
+    },
+    {
+      "id": "products_kpi_payload",
+      "label": "Products KPI Payload",
+      "file_type": "code",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_protein",
+      "label": "Protein Filter Processing",
+      "file_type": "code",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_filters",
+      "label": "Products Filter Integration",
+      "file_type": "code",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesrep_drilldown_frontend",
+      "label": "SalesRep Drilldown JS Contract",
+      "file_type": "code",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_static_assets",
+      "label": "Products Static Assets",
+      "file_type": "code",
+      "source_file": "tests/test_products_static_assets.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bundle_endpoints",
+      "label": "Bundle API Endpoints",
+      "file_type": "code",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_metric_contract",
+      "label": "Overview Metric Window Contract",
+      "file_type": "code",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_insights",
+      "label": "Overview Insights Service",
+      "file_type": "code",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_loader_incremental",
+      "label": "Incremental Data Loading",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_module",
+      "label": "Sales Reps Metric Logic",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "json_safety",
+      "label": "JSON Payload Sanitization",
+      "file_type": "code",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_packs_only",
+      "label": "Packs-Only Fact Processing",
+      "file_type": "code",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "schema",
+      "label": "Fact Schema Definition",
+      "file_type": "code",
+      "source_file": "tests/test_schema.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "user_invite_flow",
+      "label": "User Invite and Password Flow",
+      "file_type": "code",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rbac_access",
+      "label": "RBAC and Access Scoping",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_rfm_v2",
+      "label": "Customers RFM v2 Analysis",
+      "file_type": "code",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "margin_rules",
+      "label": "Margin Rule Evaluation",
+      "file_type": "code",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_store",
+      "label": "Labor Data Store",
+      "file_type": "code",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_forecast",
+      "label": "Overview Forecasting Engine",
+      "file_type": "code",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_drilldown_bundle",
+      "label": "SalesRep Drilldown Bundle Service",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_loader",
+      "label": "Labor Data ETL",
+      "file_type": "code",
+      "source_file": "tests/test_labor_loader.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_store",
+      "label": "Fact Store Service",
+      "file_type": "code",
+      "source_file": "app/services/fact_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_v2",
+      "label": "Overview v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/overview_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "nowcasting",
+      "label": "Nowcasting Logic",
+      "file_type": "document",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "test_current_month_nowcast_falls_back_to_monthly_progress_when_daily_path_is_unavailable",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rfm_analysis",
+      "label": "RFM Segmentation",
+      "file_type": "document",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "test_customers_rfm_v2_segment_assignment_deterministic",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "price_volume_mix",
+      "label": "Price-Volume-Mix Decomposition",
+      "file_type": "document",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "test_decomposition_effects_sum_to_total",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_frontend_contract",
+      "label": "Filters Frontend Contract",
+      "file_type": "code",
+      "source_file": "tests/test_filters_frontend_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "pages_smoke",
+      "label": "Pages Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_pages.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "admin_rbac_portal",
+      "label": "Admin RBAC and Portal",
+      "file_type": "code",
+      "source_file": "tests/test_admin_rbac_portal.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_bundle_extra",
+      "label": "Customers Bundle Extensions",
+      "file_type": "code",
+      "source_file": "tests/test_customers_bundle_extra.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_bundle_api",
+      "label": "Products Bundle API",
+      "file_type": "code",
+      "source_file": "tests/test_products_bundle_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_options_contract",
+      "label": "Filters Options API Contract",
+      "file_type": "code",
+      "source_file": "tests/test_filters_options_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_v2",
+      "label": "Regions Drilldown v2",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "background_refresh",
+      "label": "Background Refresh Initialization",
+      "file_type": "code",
+      "source_file": "tests/test_background_refresh.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_forecast",
+      "label": "Products Forecasting Logic",
+      "file_type": "code",
+      "source_file": "tests/test_products_forecast.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_normalization",
+      "label": "Products Data Normalization",
+      "file_type": "code",
+      "source_file": "tests/test_products_normalization.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_v2_smoke",
+      "label": "Overview v2 Service Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_overview_v2_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_drilldown_v2",
+      "label": "Customers Drilldown v2",
+      "file_type": "code",
+      "source_file": "tests/test_customers_drilldown_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_feature",
+      "label": "AI Assistant Feature",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_feature.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "supplier_drilldown_v2",
+      "label": "Supplier Drilldown v2",
+      "file_type": "code",
+      "source_file": "tests/test_supplier_drilldown_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "gap_backfill",
+      "label": "ETL Gap Backfill",
+      "file_type": "code",
+      "source_file": "tests/test_gap_backfill.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_bundle_sections",
+      "label": "Customers Bundle Section-Aware Requests",
+      "file_type": "code",
+      "source_file": "tests/test_customers_bundle_sections.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_clv_v2",
+      "label": "Customers CLV v2",
+      "file_type": "code",
+      "source_file": "tests/test_customers_clv_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_module",
+      "label": "Returns Module",
+      "file_type": "code",
+      "source_file": "tests/test_returns_module.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_v2",
+      "label": "Regions v2 Overview",
+      "file_type": "code",
+      "source_file": "tests/test_regions_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "region_filter_labels",
+      "label": "Region Filter Labels",
+      "file_type": "code",
+      "source_file": "tests/test_region_filter_labels.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_quick_upgrade",
+      "label": "Regions Quick Upgrade",
+      "file_type": "code",
+      "source_file": "tests/test_regions_quick_upgrade.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_bundle",
+      "label": "Regions Drilldown Bundle Test",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_parity",
+      "label": "Overview Parity Test",
+      "file_type": "code",
+      "source_file": "tests/test_overview_parity.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_kpis_v2",
+      "label": "Customers KPIs v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_customers_kpis_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_endpoints_smoke",
+      "label": "Products Endpoints Smoke Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_endpoints_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_playwright",
+      "label": "Products Playwright Smoke Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_playwright.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_v2",
+      "label": "SalesReps v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "notifications_feature",
+      "label": "Notifications Feature Test",
+      "file_type": "code",
+      "source_file": "tests/test_notifications_feature.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_loader_window_predicate",
+      "label": "Data Loader Window Predicate Test",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_window_predicate.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_v2",
+      "label": "Suppliers v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_segments_api",
+      "label": "Products Segments API Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_segments_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_etl",
+      "label": "Fact ETL Test",
+      "file_type": "code",
+      "source_file": "tests/test_fact_etl.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_health_score",
+      "label": "SalesReps Health Score Test",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_health_score.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "supplier_workbook",
+      "label": "Supplier Workbook Test",
+      "file_type": "code",
+      "source_file": "tests/test_supplier_workbook.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_gate",
+      "label": "Auth Gate Test",
+      "file_type": "code",
+      "source_file": "tests/test_auth_gate.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_exports",
+      "label": "Products Exports Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_exports.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_access_consistency",
+      "label": "Data Access Consistency Test",
+      "file_type": "code",
+      "source_file": "tests/test_data_access_consistency.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_cohorts_v2",
+      "label": "Customers Cohorts v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_customers_cohorts_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "analytics_utils_supplier",
+      "label": "Analytics Utils Supplier Test",
+      "file_type": "code",
+      "source_file": "tests/test_analytics_utils_supplier.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "theme_audit_boot",
+      "label": "Theme Audit Boot Setup",
+      "file_type": "code",
+      "source_file": "tests/playwright/theme_audit_boot.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "admin_parity_spec",
+      "label": "Admin Parity Playwright Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/admin-parity.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "api_smoke_spec",
+      "label": "API Smoke Playwright Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/api-smoke.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "api_cost_health_spec",
+      "label": "API Cost Health Playwright Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/api-cost-health.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_query",
+      "label": "Overview Query Service",
+      "file_type": "code",
+      "source_file": "app/services/overview_query.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "notifications_service",
+      "label": "Notifications Service",
+      "file_type": "code",
+      "source_file": "app/services/notifications.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "cache_manager",
+      "label": "Cache Manager Service",
+      "file_type": "code",
+      "source_file": "app/services/cache_manager.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_bundle_service",
+      "label": "SalesReps Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/salesreps_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_cohorts_v2_service",
+      "label": "Customers Cohorts v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "analytics_utils",
+      "label": "Analytics Utils",
+      "file_type": "code",
+      "source_file": "app/services/analytics_utils.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_salesreps_spec",
+      "label": "Playwright Sales Reps Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/salesreps.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_products_spec",
+      "label": "Playwright Products Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/products.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_filter_navigation_stability_spec",
+      "label": "Playwright Filter Navigation Stability Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/filter-navigation-stability.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_theme_audit_spec",
+      "label": "Playwright Theme Audit Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/theme-audit.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_filters_spec",
+      "label": "Playwright Filters Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/filters.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_auth_helper",
+      "label": "Playwright Auth Helper",
+      "file_type": "code",
+      "source_file": "tests/playwright/helpers/auth.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_theme_audit_helper",
+      "label": "Playwright Theme Audit Helper",
+      "file_type": "code",
+      "source_file": "tests/playwright/helpers/theme-audit.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_logging_setup",
+      "label": "App Logging Setup",
+      "file_type": "code",
+      "source_file": "app/logging_setup.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_config",
+      "label": "App Config",
+      "file_type": "code",
+      "source_file": "app/config.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_cache",
+      "label": "App Cache",
+      "file_type": "code",
+      "source_file": "app/cache.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_init",
+      "label": "App Factory (__init__)",
+      "file_type": "code",
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_limiter",
+      "label": "App Limiter",
+      "file_type": "code",
+      "source_file": "app/limiter.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "schema_velocity",
+      "label": "Velocity Schema",
+      "file_type": "code",
+      "source_file": "app/schemas/velocity.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_admin_api",
+      "label": "Admin API Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/admin_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_customers",
+      "label": "Customers Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/customers.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_pages",
+      "label": "Pages Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/pages.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_api_slice",
+      "label": "API Slice Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/api_slice.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_drilldowns",
+      "label": "Drilldowns Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/drilldowns.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_labor",
+      "label": "Labor Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/labor.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_products",
+      "label": "Products Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/products.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_admin",
+      "label": "Admin Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/admin.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_overview",
+      "label": "Overview Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/overview.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_bundles",
+      "label": "API Bundles Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/bundles.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_views",
+      "label": "Saved Views Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/views.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_filters_actions",
+      "label": "Filter Actions Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/filters_actions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_events",
+      "label": "System Events API Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/events.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_filters_api",
+      "label": "Filters API Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/filters_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_notifications",
+      "label": "Notifications Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/notifications.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_dashboard",
+      "label": "Dashboard Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/dashboard.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_suggestions",
+      "label": "Returns Suggestion Engine",
+      "file_type": "code",
+      "source_file": "app/returns/suggestions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_models",
+      "label": "Returns Persistence Models",
+      "file_type": "code",
+      "source_file": "app/returns/models.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_blueprints",
+      "label": "Returns Workflow Blueprints",
+      "file_type": "code",
+      "source_file": "app/returns/blueprints.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_service",
+      "label": "Returns Workflow Service",
+      "file_type": "code",
+      "source_file": "app/returns/service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_orders_adapter",
+      "label": "Returns Order Lookup Adapter",
+      "file_type": "code",
+      "source_file": "app/returns/orders.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_migrations",
+      "label": "Returns Schema Migrations",
+      "file_type": "code",
+      "source_file": "app/returns/migrations.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "js_universal_drilldown",
+      "label": "Universal Drilldown Controller",
+      "file_type": "code",
+      "source_file": "app/static/js/universal_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "js_filters_enhanced",
+      "label": "Enhanced Filters Controller",
+      "file_type": "code",
+      "source_file": "app/static/js/filters-enhanced.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "js_customer_drilldown_v2",
+      "label": "Customer Drilldown V2 Charts",
+      "file_type": "code",
+      "source_file": "app/static/js/customer_drilldown_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesrep_drilldown_js",
+      "label": "SalesRep Drilldown Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/salesrep_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_js",
+      "label": "Executive Overview Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/overview.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_js",
+      "label": "Suppliers Index Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_legacy_js",
+      "label": "Legacy SalesReps Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/salesreps_legacy.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_js",
+      "label": "Labor Analytics Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/labor.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "global_filters_js",
+      "label": "Global Filters State Manager",
+      "file_type": "code",
+      "source_file": "app/static/js/global_filters.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_v2_js",
+      "label": "Regions Dashboard v2",
+      "file_type": "code",
+      "source_file": "app/static/js/regions_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_v2_js",
+      "label": "Executive Overview v2",
+      "file_type": "code",
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_js",
+      "label": "AI Assistant Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/assistant.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_js",
+      "label": "Products Intelligence Dashboard",
+      "file_type": "code",
+      "source_file": "app/static/js/products.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_v2_js",
+      "label": "Region Drilldown v2",
+      "file_type": "code",
+      "source_file": "app/static/js/regions_drilldown_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_js",
+      "label": "Legacy Region Drilldown",
+      "file_type": "code",
+      "source_file": "app/static/js/regions_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_legacy_js",
+      "label": "Legacy Overview Dashboard",
+      "file_type": "code",
+      "source_file": "app/static/js/overview_legacy.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_fetch_js",
+      "label": "Auth-aware Fetch Wrapper",
+      "file_type": "code",
+      "source_file": "app/static/js/auth-fetch.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bundle_adapter_js",
+      "label": "API Bundle Adapter",
+      "file_type": "code",
+      "source_file": "app/static/js/bundle-adapter.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_js",
+      "label": "SalesReps Dashboard",
+      "file_type": "code",
+      "source_file": "app/static/js/salesreps.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_drilldown_js",
+      "label": "Supplier Drilldown Frontend",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_v2_js",
+      "label": "Suppliers Dashboard v2",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dev_bundle_helper_js",
+      "label": "Dev Bundle Debug Helper",
+      "file_type": "code",
+      "source_file": "app/static/js/dev-bundle-helper.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_drilldown_v2_js",
+      "label": "Supplier Drilldown v2",
+      "file_type": "code",
+      "source_file": "app/static/js/suppliers_drilldown_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "chart_utils_js",
+      "label": "Shared Chart Utilities",
+      "file_type": "code",
+      "source_file": "app/static/js/chart-utils.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "exports_js",
+      "label": "Client-side Export Utilities",
+      "file_type": "code",
+      "source_file": "app/static/js/exports.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app/static/js/live-updates.js",
+      "type": "file"
+    },
+    {
+      "id": "app/static/js/page-state-cache.js",
+      "type": "file"
+    },
+    {
+      "id": "app/static/js/regions.js",
+      "type": "file"
+    },
+    {
+      "id": "app/services/suppliers_bundle.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/bundle_builder.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/data_access.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_query.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/bundle_cache.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/user_invites.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_insights.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/watermark_store.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/cache.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/__init__.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/enhanced_analytics.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/etl_state.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/customers_bundle.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_metrics.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_summary.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_forecast.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_v2.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/filters.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/products.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/filters.py:FilterParams",
+      "type": "class",
+      "properties": {
+        "description": "Canonical, immutable filter envelope used across endpoints."
+      }
+    },
+    {
+      "id": "app/services/bundle_builder.py:BundleContract",
+      "type": "class",
+      "properties": {
+        "description": "Simple contract describing required bundle payload keys."
+      }
+    },
+    {
+      "id": "app/services/overview_metrics.py:WindowContract",
+      "type": "class",
+      "properties": {
+        "description": "Dataclass representing a period window comparison contract."
+      }
+    },
+    {
+      "id": "app/services/data_access.py:FactContext",
+      "type": "class",
+      "properties": {
+        "description": "Metadata envelope for diagnostic fact loading."
+      }
+    },
+    {
+      "id": "app/services/filters.py:parse_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/filters.py:normalize_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/filters.py:apply_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/filters.py:resolve_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/bundle_builder.py:validate_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/data_access.py:get_fact_context",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_v2.py:get_bundle_context",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_metrics.py:resolve_window_contract",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_forecast.py:monthly_series",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_forecast.py:generate_predictions",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_summary.py:build_summary_payload",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_insights.py:build_insights_payload",
+      "type": "function"
+    },
+    {
+      "id": "app/services/watermark_store.py:get_watermark",
+      "type": "function"
+    },
+    {
+      "id": "app/services/etl_state.py:load_state",
+      "type": "function"
+    },
+    {
+      "id": "app/services/bundle_cache.py:cached_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/suppliers_bundle.py:get_suppliers_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/customers_bundle.py:get_customers_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/products.py:get_products_overview",
+      "type": "function"
+    },
+    {
+      "id": "app/static/js/live-updates.js:triggerRefresh",
+      "type": "function"
+    },
+    {
+      "id": "app/static/js/page-state-cache.js:saveSnapshot",
+      "type": "function"
+    },
+    {
+      "id": "cohort_controls",
+      "label": "Cohort Analysis Controls",
+      "file_type": "code",
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": "CohortControls",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_bundle",
+      "label": "Regions Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/regions_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_bundle",
+      "label": "Labor Intelligence Bundle",
+      "file_type": "code",
+      "source_file": "app/services/labor_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bundle_service",
+      "label": "Universal Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/bundle_service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_service",
+      "label": "Global Filters Service",
+      "file_type": "code",
+      "source_file": "app/services/filters_service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "product_drilldown_service",
+      "label": "Product Drilldown v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/product_drilldown_service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "exports_service",
+      "label": "Data Export Service",
+      "file_type": "code",
+      "source_file": "app/services/exports.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_bundle",
+      "label": "Sales Reps Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/salesreps_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_bundle",
+      "label": "Products Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/products_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "core_exports",
+      "label": "Core Export Engine (XLSX)",
+      "file_type": "code",
+      "source_file": "app/core/exports.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sensitive_data",
+      "label": "Sensitive Data Masking",
+      "file_type": "code",
+      "source_file": "app/core/sensitive_data.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rbac",
+      "label": "Role-Based Access Control",
+      "file_type": "code",
+      "source_file": "app/core/rbac.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "access_policy",
+      "label": "Access Scoping Policy",
+      "file_type": "code",
+      "source_file": "app/core/access_policy.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "core_filters",
+      "label": "Template Filter Helpers",
+      "file_type": "code",
+      "source_file": "app/core/filters.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "branding",
+      "label": "Application Branding",
+      "file_type": "code",
+      "source_file": "app/core/branding.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_permissions",
+      "label": "Permissions Catalog",
+      "file_type": "code",
+      "source_file": "app/auth/permissions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_models",
+      "label": "Authentication SQLite Models",
+      "file_type": "code",
+      "source_file": "app/auth/models.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "user_model",
+      "label": "User Model",
+      "file_type": "code",
+      "source_file": "app/auth/models.py",
+      "source_location": "User",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "role_model",
+      "label": "Role Model",
+      "file_type": "code",
+      "source_file": "app/auth/models.py",
+      "source_location": "Role",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_api_routes",
+      "label": "Assistant API Routes",
+      "file_type": "code",
+      "source_file": "app/assistant/routes.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_ai_provider",
+      "label": "Assistant AI Provider",
+      "file_type": "code",
+      "source_file": "app/assistant/provider.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_service_layer",
+      "label": "Assistant Service Layer",
+      "file_type": "code",
+      "source_file": "app/assistant/service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_toolset",
+      "label": "Assistant Toolset",
+      "file_type": "code",
+      "source_file": "app/assistant/tools.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "partition_writer_etl",
+      "label": "Partitioned Dataset Writer",
+      "file_type": "code",
+      "source_file": "etl/partition_writer.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_store_helper",
+      "label": "Data Store Access Helper",
+      "file_type": "code",
+      "source_file": "data/store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_module",
+      "label": "Assistant Module Package",
+      "file_type": "code",
+      "source_file": "app/assistant/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "workers_package",
+      "label": "Workers Package",
+      "file_type": "code",
+      "source_file": "workers/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_package",
+      "label": "Data Package",
+      "file_type": "code",
+      "source_file": "data/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "test_regions_drilldown_fix",
+      "label": "Regions Drilldown Fix Tests",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_fix.py"
+    },
+    {
+      "id": "test_assistant_quality",
+      "label": "Assistant Quality Tests",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_quality.py"
+    },
+    {
+      "id": "tests_test_salesreps_bundle_accuracy_py",
+      "label": "tests/test_salesreps_bundle_accuracy.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_bundle_accuracy_test_margin_is_revenue_weighted_not_simple_mean",
+      "label": "test_margin_is_revenue_weighted_not_simple_mean()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py",
+      "source_location": "L87"
+    },
+    {
+      "id": "tests_test_fact_normalization_costs_py",
+      "label": "tests/test_fact_normalization_costs.py",
+      "file_type": "code",
+      "source_file": "tests/test_fact_normalization_costs.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_fact_normalization_costs_test_normalize_fact_df_coalesces_cost_sources",
+      "label": "test_normalize_fact_df_coalesces_cost_sources()",
+      "file_type": "code",
+      "source_file": "tests/test_fact_normalization_costs.py",
+      "source_location": "L7"
+    },
+    {
+      "id": "tests_test_products_kpi_payload_py",
+      "label": "tests/test_products_kpi_payload.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_kpi_payload_test_products_overview_kpis_and_velocity",
+      "label": "test_products_overview_kpis_and_velocity()",
+      "file_type": "code",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": "L54"
+    },
+    {
+      "id": "tests_test_filters_protein_py",
+      "label": "tests/test_filters_protein.py",
+      "file_type": "code",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_filters_protein_test_parse_filters_protein_fields",
+      "label": "test_parse_filters_protein_fields()",
+      "file_type": "code",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": "L6"
+    },
+    {
+      "id": "tests_test_products_filters_py",
+      "label": "tests/test_products_filters.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_filters_test_products_parse_filters_uses_default_window",
+      "label": "test_products_parse_filters_uses_default_window()",
+      "file_type": "code",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": "L29"
+    },
+    {
+      "id": "tests_test_salesrep_drilldown_frontend_contract_py",
+      "label": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesrep_drilldown_frontend_contract_test_row_links_preserve_rep_and_filters_context",
+      "label": "test_row_links_preserve_rep_and_filters_context()",
+      "file_type": "code",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": "L8"
+    },
+    {
+      "id": "tests_test_products_static_assets_py",
+      "label": "tests/test_products_static_assets.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_static_assets.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_static_assets_test_products_js_served",
+      "label": "test_products_js_served()",
+      "file_type": "code",
+      "source_file": "tests/test_products_static_assets.py",
+      "source_location": "L5"
+    },
+    {
+      "id": "tests_test_bundle_endpoints_py",
+      "label": "tests/test_bundle_endpoints.py",
+      "file_type": "code",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_bundle_endpoints_test_bundle_endpoints_basic",
+      "label": "test_bundle_endpoints_basic()",
+      "file_type": "code",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "L54"
+    },
+    {
+      "id": "tests_test_overview_metric_contract_py",
+      "label": "tests/test_overview_metric_contract.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_metric_contract_test_window_contract_includes_prior_windows",
+      "label": "test_window_contract_includes_prior_windows()",
+      "file_type": "code",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "L21"
+    },
+    {
+      "id": "tests_test_overview_insights_py",
+      "label": "tests/test_overview_insights.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_insights_test_insights_new_customer_detection",
+      "label": "test_insights_new_customer_detection()",
+      "file_type": "code",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": "L41"
+    },
+    {
+      "id": "tests_test_data_loader_incremental_py",
+      "label": "tests/test_data_loader_incremental.py",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_data_loader_incremental_test_refresh_parquet_incremental_window",
+      "label": "test_refresh_parquet_incremental_window()",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "tests_test_salesreps_module_py",
+      "label": "tests/test_salesreps_module.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_module_test_rep_rollup_basic_metrics",
+      "label": "test_rep_rollup_basic_metrics()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": "L17"
+    },
+    {
+      "id": "tests_test_json_safety_py",
+      "label": "tests/test_json_safety.py",
+      "file_type": "code",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_json_safety_test_sanitize_for_json_strips_nan_and_inf",
+      "label": "test_sanitize_for_json_strips_nan_and_inf()",
+      "file_type": "code",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "L13"
+    },
+    {
+      "id": "tests_test_fact_packs_only_py",
+      "label": "tests/test_fact_packs_only.py",
+      "file_type": "code",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_fact_packs_only_test_pack_revenue_uses_weight_or_units",
+      "label": "test_pack_revenue_uses_weight_or_units()",
+      "file_type": "code",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "tests_test_schema_py",
+      "label": "tests/test_schema.py",
+      "file_type": "code",
+      "source_file": "tests/test_schema.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_schema_test_min_columns_exist",
+      "label": "test_min_columns_exist()",
+      "file_type": "code",
+      "source_file": "tests/test_schema.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "tests_test_user_invite_flow_py",
+      "label": "tests/test_user_invite_flow.py",
+      "file_type": "code",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_user_invite_flow_test_token_creation_stores_hash_and_expiry",
+      "label": "test_token_creation_stores_hash_and_expiry()",
+      "file_type": "code",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "L87"
+    },
+    {
+      "id": "tests_test_rbac_access_py",
+      "label": "tests/test_rbac_access.py",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_rbac_access_test_scope_list_restricts_query",
+      "label": "test_scope_list_restricts_query()",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": "L82"
+    },
+    {
+      "id": "tests_test_customers_rfm_v2_py",
+      "label": "tests/test_customers_rfm_v2.py",
+      "file_type": "code",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_customers_rfm_v2_test_customers_rfm_v2_fixed_scoring_stable",
+      "label": "test_customers_rfm_v2_fixed_scoring_stable()",
+      "file_type": "code",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "L81"
+    },
+    {
+      "id": "tests_test_margin_rules_py",
+      "label": "tests/test_margin_rules.py",
+      "file_type": "code",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_margin_rules_test_resolve_margin_rule_for_beef",
+      "label": "test_resolve_margin_rule_for_beef()",
+      "file_type": "code",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": "L6"
+    },
+    {
+      "id": "tests_test_labor_store_py",
+      "label": "tests/test_labor_store.py",
+      "file_type": "code",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_labor_store_test_labor_store_views_and_kpi_summary",
+      "label": "test_labor_store_views_and_kpi_summary()",
+      "file_type": "code",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": "L8"
+    },
+    {
+      "id": "tests_test_overview_forecast_py",
+      "label": "tests/test_overview_forecast.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_forecast_test_forecast_v2_short_history_uses_limited_confidence",
+      "label": "test_forecast_v2_short_history_uses_limited_confidence()",
+      "file_type": "code",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "L170"
+    },
+    {
+      "id": "tests_test_salesreps_drilldown_bundle_py",
+      "label": "tests/test_salesreps_drilldown_bundle.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_drilldown_bundle_test_salesreps_drilldown_bundle_panels",
+      "label": "test_salesreps_drilldown_bundle_panels()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": "L56"
+    }
+  ],
+  "edges": [
+    {
+      "source": "blueprint_overview",
+      "target": "service_overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "blueprint_customers",
+      "target": "service_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "blueprint_products",
+      "target": "service_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "blueprint_suppliers",
+      "target": "service_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "blueprint_regions",
+      "target": "service_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "blueprint_salesreps",
+      "target": "service_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "service_bundle",
+      "target": "service_fact_store",
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "blueprint_overview",
+      "target": "concept_filter_params",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "core_access_policy",
+      "target": "core_rbac",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "rationale_revenue_weighted_margin",
+      "target": "concept_revenue_weighted_margin",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "rationale_safe_division",
+      "target": "concept_safe_division",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "doc_filters_runbook",
+      "target": "concept_filter_params",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/FILTERS_CANONICAL_V2_RUNBOOK.md"
+    },
+    {
+      "source": "doc_products_arch",
+      "target": "blueprint_products",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/products_architecture.md"
+    },
+    {
+      "source": "doc_customers_arch",
+      "target": "blueprint_customers",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/customers_architecture.md"
+    },
+    {
+      "source": "trsm_analytics",
+      "target": "mssql",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "source": "data_loader",
+      "target": "parquet",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md"
+    },
+    {
+      "source": "service_fact_store",
+      "target": "duckdb",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "service_fact_store",
+      "target": "parquet",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "source": "doc_notifications_runbook",
+      "target": "alerts_notifications",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/notifications_runbook.md"
+    },
+    {
+      "source": "blueprint_returns",
+      "target": "rma_returns",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "app/templates/emails/returns/update.txt"
+    },
+    {
+      "source": "run_runner",
+      "target": "preflight_checks",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "preflight_checks",
+      "weight": 1.0
+    },
+    {
+      "source": "run_runner",
+      "target": "seed_test_users",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "seed_test_users",
+      "weight": 1.0
+    },
+    {
+      "source": "run_runner",
+      "target": "ensure_parquet_cache",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "ensure_parquet_cache",
+      "weight": 1.0
+    },
+    {
+      "source": "run_runner",
+      "target": "inprocess_refresh",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "manage_cli",
+      "target": "auth_db",
+      "relation": "manages",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "manage.py",
+      "source_location": "init_auth_db_cmd",
+      "weight": 1.0
+    },
+    {
+      "source": "manage_cli",
+      "target": "products_parquet",
+      "relation": "manages",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "manage.py",
+      "source_location": "build_products_parquet_cmd",
+      "weight": 1.0
+    },
+    {
+      "source": "worker_etl",
+      "target": "db_fetch_load",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 1.0,
+      "source_file": "worker.py",
+      "source_location": "fetch_and_load",
+      "weight": 1.0
+    },
+    {
+      "source": "data_loader_etl",
+      "target": "mssql_extract",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "data_loader.py",
+      "source_location": "extract_all",
+      "weight": 1.0
+    },
+    {
+      "source": "data_loader_etl",
+      "target": "cost_calculation",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "data_loader.py",
+      "source_location": "_cost_source_coverage",
+      "weight": 1.0
+    },
+    {
+      "source": "wsgi_entry",
+      "target": "nginx_proxy_fix",
+      "relation": "configures",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "wsgi.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "alerts_runner",
+      "target": "notification_cycle",
+      "relation": "orchestrates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/alerts_runner.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_golden_smoke",
+      "target": "overview_v2",
+      "relation": "validates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/overview_golden_smoke.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "smoke_rbac",
+      "target": "rbac",
+      "relation": "validates",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "scripts/smoke_rbac.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "production_housekeeping",
+      "target": "log_pruning",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/production_housekeeping.py",
+      "source_location": "prune_logs",
+      "weight": 1.0
+    },
+    {
+      "source": "backup_utility",
+      "target": "auth_db",
+      "relation": "backups",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/backup.py",
+      "source_location": "create_backup",
+      "weight": 1.0
+    },
+    {
+      "source": "backup_utility",
+      "target": "fact_analytics_parquet",
+      "relation": "backups",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/backup.py",
+      "source_location": "create_backup",
+      "weight": 1.0
+    },
+    {
+      "source": "dedupe_fact_rebuild",
+      "target": "hive_partitioning",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/dedupe_fact_dataset.py",
+      "source_location": "dedupe_and_rebuild",
+      "weight": 1.0
+    },
+    {
+      "source": "fact_freshness_check",
+      "target": "duckdb",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/fact_freshness_check.py",
+      "source_location": "_snapshot",
+      "weight": 1.0
+    },
+    {
+      "source": "fact_smoke_duckdb",
+      "target": "duckdb",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/fact_smoke.py",
+      "source_location": "run_checks",
+      "weight": 1.0
+    },
+    {
+      "source": "refresh_idempotency_check",
+      "target": "run_runner",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/check_refresh_idempotency.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "scripts_perf_smoke_main",
+      "target": "data_loader_get_dataframe",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "scripts/perf_smoke.py",
+      "source_location": "L24",
+      "weight": 0.8
+    },
+    {
+      "source": "scripts_verify_overview_parity_main",
+      "target": "app_services_overview_query_compute_overview",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "scripts/verify_overview_parity.py",
+      "source_location": "L85",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_suppliers_products_export_seed_supplier_products",
+      "target": "app_services_fact_store_init_views",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_suppliers_products_export.py",
+      "source_location": "L74",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_universal_drilldowns_test_universal_drilldown_go_redirects_to_entity_with_inherited_filters",
+      "target": "tests_test_universal_drilldowns_encode_context",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_universal_drilldowns.py",
+      "source_location": "L51",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_assistant_provider_test_build_provider_supports_llama_cpp_alias",
+      "target": "app_assistant_provider_build_provider",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_assistant_provider.py",
+      "source_location": "L30",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesreps_lost_accounts_test_lost_accounts_key_present_in_drilldown_bundle",
+      "target": "app_services_salesreps_bundle_build_salesreps_drilldown",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_lost_accounts.py",
+      "source_location": "L215",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_overview_service_test_avg_price_and_weighted_margin",
+      "target": "app_services_products_get_products_overview",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_overview_service.py",
+      "source_location": "L86",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_cache_manager_test_cache_manager_refresh_updates_watermark_and_rows",
+      "target": "app_services_cache_manager_CacheManager",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_cache_manager.py",
+      "source_location": "L83",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_data_loader_product_family_test_canonicalize_columns_preserves_text_protein_dimension",
+      "target": "data_loader_canonicalize_columns",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_data_loader_product_family.py",
+      "source_location": "L25",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_smoke_endpoints_test_smoke_core_endpoints",
+      "target": "app_services_bundle_service_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_smoke_endpoints.py",
+      "source_location": "L127",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_filter_form_contract_test_build_global_filter_form_supports_statuses_and_shipping_methods",
+      "target": "app_core_filters_build_global_filter_form",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_filter_form_contract.py",
+      "source_location": "L26",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_regions_bundle_test_regions_risk_profile_uses_shared_margin_status_when_status_missing",
+      "target": "app_services_regions_bundle_risk_profile",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_regions_bundle.py",
+      "source_location": "L117",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_rbac_scope_test_admin_scope_is_all",
+      "target": "app_core_access_policy_scope_for_user",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_rbac_scope.py",
+      "source_location": "L53",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_suppliers_metrics_test_product_details_metrics_with_units_and_cost",
+      "target": "app_blueprints_suppliers_build_supplier_product_details",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_suppliers_metrics.py",
+      "source_location": "L36",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_filters_canonical_v2_test_consistency_bundle_drilldown_export_use_same_filters",
+      "target": "app_services_filters_resolve_filters",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_filters_canonical_v2.py",
+      "source_location": "L261",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_labor_blueprint_test_labor_page_renders_enterprise_workspace",
+      "target": "app_services_labor_store_reset_duckdb_state",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_labor_blueprint.py",
+      "source_location": "L28",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_blueprint_logic_test_placeholder_created_when_auto_create_enabled",
+      "target": "app_blueprints_products_ensure_products_parquet_available",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_blueprint_logic.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_bundle_test_overview_bundle_endpoint_real_bundle_regression",
+      "target": "app_services_overview_v2_build_overview_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_bundle.py",
+      "source_location": "L209",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_regions_drilldown_fix_test_build_drilldown_payload",
+      "target": "app_blueprints_regions_build_drilldown_payload",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_regions_drilldown_fix.py",
+      "source_location": "L54",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_assistant_quality_test_ranking_and_definition_answers_expose_compatibility_shape",
+      "target": "app_assistant_service_execute_tool",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_assistant_quality.py",
+      "source_location": "L112",
+      "weight": 0.8
+    },
+    {
+      "source": "test_sticky_filters",
+      "target": "sticky_filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "source": "test_filters_global",
+      "target": "filter_params",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_global.py"
+    },
+    {
+      "source": "test_customers_kpis_v3",
+      "target": "customers_kpis_v3",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_kpis_v3.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "rbac_permissions_v2",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_incremental_refresh_pipeline",
+      "target": "fact_incremental_refresh",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "source": "test_live_refresh",
+      "target": "live_refresh_sse",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_live_refresh.py"
+    },
+    {
+      "source": "test_partition_writer_upsert_idempotent",
+      "target": "partition_upsert_idempotency",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_partition_writer_upsert_idempotent.py"
+    },
+    {
+      "source": "test_product_drilldown_v2",
+      "target": "product_intelligence_workspace",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_product_drilldown_v2.py"
+    },
+    {
+      "source": "test_salesreps_bundle",
+      "target": "salesreps_current_owner_attribution",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_bundle.py"
+    },
+    {
+      "source": "test_salesreps_bundle_accuracy",
+      "target": "revenue_weighted_margin",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_bundle_accuracy.py"
+    },
+    {
+      "source": "test_fact_normalization_costs",
+      "target": "fact_cost_normalization",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_fact_normalization_costs.py"
+    },
+    {
+      "source": "customers_kpis_v3",
+      "target": "rbac_permissions_v2",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "app/services/customers_bundle.py"
+    },
+    {
+      "source": "product_intelligence_workspace",
+      "target": "fact_incremental_refresh",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "app/services/product_drilldown_service.py"
+    },
+    {
+      "source": "salesreps_current_owner_attribution",
+      "target": "revenue_weighted_margin",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/services/salesreps_bundle.py"
+    },
+    {
+      "source": "products_filters",
+      "target": "filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_filters.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_forecast",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "test_monthly_series_computes_profit_and_asp",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_forecast",
+      "target": "nowcasting",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_rfm_v2",
+      "target": "rfm_analysis",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_metric_contract",
+      "target": "price_volume_mix",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_drilldown_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "user_invite_flow",
+      "target": "mailer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "test_admin_create_user_sends_invite_and_stores_token",
+      "weight": 1.0
+    },
+    {
+      "source": "labor_loader",
+      "target": "partition_writer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_labor_loader.py",
+      "source_location": "test_labor_dataset_upsert_is_idempotent_and_window_repair_is_deterministic",
+      "weight": 1.0
+    },
+    {
+      "source": "labor_loader",
+      "target": "labor_store",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_labor_loader.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bundle_endpoints",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "_pick_entity_id",
+      "weight": 1.0
+    },
+    {
+      "source": "json_safety",
+      "target": "json_sanitizer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "test_sanitize_for_json_strips_nan_and_inf",
+      "weight": 1.0
+    },
+    {
+      "source": "margin_rules",
+      "target": "products",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "filters_frontend_contract",
+      "target": "filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_frontend_contract.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "admin_rbac_portal",
+      "target": "rbac_access",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_admin_rbac_portal.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "products_bundle_api",
+      "target": "products",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_bundle_api.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_smoke",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_v2_smoke.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_drilldown_v2",
+      "target": "customers",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_drilldown_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_feature",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_assistant_feature.py",
+      "source_location": "test_assistant_chat_masks_sensitive_kpis_for_user_without_cost_access",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_module",
+      "target": "mailer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_returns_module.py",
+      "source_location": "test_email_notifications_sent_on_create_and_transition",
+      "weight": 1.0
+    },
+    {
+      "source": "gap_backfill",
+      "target": "partition_writer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_gap_backfill.py",
+      "source_location": "test_gap_backfill_invokes_loader_for_missing_ranges",
+      "weight": 1.0
+    },
+    {
+      "source": "customers_bundle_sections",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_bundle_sections.py",
+      "source_location": "test_customers_drilldown_reports_actual_query_count",
+      "weight": 1.0
+    },
+    {
+      "source": "region_filter_labels",
+      "target": "filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_region_filter_labels.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "regions_drilldown_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_regions_drilldown_bundle.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_parity",
+      "target": "overview_query",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_parity.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_parity",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_parity.py",
+      "source_location": "_fact_row_count",
+      "weight": 1.0
+    },
+    {
+      "source": "customers_kpis_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_kpis_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "products_endpoints_smoke",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_endpoints_smoke.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "notifications_feature",
+      "target": "notifications_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_notifications_feature.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_suppliers_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "fact_etl",
+      "target": "cache_manager",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_fact_etl.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_health_score",
+      "target": "salesreps_bundle_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_health_score.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "customers_cohorts_v2_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_cohorts_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_cohorts_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "analytics_utils_supplier",
+      "target": "analytics_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_analytics_utils_supplier.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "api_smoke_spec",
+      "target": "fact_store",
+      "relation": "verifies",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/playwright/api-smoke.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_salesreps_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/salesreps.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_products_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/products.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_filter_navigation_stability_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/filter-navigation-stability.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_theme_audit_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/theme-audit.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_theme_audit_spec",
+      "target": "playwright_theme_audit_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/theme-audit.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_filters_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/filters.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_config",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_logging_setup",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_cache",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_limiter",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_pages",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_overview",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_customers",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_products",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_labor",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_admin",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_admin_api",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_api_slice",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_drilldowns",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_customers",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/customers.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_products",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/products.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_overview",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/overview.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_api_slice",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/api_slice.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_admin_api",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/admin_api.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_admin_api",
+      "target": "app_limiter",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/admin_api.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_pages",
+      "target": "bp_overview",
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/blueprints/pages.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_bundles",
+      "target": "bundle_service",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/bundles.py",
+      "source_location": "_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_bundles",
+      "target": "fact_store",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/bundles.py",
+      "source_location": "_suppliers_export",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_views",
+      "target": "auth_db",
+      "relation": "persists_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/views.py",
+      "source_location": "save_current",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_filters_actions",
+      "target": "filters_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/filters_actions.py",
+      "source_location": "apply_filters",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_events",
+      "target": "event_bus",
+      "relation": "subscribes_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/events.py",
+      "source_location": "events",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_regions",
+      "target": "regions_bundle",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/regions.py",
+      "source_location": "export_region",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_suppliers",
+      "target": "bundle_service",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/suppliers.py",
+      "source_location": "index",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_salesreps",
+      "target": "salesreps_bundle",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/salesreps.py",
+      "source_location": "_build_rep_export_response",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_filters_api",
+      "target": "filters_service",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/filters_api.py",
+      "source_location": "options",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_notifications",
+      "target": "notifications_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/notifications.py",
+      "source_location": "index",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_dashboard",
+      "target": "churn_ml",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/dashboard.py",
+      "source_location": "churn_train",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_blueprints",
+      "target": "returns_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/blueprints.py",
+      "source_location": "create",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_service",
+      "target": "returns_models",
+      "relation": "persists_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/service.py",
+      "source_location": "create_rma",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_service",
+      "target": "returns_suggestions",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/service.py",
+      "source_location": "lookup_order_for_return",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_service",
+      "target": "returns_orders_adapter",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/service.py",
+      "source_location": "lookup_order_for_return",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_orders_adapter",
+      "target": "fact_store",
+      "relation": "queries",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/orders.py",
+      "source_location": "get_order_detail",
+      "weight": 1.0
+    },
+    {
+      "source": "js_universal_drilldown",
+      "target": "blueprint_drilldowns",
+      "relation": "navigates_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/universal_drilldown.js",
+      "source_location": "buildUrl",
+      "weight": 1.0
+    },
+    {
+      "source": "js_customer_drilldown_v2",
+      "target": "plotly",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/customer_drilldown_v2.js",
+      "source_location": "safePlot",
+      "weight": 1.0
+    },
+    {
+      "source": "salesrep_drilldown_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesrep_drilldown.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_legacy_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesreps_legacy.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/regions_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "products_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/products.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_drilldown_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/regions_drilldown_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesreps.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_drilldown_v2_js",
+      "target": "auth_fetch_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_drilldown_v2.js",
+      "source_location": "authFetch",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/regions_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "products_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/products.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_drilldown_v2_js",
+      "target": "global_filters_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_drilldown_v2.js",
+      "source_location": "getGlobalFilterState",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "bundle_adapter_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "normalizeBundlePayload",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_js",
+      "target": "bundle_adapter_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/salesreps.js",
+      "source_location": "normalizeBundlePayload",
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2_js",
+      "target": "bundle_adapter_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers_v2.js",
+      "source_location": "normalizeBundlePayload",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_js",
+      "target": "chart_utils_js",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/static/js/overview.js",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_js",
+      "target": "exports_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/suppliers.js",
+      "source_location": "ExportKit",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_js",
+      "target": "overview_analytics",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/overview_v2.js",
+      "source_location": "/overview/api/context",
+      "weight": 1.0
+    },
+    {
+      "source": "products_js",
+      "target": "products_analytics",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/products.js",
+      "source_location": "/api/products/bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "app/services/filters.py",
+      "target": "app/services/filters.py:FilterParams",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/bundle_builder.py",
+      "target": "app/services/bundle_builder.py:BundleContract",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/overview_metrics.py",
+      "target": "app/services/overview_metrics.py:WindowContract",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/data_access.py:FactContext",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/fact_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/filters.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/filters.py:apply_filters",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/filters.py:parse_filters",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_v2.py",
+      "target": "app/services/overview_metrics.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/overview_v2.py",
+      "target": "app/services/overview_metrics.py:resolve_window_contract",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_query.py",
+      "target": "app/services/filters.py:apply_filters",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_forecast.py",
+      "target": "app/services/overview_v2.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/overview_forecast.py",
+      "target": "app/services/overview_v2.py:get_bundle_context",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_insights.py",
+      "target": "app/services/overview_v2.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/suppliers_bundle.py",
+      "target": "app/services/fact_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/suppliers_bundle.py",
+      "target": "app/services/margin_rules",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/customers_bundle.py",
+      "target": "app/services/fact_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/bundle_cache.py",
+      "target": "app/services/filters_service",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/etl_state.py",
+      "target": "app/services/watermark_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/static/js/regions.js",
+      "target": "/api/regions/bundle",
+      "type": "calls"
+    },
+    {
+      "source": "app/static/js/live-updates.js",
+      "target": "/api/events",
+      "type": "calls"
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": "build_cohorts_payload",
+      "weight": 1.0
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "cohort_controls",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": "CohortResolvedState",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/regions_bundle.py",
+      "source_location": "_regions_overview_context",
+      "weight": 1.0
+    },
+    {
+      "source": "labor_bundle",
+      "target": "labor_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/labor_bundle.py",
+      "source_location": "_li_build_analysis",
+      "weight": 1.0
+    },
+    {
+      "source": "bundle_service",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/bundle_service.py",
+      "source_location": "_build_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "bundle_service",
+      "target": "access_policy",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/bundle_service.py",
+      "source_location": "drilldown",
+      "weight": 1.0
+    },
+    {
+      "source": "product_drilldown_service",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/product_drilldown_service.py",
+      "source_location": "_product_row_query",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/salesreps_bundle.py",
+      "source_location": "_fact_rep_directory",
+      "weight": 1.0
+    },
+    {
+      "source": "core_exports",
+      "target": "sensitive_data",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/exports.py",
+      "source_location": "dataframes_to_xlsx_bytes",
+      "weight": 1.0
+    },
+    {
+      "source": "sensitive_data",
+      "target": "rbac",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/sensitive_data.py",
+      "source_location": "sensitive_access_flags",
+      "weight": 1.0
+    },
+    {
+      "source": "rbac",
+      "target": "auth_permissions",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/rbac.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "access_policy",
+      "target": "auth_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/access_policy.py",
+      "source_location": "scope_for_user",
+      "weight": 1.0
+    },
+    {
+      "source": "user_model",
+      "target": "role_model",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/auth/models.py",
+      "source_location": "UserRole",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_api_routes",
+      "target": "assistant_service_layer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/routes.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_service_layer",
+      "target": "assistant_ai_provider",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/service.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_service_layer",
+      "target": "assistant_toolset",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/service.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_overview_context",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "customers_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_module_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "products_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_module_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_toolset",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/assistant/tools.py",
+      "source_location": "_entity_resolution_candidates",
+      "weight": 1.0
+    },
+    {
+      "source": "partition_writer_etl",
+      "target": "watermark_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "etl/partition_writer.py",
+      "source_location": "upsert_dataset",
+      "weight": 1.0
+    },
+    {
+      "source": "data_store_helper",
+      "target": "fact_store",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "data/store.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "data_store_helper",
+      "target": "cache_manager",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "data/store.py",
+      "source_location": "_meta",
+      "weight": 1.0
+    },
+    {
+      "source": "test_regions_drilldown_fix",
+      "target": "app_blueprints_regions",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_regions_drilldown_fix.py"
+    },
+    {
+      "source": "test_assistant_quality",
+      "target": "app_assistant_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_assistant_quality.py"
+    },
+    {
+      "source": "test_sticky_filters",
+      "target": "app_services_filters_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "source": "test_filters_global",
+      "target": "app_services_filters",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_global.py"
+    },
+    {
+      "source": "test_customers_kpis_v3",
+      "target": "app_services_fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_kpis_v3.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "app_auth_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "app_core_rbac",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_loader_helpers",
+      "target": "data_loader",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_loader_helpers.py"
+    },
+    {
+      "source": "test_incremental_refresh_pipeline",
+      "target": "etl_incremental_refresh",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "source": "test_live_refresh",
+      "target": "app_services_event_bus",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_live_refresh.py"
+    },
+    {
+      "source": "labor_helpers",
+      "target": "app_services_labor_etl",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/labor_helpers.py"
+    },
+    {
+      "source": "test_partition_writer_upsert_idempotent",
+      "target": "etl_partition_writer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_partition_writer_upsert_idempotent.py"
+    },
+    {
+      "source": "test_products_drilldown",
+      "target": "app_services_fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_drilldown.py"
+    },
+    {
+      "source": "test_overview_api",
+      "target": "app_blueprints_overview",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_api.py"
+    },
+    {
+      "source": "test_filters_ui_smoke",
+      "target": "app_blueprints_dashboard",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_ui_smoke.py"
+    },
+    {
+      "source": "test_data_scoping",
+      "target": "data_loader",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_data_scoping.py"
+    },
+    {
+      "source": "test_saved_views_hardening",
+      "target": "app_auth_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_saved_views_hardening.py"
+    },
+    {
+      "source": "test_product_drilldown_v2",
+      "target": "app_services_product_drilldown_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_product_drilldown_v2.py"
+    },
+    {
+      "source": "test_synerion_client",
+      "target": "app_services_synerion_client",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_synerion_client.py"
+    },
+    {
+      "source": "test_salesreps_bundle",
+      "target": "app_services_salesreps_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_bundle.py"
+    },
+    {
+      "source": "test_filters_options_endpoint",
+      "target": "app_services_filters_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_options_endpoint.py"
+    },
+    {
+      "source": "test_runtime_refresh_guard",
+      "target": "app_core_runtime",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_runtime_refresh_guard.py"
+    },
+    {
+      "source": "test_salesreps_exports",
+      "target": "app_services_salesreps_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_exports.py"
+    },
+    {
+      "source": "test_regions_drilldown_fix",
+      "target": "regions_drilldown_growth_logic",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tests/test_regions_drilldown_fix.py"
+    },
+    {
+      "source": "test_assistant_quality",
+      "target": "assistant_compatibility_layer",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_assistant_quality.py"
+    },
+    {
+      "source": "test_sticky_filters",
+      "target": "filter_persistence_mechanism",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "admin_rbac_v2_architecture",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_incremental_refresh_pipeline",
+      "target": "etl_locking_mechanism",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "source": "test_saved_views_hardening",
+      "target": "saved_views_ownership_security",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_saved_views_hardening.py"
+    },
+    {
+      "source": "test_salesreps_bundle",
+      "target": "salesrep_attribution_logic",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_salesreps_bundle.py"
+    },
+    {
+      "source": "tests_test_salesreps_bundle_accuracy_test_margin_is_revenue_weighted_not_simple_mean",
+      "target": "app_services_salesreps_bundle_build_salesreps_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py",
+      "source_location": "L88",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_fact_normalization_costs_test_normalize_fact_df_coalesces_cost_sources",
+      "target": "app_services_analytics_utils_normalize_fact_df",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_fact_normalization_costs.py",
+      "source_location": "L19",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_kpi_payload_test_products_overview_kpis_and_velocity",
+      "target": "app_blueprints_products_overview",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_filters_protein_test_parse_filters_protein_fields",
+      "target": "app_services_filters_parse_filters",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": "L7",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_filters_test_products_parse_filters_uses_default_window",
+      "target": "app_blueprints_products_parse_filters",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": "L41",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesrep_drilldown_frontend_contract_test_row_links_preserve_rep_and_filters_context",
+      "target": "app_static_js_salesrep_drilldown_js",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": "L9",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_bundle_endpoints_test_bundle_endpoints_basic",
+      "target": "app_services_bundle_service_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "L56",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_metric_contract_test_window_contract_includes_prior_windows",
+      "target": "app_services_overview_metrics_resolve_window_contract",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "L23",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_insights_test_insights_new_customer_detection",
+      "target": "app_services_overview_insights_build_insights_payload",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_data_loader_incremental_test_refresh_parquet_incremental_window",
+      "target": "data_loader_refresh_parquet",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": "L67",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesreps_module_test_rep_rollup_basic_metrics",
+      "target": "app_blueprints_salesreps__rep_rollup",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": "L28",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_json_safety_test_sanitize_for_json_strips_nan_and_inf",
+      "target": "app_core_json_sanitizer_sanitize_for_json",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "L22",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_fact_packs_only_test_pack_revenue_uses_weight_or_units",
+      "target": "app_services_fact_store_execute_sql_df",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_schema_test_min_columns_exist",
+      "target": "data_loader_get_dataframe",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_schema.py",
+      "source_location": "L13",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_user_invite_flow_test_token_creation_stores_hash_and_expiry",
+      "target": "app_auth_password_tokens_issue_password_token",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "L90",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_rbac_access_test_scope_list_restricts_query",
+      "target": "app_services_fact_store_query_fact",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": "L95",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_customers_rfm_v2_test_customers_rfm_v2_fixed_scoring_stable",
+      "target": "app_services_filters_service_scope_from_user",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "L82",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_margin_rules_test_resolve_margin_rule_for_beef",
+      "target": "app_services_margin_rules_resolve_margin_rule",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": "L7",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_labor_store_test_labor_store_views_and_kpi_summary",
+      "target": "app_services_labor_store_query_df",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": "L14",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_forecast_test_forecast_v2_short_history_uses_limited_confidence",
+      "target": "app_services_overview_forecast_forecast_metric_v2",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "L181",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesreps_drilldown_bundle_test_salesreps_drilldown_bundle_panels",
+      "target": "app_services_salesreps_bundle_build_salesreps_drilldown",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": "L62",
+      "weight": 0.8
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "analytics_data_flow",
+      "label": "Analytics Data Flow",
+      "nodes": [
+        "mssql",
+        "data_loader",
+        "parquet",
+        "duckdb",
+        "service_fact_store",
+        "service_bundle",
+        "jinja_templates"
+      ],
+      "relation": "implement",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.95,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "rbac_security_layer",
+      "label": "RBAC Security Layer",
+      "nodes": [
+        "core_access_policy",
+        "core_rbac",
+        "core_sensitive_data"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.9,
+      "source_file": "CLAUDE.md"
+    },
+    {
+      "id": "shared_analytics_filters",
+      "label": "Shared Analytics Filters System",
+      "nodes": [
+        "sticky_filters",
+        "filter_params",
+        "test_filters_global",
+        "test_sticky_filters",
+        "test_saved_views_hardening"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.95,
+      "source_file": "app/services/filters.py"
+    },
+    {
+      "id": "fact_data_pipeline",
+      "label": "Fact Data Lifecycle",
+      "nodes": [
+        "fact_incremental_refresh",
+        "partition_upsert_idempotency",
+        "fact_cost_normalization",
+        "test_incremental_refresh_pipeline",
+        "test_partition_writer_upsert_idempotent"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.9,
+      "source_file": "etl/incremental_refresh.py"
+    },
+    {
+      "id": "rbac_enforcement_layer",
+      "label": "RBAC Enforcement and Masking",
+      "nodes": [
+        "rbac_permissions_v2",
+        "test_admin_permissions_v2",
+        "test_data_scoping",
+        "test_salesreps_exports"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.9,
+      "source_file": "app/auth/models.py"
+    },
+    {
+      "id": "bundle_drilldown_pattern",
+      "label": "Bundle and Drilldown API Pattern",
+      "nodes": [
+        "bundle_endpoints",
+        "salesreps_drilldown_bundle",
+        "salesrep_drilldown_frontend"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tests/test_bundle_endpoints.py"
+    },
+    {
+      "id": "overview_analytics_core",
+      "label": "Overview Analytics Core Services",
+      "nodes": [
+        "overview_v2",
+        "overview_metrics",
+        "overview_insights",
+        "overview_forecast"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/test_overview_metric_contract.py"
+    },
+    {
+      "id": "v2_upgrade_pattern",
+      "label": "V2 Dashboard Upgrade Pattern",
+      "nodes": [
+        "customers_drilldown_v2",
+        "supplier_drilldown_v2",
+        "regions_drilldown_v2",
+        "regions_v2",
+        "customers_clv_v2"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/test_customers_drilldown_v2.py"
+    },
+    {
+      "id": "feature_assistant_returns",
+      "label": "Major Feature Modules",
+      "nodes": [
+        "assistant_feature",
+        "returns_module"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_assistant_feature.py"
+    },
+    {
+      "id": "analytics_v2_migration",
+      "label": "Analytics v2 Migration Features",
+      "nodes": [
+        "customers_kpis_v2",
+        "salesreps_v2",
+        "suppliers_v2",
+        "customers_cohorts_v2"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_customers_kpis_v2.py"
+    },
+    {
+      "id": "playwright_audit_suite",
+      "label": "Playwright Audit and Smoke Suite",
+      "nodes": [
+        "theme_audit_boot",
+        "admin_parity_spec",
+        "api_smoke_spec",
+        "api_cost_health_spec"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/playwright/theme_audit_boot.py"
+    },
+    {
+      "id": "playwright_test_suite",
+      "label": "Playwright E2E Test Suite",
+      "nodes": [
+        "playwright_salesreps_spec",
+        "playwright_products_spec",
+        "playwright_filter_navigation_stability_spec",
+        "playwright_theme_audit_spec",
+        "playwright_filters_spec"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/playwright/"
+    },
+    {
+      "id": "flask_application_factory",
+      "label": "Flask Application Factory Pattern",
+      "nodes": [
+        "app_init",
+        "app_config",
+        "app_logging_setup",
+        "app_cache",
+        "app_limiter"
+      ],
+      "relation": "implement",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py"
+    },
+    {
+      "id": "analytics_blueprints",
+      "label": "Analytics Domain Blueprints",
+      "nodes": [
+        "bp_customers",
+        "bp_products",
+        "bp_labor",
+        "bp_overview"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "app/blueprints/"
+    },
+    {
+      "id": "frontend_dashboards",
+      "label": "Main Analytics Dashboards",
+      "nodes": [
+        "overview_js",
+        "overview_v2_js",
+        "products_js",
+        "regions_v2_js",
+        "suppliers_v2_js",
+        "salesreps_js"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/static/js/overview_v2.js"
+    },
+    {
+      "id": "frontend_utilities",
+      "label": "Frontend Infrastructure Utilities",
+      "nodes": [
+        "auth_fetch_js",
+        "global_filters_js",
+        "bundle_adapter_js",
+        "chart_utils_js",
+        "exports_js"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/static/js/bundle-adapter.js"
+    },
+    {
+      "id": "drilldown_views",
+      "label": "Entity Drilldown Views",
+      "nodes": [
+        "salesrep_drilldown_js",
+        "regions_drilldown_v2_js",
+        "suppliers_drilldown_v2_js"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/static/js/salesrep_drilldown.js"
+    },
+    {
+      "id": "bundle_infrastructure",
+      "label": "Analytics Bundle Infrastructure",
+      "nodes": [
+        "bundle_service",
+        "customers_bundle",
+        "products_bundle",
+        "regions_bundle",
+        "suppliers_bundle",
+        "salesreps_bundle"
+      ],
+      "relation": "orchestrates",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/services/bundle_service.py"
+    },
+    {
+      "id": "security_framework",
+      "label": "Security and RBAC Framework",
+      "nodes": [
+        "rbac",
+        "access_policy",
+        "sensitive_data",
+        "auth_permissions",
+        "auth_models"
+      ],
+      "relation": "composed_of",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/core/rbac.py"
+    },
+    {
+      "id": "data_persistence_layers",
+      "label": "Data Persistence Layers",
+      "nodes": [
+        "fact_store",
+        "labor_store",
+        "auth_models"
+      ],
+      "relation": "provide_storage_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "app/services/fact_store.py"
+    },
+    {
+      "id": "assistant_core_pattern",
+      "label": "Assistant Core Execution Pattern",
+      "nodes": [
+        "assistant_api_routes",
+        "assistant_service_layer",
+        "assistant_ai_provider",
+        "assistant_toolset"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/assistant/service.py"
+    },
+    {
+      "id": "global_filters_testing_group",
+      "label": "Global Filters System Tests",
+      "nodes": [
+        "test_sticky_filters",
+        "test_filters_global",
+        "test_filters_ui_smoke",
+        "test_filters_options_endpoint"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/"
+    },
+    {
+      "id": "rbac_scoping_testing_group",
+      "label": "RBAC and Data Scoping Tests",
+      "nodes": [
+        "test_customers_kpis_v3",
+        "test_admin_permissions_v2",
+        "test_data_scoping",
+        "test_salesreps_exports"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/"
+    },
+    {
+      "id": "etl_refresh_testing_group",
+      "label": "ETL and Data Refresh Tests",
+      "nodes": [
+        "test_incremental_refresh_pipeline",
+        "test_live_refresh",
+        "test_partition_writer_upsert_idempotent",
+        "test_runtime_refresh_guard"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

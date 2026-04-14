@@ -1,12 +1,17 @@
 import os
 import sys
 
+# Set environment before importing app to ensure Config picks it up
+os.environ["FLASK_ENV"] = "development"
+os.environ.setdefault("WTF_CSRF_ENABLED", "false")
+os.environ.setdefault("AMW_FAST_PWHASH", "1")
+os.environ.setdefault("SECRET_KEY", "smoke-test-secret-key")
+os.environ.setdefault("TESTING", "1")
+
 from app import create_app
 
 
 def main() -> int:
-    os.environ.setdefault("WTF_CSRF_ENABLED", "false")
-    os.environ.setdefault("AMW_FAST_PWHASH", "1")
     app = create_app()
     app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, LOGIN_DISABLED=False, AUTHZ_DISABLED=False)
 

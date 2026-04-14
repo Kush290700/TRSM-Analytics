@@ -1,0 +1,437 @@
+{
+  "nodes": [
+    {
+      "id": "run_runner",
+      "label": "Dev/Production Runner",
+      "file_type": "code",
+      "source_file": "run.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_checkpoints",
+      "label": "Fact Lifecycle Checkpoints",
+      "file_type": "code",
+      "source_file": "fact_checkpoints.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "manage_cli",
+      "label": "Admin/Utility CLI",
+      "file_type": "code",
+      "source_file": "manage.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "worker_etl",
+      "label": "API-to-PG Worker",
+      "file_type": "code",
+      "source_file": "worker.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_config",
+      "label": "Playwright Test Config",
+      "file_type": "code",
+      "source_file": "playwright.config.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_loader_etl",
+      "label": "MSSQL-to-Parquet ETL",
+      "file_type": "code",
+      "source_file": "data_loader.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "wsgi_entry",
+      "label": "WSGI Entry Point",
+      "file_type": "code",
+      "source_file": "wsgi.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_freshness_check",
+      "label": "Fact Freshness Check",
+      "file_type": "code",
+      "source_file": "scripts/fact_freshness_check.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "smoke_rbac",
+      "label": "RBAC Smoke Test",
+      "file_type": "code",
+      "source_file": "scripts/smoke_rbac.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_golden_smoke",
+      "label": "Overview Golden Smoke",
+      "file_type": "code",
+      "source_file": "scripts/overview_golden_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_bundle_health",
+      "label": "Products Bundle Health/Perf",
+      "file_type": "code",
+      "source_file": "scripts/check_products_bundle_health.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "parquet_smoke",
+      "label": "Parquet Smoke Test",
+      "file_type": "code",
+      "source_file": "scripts/smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "production_housekeeping",
+      "label": "Production Housekeeping",
+      "file_type": "code",
+      "source_file": "scripts/production_housekeeping.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "alerts_runner",
+      "label": "Alerts/Notifications Runner",
+      "file_type": "code",
+      "source_file": "scripts/alerts_runner.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "refresh_idempotency_check",
+      "label": "Refresh Idempotency Check",
+      "file_type": "code",
+      "source_file": "scripts/check_refresh_idempotency.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_window_diagnostics",
+      "label": "Fact Window Diagnostics",
+      "file_type": "code",
+      "source_file": "scripts/fact_window_diagnostics.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "backup_utility",
+      "label": "Backup Creator",
+      "file_type": "code",
+      "source_file": "scripts/backup.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "refresh_parquet_wrapper",
+      "label": "Parquet Refresh Wrapper",
+      "file_type": "code",
+      "source_file": "scripts/refresh_parquet.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dedupe_fact_rebuild",
+      "label": "Fact Dedupe/Rebuild",
+      "file_type": "code",
+      "source_file": "scripts/dedupe_fact_dataset.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "totals_calculator",
+      "label": "Totals/Margin Calculator",
+      "file_type": "code",
+      "source_file": "scripts/compute_totals.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_smoke_duckdb",
+      "label": "Fact Smoke (DuckDB)",
+      "file_type": "code",
+      "source_file": "scripts/fact_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "run_runner",
+      "target": "preflight_checks",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "preflight_checks",
+      "weight": 1.0
+    },
+    {
+      "source": "run_runner",
+      "target": "seed_test_users",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "seed_test_users",
+      "weight": 1.0
+    },
+    {
+      "source": "run_runner",
+      "target": "ensure_parquet_cache",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "ensure_parquet_cache",
+      "weight": 1.0
+    },
+    {
+      "source": "run_runner",
+      "target": "inprocess_refresh",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "run.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "manage_cli",
+      "target": "auth_db",
+      "relation": "manages",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "manage.py",
+      "source_location": "init_auth_db_cmd",
+      "weight": 1.0
+    },
+    {
+      "source": "manage_cli",
+      "target": "products_parquet",
+      "relation": "manages",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "manage.py",
+      "source_location": "build_products_parquet_cmd",
+      "weight": 1.0
+    },
+    {
+      "source": "worker_etl",
+      "target": "db_fetch_load",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 1.0,
+      "source_file": "worker.py",
+      "source_location": "fetch_and_load",
+      "weight": 1.0
+    },
+    {
+      "source": "data_loader_etl",
+      "target": "mssql_extract",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "data_loader.py",
+      "source_location": "extract_all",
+      "weight": 1.0
+    },
+    {
+      "source": "data_loader_etl",
+      "target": "cost_calculation",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "data_loader.py",
+      "source_location": "_cost_source_coverage",
+      "weight": 1.0
+    },
+    {
+      "source": "wsgi_entry",
+      "target": "nginx_proxy_fix",
+      "relation": "configures",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "wsgi.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "alerts_runner",
+      "target": "notification_cycle",
+      "relation": "orchestrates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/alerts_runner.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_golden_smoke",
+      "target": "overview_v2",
+      "relation": "validates",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/overview_golden_smoke.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "smoke_rbac",
+      "target": "rbac",
+      "relation": "validates",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "scripts/smoke_rbac.py",
+      "source_location": "main",
+      "weight": 1.0
+    },
+    {
+      "source": "production_housekeeping",
+      "target": "log_pruning",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/production_housekeeping.py",
+      "source_location": "prune_logs",
+      "weight": 1.0
+    },
+    {
+      "source": "backup_utility",
+      "target": "auth_db",
+      "relation": "backups",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/backup.py",
+      "source_location": "create_backup",
+      "weight": 1.0
+    },
+    {
+      "source": "backup_utility",
+      "target": "fact_analytics_parquet",
+      "relation": "backups",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/backup.py",
+      "source_location": "create_backup",
+      "weight": 1.0
+    },
+    {
+      "source": "dedupe_fact_rebuild",
+      "target": "hive_partitioning",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/dedupe_fact_dataset.py",
+      "source_location": "dedupe_and_rebuild",
+      "weight": 1.0
+    },
+    {
+      "source": "fact_freshness_check",
+      "target": "duckdb",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/fact_freshness_check.py",
+      "source_location": "_snapshot",
+      "weight": 1.0
+    },
+    {
+      "source": "fact_smoke_duckdb",
+      "target": "duckdb",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/fact_smoke.py",
+      "source_location": "run_checks",
+      "weight": 1.0
+    },
+    {
+      "source": "refresh_idempotency_check",
+      "target": "run_runner",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "scripts/check_refresh_idempotency.py",
+      "source_location": "main",
+      "weight": 1.0
+    }
+  ]
+}

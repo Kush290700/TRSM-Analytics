@@ -2,6 +2,21 @@
   const root = document.getElementById("SalesRepsApp");
   if (!root) return;
 
+  const debugEnabled = (() => {
+    try {
+      const raw = String(window.__APP_DEBUG__ || "").trim().toLowerCase();
+      return raw === "true" || raw === "1" || raw === "development";
+    } catch (_err) {
+      return false;
+    }
+  })();
+  const logWarn = (...args) => {
+    if (debugEnabled) console.warn(...args);
+  };
+  const logError = (...args) => {
+    if (debugEnabled) console.error(...args);
+  };
+
   const authFetch = window.authFetch || window.fetch.bind(window);
   const pageCache = window.analyticsPageCache || null;
   const bundleUrl = root.dataset.bundleUrl || "/api/salesreps/bundle";
@@ -17,11 +32,31 @@
   const CURRENCY = "CAD";
   document.getElementById("GlobalFilters")?.classList.add("sr-global-filters");
 
-  const NA = "—";
+  const TEXT_EMPTY = "None";
+  const NUMERIC_EMPTY = "0.00";
+  const NA = TEXT_EMPTY;
   const fmtMoney0 = new Intl.NumberFormat(LOCALE, { style: "currency", currency: CURRENCY, maximumFractionDigits: 0 });
   const fmtMoney2 = new Intl.NumberFormat(LOCALE, { style: "currency", currency: CURRENCY, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtInt = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
   const fmtPct = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const THEME_READY = true;
+  window.THEME_READY = THEME_READY;
+  const SR_THEME = Object.freeze({
+    espresso: "#1E293B",
+    espressoSoft: "#334155",
+    cream: "#FFFFFF",
+    creamStrong: "#F8FAFC",
+    tan: "#F1F5F9",
+    tanSoft: "#E2E8F0",
+    oxblood: "#720e0e",
+    blood: "#991b1b",
+    forest: "#059669",
+    gold: "#C5A059",
+    bronze: "#946c37",
+    tick: "#64748B",
+    grid: "#E2E8F0",
+    gridStrong: "#CBD5E1",
+  });
   const READABLE_REP_FALLBACK = "Needs Review";
   const UNASSIGNED_REP_FALLBACK = "Unassigned / Needs Review";
   const CHART_IDS = [
@@ -57,6 +92,9 @@
     top_territory: false,
     top_customer: true,
     top_protein: true,
+    leakage: true,
+    protein_penetration: true,
+    overdue_customers: true,
     flags: true,
   };
   const SAFE_REP_BUCKET_ALIASES = new Map([
@@ -67,8 +105,37 @@
     ["needs review", READABLE_REP_FALLBACK],
   ]);
   const SAFE_REP_BUCKETS = new Set(Array.from(SAFE_REP_BUCKET_ALIASES.values()).map((value) => value.toLowerCase()));
-  const escapeHtml = (value) =>
+  const sanitizeDisplayText = (value) =>
     String(value ?? "")
+      .replace(/\[(?:\s*)?drill(?:\s*)?\]/gi, "")
+      .replace(/\bdrill\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+  if (ChartLib?.defaults) {
+    ChartLib.defaults.color = SR_THEME.tick;
+    ChartLib.defaults.borderColor = SR_THEME.grid;
+    ChartLib.defaults.font.family = '"Avenir Next", "Segoe UI", system-ui, sans-serif';
+    if (ChartLib.defaults.plugins?.legend?.labels) {
+      ChartLib.defaults.plugins.legend.labels.color = SR_THEME.tick;
+    }
+    if (ChartLib.defaults.plugins?.tooltip) {
+      ChartLib.defaults.plugins.tooltip.backgroundColor = "rgba(30, 41, 59, 0.94)";
+      ChartLib.defaults.plugins.tooltip.titleColor = "#FFFFFF";
+      ChartLib.defaults.plugins.tooltip.bodyColor = "#FFFFFF";
+      ChartLib.defaults.plugins.tooltip.borderColor = "#720e0e";
+      ChartLib.defaults.plugins.tooltip.borderWidth = 1;
+    }
+    if (ChartLib.defaults.scale) {
+      ChartLib.defaults.scale.grid.color = SR_THEME.grid;
+      ChartLib.defaults.scale.borderColor = SR_THEME.grid;
+      ChartLib.defaults.scale.ticks.color = SR_THEME.tick;
+      ChartLib.defaults.scale.title.color = SR_THEME.tick;
+    }
+  }
+
+  const escapeHtml = (value) =>
+    sanitizeDisplayText(value)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
@@ -139,15 +206,15 @@
   };
 
   const readableBadgeForeground = (background) => {
-    const parsed = parseCssColor(background) || parseCssColor("#6c757d");
+    const parsed = parseCssColor(background) || parseCssColor(SR_THEME.bronze);
     const resolvedBackground = compositeColor(parsed, { r: 255, g: 255, b: 255, a: 1 });
     const light = { r: 255, g: 255, b: 255, a: 1 };
-    const dark = { r: 19, g: 32, b: 51, a: 1 };
-    return contrastRatio(light, resolvedBackground) >= contrastRatio(dark, resolvedBackground) ? "#ffffff" : "#132033";
+    const dark = { r: 26, g: 15, b: 10, a: 1 };
+    return contrastRatio(light, resolvedBackground) >= contrastRatio(dark, resolvedBackground) ? "#ffffff" : SR_THEME.espresso;
   };
 
   const healthBadgeStyle = (background, fontSize = "0.72rem") =>
-    `background:${escapeHtml(background || "#6c757d")};color:${readableBadgeForeground(background)};font-size:${fontSize};font-weight:700;`;
+    `background:${escapeHtml(background || SR_THEME.bronze)};color:${readableBadgeForeground(background)};font-size:${fontSize};font-weight:700;`;
 
   const state = {
     qs: "",
@@ -175,6 +242,12 @@
     focusedRepLabels: [],
     scrollToFocusedRep: false,
   };
+  let focusedCustomer = null;
+  let pendingCustomerFocus = null;
+  let viewportHeightTicking = false;
+  let followUpDrawerWired = false;
+  let filterDrawerMounted = false;
+  let filterDrawerWired = false;
 
   // ── 4D: Rep comparison state ──
   let selectedRepIds = new Set();
@@ -235,25 +308,25 @@
 
   const pct = (v, fromShare = false) => {
     const n = opt(v);
-    if (n === null) return NA;
+    if (n === null) return `${fmtPct.format(0)}%`;
     const val = fromShare && n <= 1.01 ? n * 100 : n;
     return `${fmtPct.format(val)}%`;
   };
 
   const fmtSignedPoints = (value) => {
     const numeric = opt(value);
-    if (numeric === null) return "";
+    if (numeric === null) return NUMERIC_EMPTY;
     return `${numeric > 0 ? "+" : ""}${fmtPct.format(numeric)} pts`;
   };
 
   const money = (v, compact = true) => {
     const n = opt(v);
-    if (n === null) return NA;
+    if (n === null) return NUMERIC_EMPTY;
     return compact ? fmtMoney0.format(n) : fmtMoney2.format(n);
   };
 
   const formatDateCA = (raw) => {
-    if (!raw) return NA;
+    if (!raw) return TEXT_EMPTY;
     const dt = new Date(raw);
     if (Number.isNaN(dt.valueOf())) return String(raw);
     return dt.toLocaleDateString(LOCALE, { year: "numeric", month: "2-digit", day: "2-digit" });
@@ -381,7 +454,7 @@
   let columnVisibility = readColumnVisibility();
 
   const cleanText = (value) => {
-    const text = String(value ?? "").trim();
+    const text = sanitizeDisplayText(value);
     if (!text || ["none", "null", "nan"].includes(text.toLowerCase())) return "";
     return text;
   };
@@ -665,18 +738,17 @@
   };
 
   const stableColor = (index) => {
-    // ── Phase 2: brand-aligned palette (top rep = brand primary) ──
     const palette = [
-      "#965951",  // brand primary  (top rep by revenue)
-      "#d39c5f",  // brand gold     (2nd)
-      "#2563eb",  // blue
-      "#16a34a",  // green
-      "#9333ea",  // purple
-      "#0891b2",  // cyan
-      "#ea580c",  // orange
-      "#be123c",  // rose
-      "#4f46e5",  // indigo
-      "#0d9488",  // teal
+      "#10B981", // Emerald
+      "#3B82F6", // Electric Blue
+      "#8B5CF6", // Royal Purple
+      "#F97316", // Sunset Orange
+      "#D946EF", // Deep Pink
+      "#06B6D4", // Cyan
+      "#84CC16", // Lime
+      "#6366F1", // Indigo
+      "#DC2626", // Ruby Red
+      "#F59E0B", // Amber
     ];
     return palette[index % palette.length];
   };
@@ -942,16 +1014,16 @@
   const resolveChartCanvas = (canvasId) => {
     const el = document.getElementById(canvasId);
     if (!el) {
-      console.warn(`[salesreps] missing chart canvas: #${canvasId}`);
+      logWarn(`[salesreps] missing chart canvas: #${canvasId}`);
       return null;
     }
     if (!(el instanceof HTMLCanvasElement)) {
-      console.warn(`[salesreps] invalid chart element for #${canvasId}; expected <canvas>.`);
+      logWarn(`[salesreps] invalid chart element for #${canvasId}; expected <canvas>.`);
       return null;
     }
     const ctx = el.getContext("2d");
     if (!ctx) {
-      console.warn(`[salesreps] unable to get 2d context for #${canvasId}`);
+      logWarn(`[salesreps] unable to get 2d context for #${canvasId}`);
       return null;
     }
     return { el, ctx };
@@ -966,7 +1038,7 @@
       charts[key] = new ChartLib(resolved.ctx, config);
       return charts[key];
     } catch (err) {
-      console.error(`[salesreps] chart init failed: #${canvasId}`, err);
+      logError(`[salesreps] chart init failed: #${canvasId}`, err);
       return null;
     }
   };
@@ -983,7 +1055,7 @@
       emptyEl = document.createElement("div");
       emptyEl.dataset.emptyState = "true";
       emptyEl.className = "position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center text-muted small";
-      emptyEl.style.background = "rgba(255,255,255,0.85)";
+      emptyEl.style.background = "rgba(245,245,220,0.92)";
       emptyEl.style.pointerEvents = "none";
       holder.appendChild(emptyEl);
     }
@@ -1004,12 +1076,12 @@
     const n = opt(value);
     el.classList.remove("delta-up", "delta-down");
     if (n === null) {
-      el.innerHTML = `<span class="sr-kpi-delta sr-kpi-delta--neutral">MoM ${NA}</span>`;
+      el.innerHTML = `<span class="sr-kpi-delta sr-kpi-delta--neutral">MoM (FMTD) —</span>`;
       return;
     }
     const cls = n >= 0 ? "sr-kpi-delta--pos" : "sr-kpi-delta--neg";
     const sign = n >= 0 ? "+" : "";
-    el.innerHTML = `<span class="sr-kpi-delta ${cls}">${sign}${fmtPct.format(n)}${suffix} MoM</span>`;
+    el.innerHTML = `<span class="sr-kpi-delta ${cls}">${sign}${fmtPct.format(n)}${suffix} MoM (FMTD)</span>`;
   };
 
   const updateColumnLabels = (meta = {}) => {
@@ -1022,6 +1094,229 @@
     document.querySelectorAll("[data-column-label='units']").forEach((el) => { el.textContent = units; });
     document.querySelectorAll("[data-column-label='asp']").forEach((el) => { el.textContent = asp; });
     document.querySelectorAll("[data-column-label='asp_lb']").forEach((el) => { el.textContent = aspLb; });
+  };
+
+  const healthIndexPct = (row = {}) => {
+    const active = num(row.active_customers);
+    const healthy = num(row.healthy_customers);
+    if (active <= 0) return 0;
+    return Math.max(0, Math.min(100, (healthy / active) * 100));
+  };
+
+  const ringTone = (pctValue) => {
+    if (pctValue >= 80) return SR_THEME.forest;
+    if (pctValue >= 60) return SR_THEME.gold;
+    return SR_THEME.blood;
+  };
+
+  const healthRingHtml = (row = {}) => {
+    const pctValue = healthIndexPct(row);
+    const label = `${Math.round(pctValue)}%`;
+    return `
+      <div class="sr-health-ring" style="--health-pct:${pctValue.toFixed(1)};--ring-color:${ringTone(pctValue)}" title="${label} of the visible portfolio placed an order within the last 30 days">
+        <svg viewBox="0 0 42 42" aria-hidden="true" focusable="false">
+          <circle class="sr-health-ring-track" cx="21" cy="21" r="15.915"></circle>
+          <circle class="sr-health-ring-value" cx="21" cy="21" r="15.915"></circle>
+        </svg>
+        <span class="sr-health-ring-label">${escapeHtml(label)}</span>
+      </div>
+    `;
+  };
+
+  const directInheritedRatioHtml = (row = {}) => {
+    const directRevenue = Math.max(num(row.direct_revenue), 0);
+    const inheritedRevenue = Math.max(num(row.transferred_in_revenue), 0);
+    const total = directRevenue + inheritedRevenue;
+    const directPct = total > 0 ? (directRevenue / total) * 100 : 100;
+    const inheritedPct = total > 0 ? (inheritedRevenue / total) * 100 : 0;
+    return `
+      <div class="sr-ratio-stack" title="Direct ${directPct.toFixed(1)}% · Inherited ${inheritedPct.toFixed(1)}%">
+        <div class="sr-ratio-bar">
+          <span class="sr-ratio-bar-direct" style="width:${directPct.toFixed(1)}%"></span>
+          <span class="sr-ratio-bar-inherited" style="width:${inheritedPct.toFixed(1)}%"></span>
+        </div>
+        <div class="sr-ratio-labels">
+          <span><strong style="color:#1E293B">${directPct.toFixed(0)}%</strong> direct</span>
+          <span><strong style="color:#1E293B">${inheritedPct.toFixed(0)}%</strong> inherited</span>
+        </div>
+      </div>
+    `;
+  };
+
+  const momentumArrowHtml = (row = {}) => {
+    const pctValue = opt(row.mom_revenue_pct);
+    if (pctValue === null) {
+      return `
+        <div class="sr-momentum-stack">
+          <span class="sr-momentum-arrow is-flat">• ${NUMERIC_EMPTY}%</span>
+          <span class="sr-momentum-sub">${TEXT_EMPTY}</span>
+        </div>
+      `;
+    }
+    const tone = pctValue > 1 ? "is-up" : pctValue < -1 ? "is-down" : "is-flat";
+    const arrow = pctValue > 1 ? "▲" : pctValue < -1 ? "▼" : "•";
+    const label = pctValue > 1 ? "Accelerating" : pctValue < -1 ? "Decelerating" : "Flat";
+    return `
+      <div class="sr-momentum-stack">
+        <span class="sr-momentum-arrow ${tone}">${arrow} ${pctValue > 0 ? "+" : ""}${fmtPct.format(pctValue)}%</span>
+        <span class="sr-momentum-sub">${label}</span>
+      </div>
+    `;
+  };
+
+  const renderTableFooter = (payload = {}) => {
+    const foot = document.getElementById("salesreps-table-foot");
+    if (!foot) return;
+    const benchmarks = payload.benchmarks || {};
+    const healthPct = opt(benchmarks.avg_health_index_pct);
+    const directPct = opt(benchmarks.avg_direct_revenue_share_pct);
+    const inheritedPct = directPct === null ? 0 : Math.max(0, 100 - directPct);
+    const momentumPct = opt(benchmarks.avg_mom_revenue_pct);
+    foot.innerHTML = `
+      <tr class="sr-table-average-row">
+        <th class="col-select text-center">Avg</th>
+        <th class="sticky-col">Company Average</th>
+        <td class="col-health text-center">${healthPct === null ? TEXT_EMPTY : healthRingHtml({ health_score: healthPct, health_label: "Average" })}</td>
+        <td class="col-direct_ratio">${directPct === null ? TEXT_EMPTY : directInheritedRatioHtml({ direct_revenue: directPct, transferred_in_revenue: inheritedPct })}</td>
+        <td class="col-quartile text-center"><span class="text-muted small">Benchmark</span></td>
+        <td class="text-end col-revenue">${money(benchmarks.avg_revenue)}</td>
+        <td class="text-end col-profit">${money(benchmarks.avg_profit)}</td>
+        <td class="text-end col-margin_pct">${pct(benchmarks.avg_margin_pct, false)}</td>
+        <td class="text-end col-silent_days">30d window</td>
+        <td class="text-end col-mom_revenue_delta">${momentumArrowHtml({ mom_revenue_pct: momentumPct })}</td>
+        <td class="text-end col-yoy_revenue_delta">${TEXT_EMPTY}</td>
+        <td class="text-end col-weight_lb">${TEXT_EMPTY}</td>
+        <td class="text-end col-active_customers">${benchmarks.avg_customers == null ? NUMERIC_EMPTY : fmtInt.format(num(benchmarks.avg_customers))}</td>
+        <td class="text-end col-current_owned_customers">${TEXT_EMPTY}</td>
+        <td class="text-end col-inherited_customers">${TEXT_EMPTY}</td>
+        <td class="text-end col-transferred_in_revenue">${TEXT_EMPTY}</td>
+        <td class="text-end col-transferred_out_revenue">${TEXT_EMPTY}</td>
+        <td class="text-end col-yoy_revenue_pct">${TEXT_EMPTY}</td>
+        <td class="text-end col-territory_count">${TEXT_EMPTY}</td>
+        <td class="col-replaced_reps">${TEXT_EMPTY}</td>
+        <td class="col-top_territory">${TEXT_EMPTY}</td>
+        <td class="col-top_customer">${TEXT_EMPTY}</td>
+        <td class="col-top_protein">${TEXT_EMPTY}</td>
+        <td class="col-flags">${TEXT_EMPTY}</td>
+        <td class="text-end">${TEXT_EMPTY}</td>
+      </tr>
+    `;
+    applyColumnVisibility();
+  };
+
+  const syncViewportHeights = () => {
+    const targets = [
+      { id: "srTopCustomersWrap", minHeight: 380, bottomOffset: 52 },
+      { id: "srTableWrap", minHeight: 460, bottomOffset: 28 },
+    ];
+    targets.forEach(({ id, minHeight, bottomOffset }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const available = Math.max(Math.floor(window.innerHeight - top - bottomOffset), minHeight);
+      el.style.height = `${available}px`;
+    });
+  };
+
+  const scheduleViewportHeightSync = () => {
+    if (viewportHeightTicking) return;
+    viewportHeightTicking = true;
+    window.requestAnimationFrame(() => {
+      viewportHeightTicking = false;
+      syncViewportHeights();
+      scheduleVirtualCustomerRender({ force: true });
+      scheduleVirtualTableRender({ force: true });
+    });
+  };
+
+  const currentUrlFilters = () => {
+    const params = new URLSearchParams(state.qs || window.location.search || "");
+    return {
+      customers: params.getAll("customers").filter(Boolean),
+      regions: params.getAll("regions").filter(Boolean),
+      sales_reps: params.getAll("sales_reps").filter(Boolean),
+    };
+  };
+
+  const buildFilterBreadcrumb = (payload = {}) => {
+    const filterState = currentFilterState();
+    const qsFilters = currentUrlFilters();
+    const labels = [];
+    const start = payload?.meta?.window_start;
+    const end = payload?.meta?.window_end;
+    if (start || end) labels.push(`${formatDateCA(start)} to ${formatDateCA(end)}`);
+    const regionLabels = typeof window.getFilterLabels === "function"
+      ? window.getFilterLabels("regions", filterState?.regions || qsFilters.regions || [])
+      : (filterState?.regions || qsFilters.regions || []);
+    const repLabels = typeof window.getFilterLabels === "function"
+      ? window.getFilterLabels("sales_reps", filterState?.sales_reps || qsFilters.sales_reps || [])
+      : (filterState?.sales_reps || qsFilters.sales_reps || []);
+    const customerLabels = typeof window.getFilterLabels === "function"
+      ? window.getFilterLabels("customers", filterState?.customers || qsFilters.customers || [])
+      : (filterState?.customers || qsFilters.customers || []);
+    if (regionLabels.length) labels.push(regionLabels.slice(0, 2).join(", "));
+    if (repLabels.length) labels.push(repLabels.slice(0, 2).join(", "));
+    if (focusedCustomer?.customer_name) labels.push(focusedCustomer.customer_name);
+    else if (customerLabels.length) labels.push(customerLabels.slice(0, 1).join(", "));
+    return labels.filter(Boolean).join(" | ") || "All Time | All Regions | All Reps";
+  };
+
+  const renderFilterBreadcrumb = (payload = {}) => {
+    const el = document.getElementById("srFilterBreadcrumb");
+    if (el) el.textContent = buildFilterBreadcrumb(payload);
+  };
+
+  const syncBodyScrollLock = () => {
+    const hasOpenDrawer = !!document.querySelector("#srFilterDrawer.is-open, #srFollowUpDrawer.is-open");
+    document.body.style.overflow = hasOpenDrawer ? "hidden" : "";
+  };
+
+  const mountFilterDrawer = () => {
+    if (filterDrawerMounted) return;
+    const filters = document.getElementById("GlobalFilters");
+    const mount = document.getElementById("srFilterDrawerMount");
+    if (!filters || !mount) return;
+    mount.appendChild(filters);
+    filterDrawerMounted = true;
+  };
+
+  const openFilterDrawer = () => {
+    const drawer = document.getElementById("srFilterDrawer");
+    if (!drawer) return;
+    mountFilterDrawer();
+    drawer.style.display = "flex";
+    window.requestAnimationFrame(() => {
+      drawer.classList.add("is-open");
+      syncBodyScrollLock();
+    });
+  };
+
+  const closeFilterDrawer = () => {
+    const drawer = document.getElementById("srFilterDrawer");
+    if (!drawer || !drawer.classList.contains("is-open")) return;
+    drawer.classList.remove("is-open");
+    drawer.addEventListener("transitionend", () => {
+      if (!drawer.classList.contains("is-open")) drawer.style.display = "none";
+      syncBodyScrollLock();
+    }, { once: true });
+  };
+
+  const wireFilterDrawer = () => {
+    if (filterDrawerWired) return;
+    const toggle = document.getElementById("srFilterDrawerToggle");
+    const close = document.getElementById("srFilterDrawerClose");
+    const backdrop = document.getElementById("srFilterDrawerBackdrop");
+    const drawer = document.getElementById("srFilterDrawer");
+    if (!toggle || !close || !backdrop || !drawer) return;
+    toggle.addEventListener("click", openFilterDrawer);
+    close.addEventListener("click", closeFilterDrawer);
+    backdrop.addEventListener("click", closeFilterDrawer);
+    document.addEventListener("keydown", (evt) => {
+      if (evt.key !== "Escape") return;
+      if (drawer.classList.contains("is-open")) closeFilterDrawer();
+    });
+    mountFilterDrawer();
+    filterDrawerWired = true;
   };
 
   const syncStateFromQS = (qs) => {
@@ -1303,15 +1598,21 @@
     setText("kpiUnits", fmtInt.format(num(k.units)));
     setText("kpiAspLb", k.asp_lb == null ? NA : money(k.asp_lb, false));
     setText("kpiAsp", k.asp == null ? NA : money(k.asp, false));
+    setText("kpiAov", k.avg_order_value == null ? NA : money(k.avg_order_value, false));
+    setText("kpiPpo", k.profit_per_order == null ? "—" : money(k.profit_per_order, false));
     setText("kpiActiveCustomers", fmtInt.format(num(k.active_customers)));
     setText("kpiAvgOrderValue", k.avg_order_value == null ? NA : money(k.avg_order_value, false));
     setText("kpiRevenuePerCustomer", k.revenue_per_customer == null ? NA : money(k.revenue_per_customer, false));
+    setText("kpiLeakage", money(k.leakage_revenue));
+    setText("kpiOverdue", fmtInt.format(num(k.overdue_customers)));
     setText("kpiInheritedRevenue", k.inherited_revenue == null ? NA : money(k.inherited_revenue));
     setText("srTransferredAccounts", fmtInt.format(num(k.transferred_accounts_count)));
     setText("srTransferredRevenue", `${money(k.transferred_in_revenue)} in | ${money(k.transferred_out_revenue)} out`);
 
     setDelta("kpiRevenueDelta", k.revenue_mom_pct);
     setDelta("kpiProfitDelta", k.profit_mom_pct);
+    setDelta("kpiAovDelta", k.aov_mom_pct);
+    setDelta("kpiPpoDelta", k.ppo_mom_pct);
     setText("kpiMarginDelta", marginContextText(k) || (k.margin_mom_pct == null ? NA : fmtSignedPoints(k.margin_mom_pct)));
 
     // ── 2C: Margin guardrail progress bar ──
@@ -1326,7 +1627,7 @@
       if (existingBar) existingBar.remove();
       const scaleMax  = targetMgn + 5;
       const fillPct   = Math.min((current / scaleMax) * 100, 100);
-      const colour    = current >= targetMgn ? "#198754" : current >= minMgn ? "#ffc107" : "#dc3545";
+      const colour    = current >= targetMgn ? SR_THEME.forest : current >= minMgn ? SR_THEME.gold : SR_THEME.blood;
       const bar = document.createElement("div");
       bar.className = "sr-margin-bar-wrap";
       bar.title = `Current: ${fmtPct.format(current)}% | Min: ${fmtPct.format(minMgn)}% | Target: ${fmtPct.format(targetMgn)}%`;
@@ -1369,7 +1670,8 @@
     if (coverageEl) {
       if (coverage !== null && num(coverage) >= 95) {
         coverageEl.classList.add("d-none");
-        console.log(`[Data Health] Ownership coverage: ${fmtPct.format(coverage)}%`);
+        // removed debug log for production
+
       } else {
         coverageEl.classList.remove("d-none");
         setText("srCoverageChip", coverage == null ? `Coverage: ${NA}` : `Coverage: ${fmtPct.format(coverage)}%`);
@@ -1597,6 +1899,8 @@
         { kpiId: "kpiRevenue",  data: mc.revenue  ?? [] },
         { kpiId: "kpiProfit",   data: mc.profit   ?? [] },
         { kpiId: "kpiWeight",   data: mc.weight_lb ?? [] },
+        { kpiId: "kpiAov",      data: mc.avg_order_value ?? [] },
+        { kpiId: "kpiPpo",      data: mc.profit_per_order ?? [] },
       ];
       sparkDefs.forEach(({ kpiId, data }) => {
         const card = document.getElementById(kpiId)?.closest(".sr-kpi");
@@ -1611,7 +1915,7 @@
         const toY = (v) => H - pad - ((v - lo) / range) * (H - pad * 2);
         const pts = vals.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
         const trend = vals[vals.length - 1] >= vals[0];
-        const lineColor = trend ? "#965951" : "#d39c5f";
+        const lineColor = trend ? SR_THEME.oxblood : SR_THEME.gold;
         const polyFill = [
           `${toX(0).toFixed(1)},${H - pad}`,
           ...vals.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`),
@@ -1734,10 +2038,106 @@
     return `${parts.filter(Boolean).join(". ")}.`;
   };
 
+  // ── Business Overview Signal Pills (3 fast-scan executive signals) ──
   const renderSummaryNarrative = (payload = {}) => {
     const el = document.getElementById("srSummaryNarrative");
     if (!el) return;
-    el.textContent = buildSummaryNarrative(payload);
+
+    const kpis = payload.kpis || {};
+    const analysis = payload.analysis || {};
+    const insights = analysis.insights || {};
+    const riskFlags = Array.isArray(payload.risk_flags) ? payload.risk_flags : [];
+    const chips = Array.isArray(insights.chips) ? insights.chips : [];
+
+    // Executive Narrative Logic (Performance Story)
+    let storyHtml = "";
+    const revMoM = opt(kpis.revenue_mom_pct);
+    const beefRow = (analysis.proteins || []).find(p => p.protein_family === "Beef");
+    if (beefRow && revMoM !== null && revMoM < -10) {
+      const beefMargin = opt(beefRow.margin_pct);
+      if (beefMargin !== null && beefMargin < 22) {
+        storyHtml = `
+          <div class="alert alert-danger border-0 shadow-sm mb-3 py-3 px-4" style="background: #fff5f5; border-left: 5px solid #ef4444 !important;">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="badge bg-danger">Critical Alert</span>
+              <span class="fw-bold text-danger">Executive Briefing</span>
+            </div>
+            <div class="fs-5 text-dark fw-semibold">
+              ${money(kpis.revenue)} Portfolio showing ${Math.abs(revMoM).toFixed(1)}% momentum loss driven by Beef margin compression (${beefMargin.toFixed(1)}% avg margin).
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    if (!storyHtml) {
+      const direction = (revMoM || 0) >= 0 ? "up" : "down";
+      storyHtml = `
+        <div class="alert alert-info border-0 shadow-sm mb-3 py-3 px-4" style="background: #f0f9ff; border-left: 5px solid #0ea5e9 !important;">
+          <div class="fw-bold text-info mb-1 small text-uppercase">Performance Narrative</div>
+          <div class="fs-5 text-dark fw-semibold">
+            The portfolio is trending ${direction} ${Math.abs(revMoM || 0).toFixed(1)}% month-over-month. 
+            ${kpis.active_customers || 0} active accounts contributing ${money(kpis.revenue)}.
+          </div>
+        </div>
+      `;
+    }
+
+    // Signal 1 — Momentum: revenue velocity MoM
+    const momentumCls = revMoM === null ? "sr-signal-neutral"
+      : revMoM >= 5  ? "sr-signal-positive"
+      : revMoM >= 0  ? "sr-signal-caution"
+      : "sr-signal-negative";
+    const momentumIcon = revMoM === null ? "◦" : revMoM >= 0 ? "▲" : "▼";
+    const momentumText = revMoM === null
+      ? "Revenue Velocity: N/A"
+      : `Revenue Velocity: ${revMoM >= 0 ? "+" : ""}${fmtPct.format(revMoM)}%`;
+
+    // Signal 2 — Risk: count of accounts silent > 45 days
+    const silentCount = riskFlags.filter((f) => f.flag === "silent_account" || (f.silent_days != null && num(f.silent_days) > 45)).length;
+    const criticalCount = riskFlags.filter((f) => f.severity === "critical" || (f.silent_days != null && num(f.silent_days) > 90)).length;
+    const riskCls = criticalCount > 0 ? "sr-signal-negative" : silentCount > 0 ? "sr-signal-caution" : "sr-signal-positive";
+    const riskText = criticalCount > 0
+      ? `${criticalCount} Critical Account${criticalCount !== 1 ? "s" : ""} Silent`
+      : silentCount > 0
+      ? `${silentCount} Account${silentCount !== 1 ? "s" : ""} At Risk`
+      : "No Critical Silent Accounts";
+
+    // Signal 3 — Winner: top growth rep
+    const topGrowthChip = chips.find((c) => c.key === "highest_growth_rep");
+    const topGrowthName = topGrowthChip?.rep_name || topGrowthChip?.display_value || null;
+    const topGrowthVal = topGrowthChip?.display_value || "";
+    const winnerCls = topGrowthName ? "sr-signal-positive" : "sr-signal-neutral";
+    const winnerText = topGrowthName
+      ? `Top Growth: ${topGrowthName}${topGrowthVal ? " · " + topGrowthVal : ""}`
+      : "Top Growth: N/A";
+
+    el.innerHTML = `
+      ${storyHtml}
+      <div class="sr-signal-pills" aria-label="Executive signal overview">
+        <div class="sr-signal-pill ${momentumCls}" title="Revenue momentum: month-over-month change">
+          <span class="sr-signal-icon">${momentumIcon}</span>
+          <div class="sr-signal-content">
+            <span class="sr-signal-type">Momentum</span>
+            <span class="sr-signal-value">${escapeHtml(momentumText)}</span>
+          </div>
+        </div>
+        <div class="sr-signal-pill ${riskCls}" title="Silent accounts — customers with no orders beyond the risk threshold">
+          <span class="sr-signal-icon">⚑</span>
+          <div class="sr-signal-content">
+            <span class="sr-signal-type">Risk</span>
+            <span class="sr-signal-value">${escapeHtml(riskText)}</span>
+          </div>
+        </div>
+        <div class="sr-signal-pill ${winnerCls}" title="Highest month-over-month revenue growth rep in this view">
+          <span class="sr-signal-icon">★</span>
+          <div class="sr-signal-content">
+            <span class="sr-signal-type">Winner</span>
+            <span class="sr-signal-value">${escapeHtml(winnerText)}</span>
+          </div>
+        </div>
+      </div>
+    `;
     setSummaryNarrativeLoading(false);
   };
 
@@ -1753,7 +2153,7 @@
     setTimeout(() => {
       document.querySelectorAll("#srTable tbody tr").forEach((row) => {
         if (row.textContent.includes(repName)) {
-          row.style.background = "#fef9c3";
+          row.style.background = SR_THEME.tan;
           setTimeout(() => { row.style.background = ""; }, 1000);
         }
       });
@@ -2042,8 +2442,8 @@
             label: "Current Revenue",
             data: revenue,
             yAxisID: "y",
-            borderColor: "#965951",
-            backgroundColor: "rgba(150,89,81,0.60)",
+            borderColor: SR_THEME.oxblood,
+            backgroundColor: alphaColor(SR_THEME.oxblood, 0.68),
             borderWidth: 1,
             borderRadius: 4,
             order: 2,
@@ -2053,8 +2453,8 @@
             label: "Prior-Year Revenue",
             data: revenueYoY,
             yAxisID: "y",
-            borderColor: "#d39c5f",
-            backgroundColor: "rgba(211,156,95,0.40)",
+            borderColor: SR_THEME.gold,
+            backgroundColor: alphaColor(SR_THEME.gold, 0.42),
             borderWidth: 1,
             borderRadius: 4,
             order: 2,
@@ -2064,12 +2464,12 @@
             label: "YoY %",
             data: yoyPct,
             yAxisID: "y1",
-            borderColor: "#198754",
-            backgroundColor: "rgba(25,135,84,0.10)",
+            borderColor: SR_THEME.forest,
+            backgroundColor: alphaColor(SR_THEME.forest, 0.12),
             borderWidth: 2,
             tension: 0.25,
             pointRadius: 4,
-            pointBackgroundColor: "#198754",
+            pointBackgroundColor: SR_THEME.forest,
             fill: false,
             spanGaps: true,
             order: 1,                                  // ← render on top of bars
@@ -2090,13 +2490,13 @@
             ctx2.beginPath();
             ctx2.moveTo(x, yScale.top);
             ctx2.lineTo(x, yScale.bottom);
-            ctx2.strokeStyle = "#965951";
+            ctx2.strokeStyle = SR_THEME.oxblood;
             ctx2.lineWidth = 1.5;
             ctx2.setLineDash([4, 3]);
             ctx2.stroke();
             ctx2.setLineDash([]);
-            ctx2.fillStyle = "#965951";
-            ctx2.font = "10px Inter, sans-serif";
+            ctx2.fillStyle = SR_THEME.oxblood;
+            ctx2.font = '10px "Avenir Next", "Segoe UI", sans-serif';
             ctx2.fillText("Today", x + 4, yScale.top + 12);
             ctx2.restore();
           },
@@ -2177,7 +2577,7 @@
             stacked: false,
             beginAtZero: true,
             ticks: { callback: (v) => fmtMoney0.format(v) },
-            grid: { color: "rgba(0,0,0,0.06)" },
+            grid: { color: SR_THEME.grid },
           },
           y1: {
             // ── RIGHT axis — YoY % only ──
@@ -2189,7 +2589,7 @@
             grid: { drawOnChartArea: false },
             ticks: {
               callback: (v) => `${fmtPct.format(v)}%`,
-              color: "#198754",
+              color: SR_THEME.forest,
             },
           },
         },
@@ -2234,12 +2634,12 @@
           {
             label: "Historical Revenue",
             data: ranked.map((r) => num(r.historical_revenue)),
-            backgroundColor: "#adb5bd",
+            backgroundColor: alphaColor(SR_THEME.bronze, 0.72),
           },
           {
             label: "Current Owner Revenue",
             data: ranked.map((r) => num(r.current_owner_revenue)),
-            backgroundColor: "#0d6efd",
+            backgroundColor: SR_THEME.oxblood,
           },
         ],
       },
@@ -2283,12 +2683,12 @@
           {
             label: "Transferred In",
             data: ranked.map((r) => num(r.transferred_in_revenue)),
-            backgroundColor: "#198754",
+            backgroundColor: SR_THEME.forest,
           },
           {
             label: "Transferred Out",
             data: ranked.map((r) => num(r.transferred_out_revenue) * -1),
-            backgroundColor: "#dc3545",
+            backgroundColor: SR_THEME.blood,
           },
         ],
       },
@@ -2551,6 +2951,7 @@
     }
 
     destroyChart("territory");
+    setChartShellLoading("srTerritoryChart", false);
     if (!ChartLib || !hasTrendData) {
       if (list) list.classList.remove("d-none");
       return;
@@ -2565,9 +2966,15 @@
     const datasets = [];
     series.forEach((row, idx) => {
       const color = stableColor(idx);
+      const territoryMeta2 = territoryMeta.get(String(row.territory_name || "").trim()) || {};
+      const seriesRepCount = num(territoryMeta2.rep_count ?? row.rep_count);
+      // Rep count badge in chart label: e.g. "Vancouver W · 5 Reps"
+      const chartLabel = row.territory_name
+        ? (seriesRepCount > 0 ? `${row.territory_name} · ${seriesRepCount} Rep${seriesRepCount !== 1 ? "s" : ""}` : row.territory_name)
+        : `Territory ${idx + 1}`;
       datasets.push({
         type: "line",
-        label: row.territory_name || `Territory ${idx + 1}`,
+        label: chartLabel,
         data: labels.map((bucket, pointIdx) => ({
           x: bucketLabelFromKey(bucket, "monthly"),
           y: num(row.revenue?.[pointIdx]),
@@ -2584,9 +2991,9 @@
           const area = chart?.chartArea;
           if (!area) return alphaColor(color, 0.18);
           const gradient = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-          gradient.addColorStop(0, alphaColor(color, idx === 0 ? 0.34 : 0.26));
-          gradient.addColorStop(0.58, alphaColor(color, 0.12));
-          gradient.addColorStop(1, alphaColor(color, 0.02));
+          gradient.addColorStop(0, alphaColor(color, idx === 0 ? 0.72 : 0.52));
+          gradient.addColorStop(0.48, alphaColor(color, 0.36));
+          gradient.addColorStop(1, alphaColor(color, 0.08));
           return gradient;
         },
         borderWidth: 2.35,
@@ -2598,7 +3005,7 @@
         pointHoverRadius: 4,
         pointHitRadius: 18,
         pointBackgroundColor: color,
-        pointBorderColor: "#ffffff",
+        pointBorderColor: SR_THEME.cream,
         pointBorderWidth: 1.2,
         spanGaps: true,
       });
@@ -2689,20 +3096,20 @@
             ticks: {
               maxTicksLimit: 8,
               maxRotation: 0,
-              color: "#60758c",
+              color: SR_THEME.tick,
             },
           },
           y: {
             stacked: true,
             beginAtZero: true,
             grid: {
-              color: "rgba(148, 163, 184, 0.16)",
+              color: SR_THEME.grid,
               drawBorder: false,
             },
             ticks: {
               callback: (value) => fmtMoney0.format(value),
               maxTicksLimit: 5,
-              color: "#60758c",
+              color: SR_THEME.tick,
             },
           },
         },
@@ -2885,7 +3292,19 @@
     });
   };
 
-  const _custDaysSilentCell = (row) => silentCellHtml(row.last_order_date, row.days_since_order);
+  const _custDaysSilentCell = (row) => {
+    if (row.is_overdue) {
+      const avg = num(row.avg_days_between_orders || row.avg_days);
+      const since = num(row.days_since_order);
+      return `
+        <span class="sr-silent-cell" title="Predictive Churn: Missed ${fmtInt.format(avg)}d cycle by ${fmtInt.format(since - avg)}d">
+          <span class="sr-silent-chip is-critical">Overdue</span>
+          <div style="font-size:0.62rem;color:${SR_THEME.blood};margin-top:1px">${fmtInt.format(avg)}d cycle</div>
+        </span>
+      `;
+    }
+    return silentCellHtml(row.last_order_date, row.days_since_order);
+  };
 
   const _custProfitCell = (row) => {
     if (row.profit == null) return NA;
@@ -2897,10 +3316,10 @@
     if (derivedMargin === null) return profitStr;
     const TARGET = 29.1, MIN = 20.1;
     const [bg, fg] = derivedMargin >= TARGET
-      ? ["#d1fae5", "#065f46"]
+      ? [alphaColor(SR_THEME.forest, 0.16), SR_THEME.forest]
       : derivedMargin >= MIN
-        ? ["#fef9c3", "#854d0e"]
-        : ["#fee2e2", "#991b1b"];
+        ? [alphaColor(SR_THEME.gold, 0.18), SR_THEME.bronze]
+        : [alphaColor(SR_THEME.blood, 0.14), SR_THEME.blood];
     return `${profitStr}<br><span style="font-size:0.68rem;font-weight:600;padding:1px 6px;border-radius:8px;background:${bg};color:${fg};display:inline-block;margin-top:2px">${fmtPct.format(derivedMargin)}%</span>`;
   };
 
@@ -2986,6 +3405,196 @@
     `;
   };
 
+  const customerFocusKey = (row) =>
+    cleanText(row?.customer_id || row?.key || row?.customer_name).toLowerCase();
+
+  const findCustomerRow = (rows = [], needle = null) => {
+    const targetKey = customerFocusKey(needle);
+    if (!targetKey || !Array.isArray(rows)) return null;
+    return rows.find((row) => customerFocusKey(row) === targetKey) || null;
+  };
+
+  const setFocusedCustomer = (row = null, { rerenderTable = true } = {}) => {
+    focusedCustomer = row
+      ? {
+        customer_id: row.customer_id || row.key || null,
+        customer_name: row.customer_name || row.customer_id || row.key || TEXT_EMPTY,
+        account_owner_name: row.account_owner_name || TEXT_EMPTY,
+        territory_name: row.territory_name || TEXT_EMPTY,
+        revenue: row.revenue,
+        profit: row.profit,
+        orders: row.orders,
+        beef_revenue: row.beef_revenue,
+        poultry_revenue: row.poultry_revenue,
+        pork_revenue: row.pork_revenue,
+        last_order_date: row.last_order_date,
+        days_since_order: row.days_since_order,
+        mom_revenue_pct: row.mom_revenue_pct,
+        yoy_revenue_pct: row.yoy_revenue_pct,
+        delivery_lat: row.delivery_lat,
+        delivery_lng: row.delivery_lng,
+        delivery_city: row.delivery_city,
+        delivery_province: row.delivery_province,
+        shipping_method: row.shipping_method,
+      }
+      : null;
+    renderGapFocusPanel(focusedCustomer);
+    renderFilterBreadcrumb(lastPayload || {});
+    if (rerenderTable && Array.isArray(_allCustomerRows) && _allCustomerRows.length) {
+      _applyCustomerView(_allCustomerRows, _customerViewMode);
+    }
+  };
+
+  const renderGapFocusPanel = (row = null) => {
+    const panel = document.getElementById("srGapFocusPanel");
+    const title = document.getElementById("srGapFocusTitle");
+    const meta = document.getElementById("srGapFocusMeta");
+    const grid = document.getElementById("srGapFocusGrid");
+    if (!panel || !title || !meta || !grid) return;
+    if (!row) {
+      panel.classList.add("d-none");
+      title.textContent = "Customer gap analysis";
+      meta.textContent = "Select a customer from the priority queue to open gap analysis details.";
+      grid.innerHTML = "";
+      return;
+    }
+
+    const risk = computeCustomerRisk(row);
+    const daysSilent = customerSilentDays(row);
+    const momPct = customerMoMValue(row);
+    const yoyPct = customerYoYValue(row);
+    const beefRevenue = num(row.beef_revenue);
+    const poultryRevenue = num(row.poultry_revenue);
+    const porkRevenue = num(row.pork_revenue);
+    const opportunities = [];
+    if (beefRevenue > 0 && poultryRevenue <= 0) opportunities.push("Open poultry cross-sell");
+    if (beefRevenue > 0 && porkRevenue <= 0) opportunities.push("Add pork mix");
+    if (!opportunities.length && beefRevenue > 0) opportunities.push("Protein mix is already attached");
+    if (!opportunities.length) opportunities.push("No protein anchor in the visible window");
+
+    title.textContent = row.customer_name || row.customer_id || TEXT_EMPTY;
+    meta.textContent = [
+      row.account_owner_name || TEXT_EMPTY,
+      row.territory_name || TEXT_EMPTY,
+      daysSilent == null ? "Silent window unavailable" : `${fmtInt.format(daysSilent)} days silent`,
+    ].filter(Boolean).join(" | ");
+    grid.innerHTML = [
+      {
+        label: "Revenue",
+        value: money(row.revenue),
+        note: row.orders == null ? "Current fiscal window" : `${fmtInt.format(num(row.orders))} orders in scope`,
+      },
+      {
+        label: "Risk Signal",
+        value: risk.label,
+        note: row.last_order_date ? `Last invoice ${formatDateCA(row.last_order_date)}` : "Last invoice None",
+      },
+      {
+        label: "Momentum",
+        value: momPct == null ? TEXT_EMPTY : `${momPct >= 0 ? "+" : ""}${fmtPct.format(momPct)}%`,
+        note: yoyPct == null ? "YoY None" : `YoY ${yoyPct >= 0 ? "+" : ""}${fmtPct.format(yoyPct)}%`,
+      },
+      {
+        label: "Owner",
+        value: row.account_owner_name || TEXT_EMPTY,
+        note: row.territory_name ? `Territory ${row.territory_name}` : "Territory None",
+      },
+      {
+        label: "Protein Mix",
+        value: `${money(beefRevenue)} BF | ${money(poultryRevenue)} PT | ${money(porkRevenue)} PK`,
+        note: row.shipping_method ? `Ship via ${row.shipping_method}` : "Ship method None",
+      },
+      {
+        label: "Action",
+        value: opportunities[0],
+        note: opportunities.slice(1).join(" | ") || "Map focus stays pinned at zoom 14",
+      },
+    ].map((card) => `
+      <div class="sr-gap-focus-card">
+        <span class="sr-gap-focus-card-label">${escapeHtml(card.label)}</span>
+        <span class="sr-gap-focus-card-value">${escapeHtml(card.value)}</span>
+        <span class="sr-gap-focus-card-note">${escapeHtml(card.note)}</span>
+      </div>
+    `).join("");
+    panel.classList.remove("d-none");
+  };
+
+  const dispatchPageFilters = (filters, source = "manual") => {
+    let nextFilters = { ...(filters || {}) };
+    if (window.FilterState && typeof window.FilterState.sanitize === "function") {
+      nextFilters = window.FilterState.sanitize(nextFilters);
+    }
+    if (window.FilterState && typeof window.FilterState.set === "function") {
+      window.FilterState.set(nextFilters, { persist: true });
+      if (typeof window.FilterState.hydrateForm === "function") {
+        window.FilterState.hydrateForm(document.getElementById("filtersForm"));
+      }
+    }
+    let qs = "";
+    if (window.FilterState && typeof window.FilterState.toQueryString === "function") {
+      qs = window.FilterState.toQueryString(nextFilters);
+    } else {
+      const params = new URLSearchParams();
+      Object.entries(nextFilters).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          value.filter((item) => item != null && item !== "").forEach((item) => params.append(key, String(item)));
+          return;
+        }
+        if (value == null || value === "" || value === false) return;
+        params.set(key, String(value));
+      });
+      qs = params.toString();
+    }
+    const detail = {
+      filters: nextFilters,
+      qs,
+      meta: { source },
+    };
+    if (typeof window.dispatchGlobalFiltersApply === "function") {
+      window.dispatchGlobalFiltersApply(detail);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("globalFilters:apply", { detail }));
+  };
+
+  const dispatchFiltersForCustomer = (row) => {
+    const customerId = cleanText(row?.customer_id || row?.key || row?.customer_name);
+    if (!customerId) return;
+    dispatchPageFilters(
+      {
+        ...currentFilterState(),
+        customers: [customerId],
+      },
+      "priority_queue",
+    );
+  };
+
+  const clearCustomerFocus = () => {
+    pendingCustomerFocus = null;
+    setFocusedCustomer(null);
+    const current = currentFilterState();
+    dispatchPageFilters({ ...current, customers: [] }, "customer_focus_clear");
+  };
+
+  const focusCustomerFromPriority = (row) => {
+    if (!row) return;
+    pendingCustomerFocus = {
+      customer_id: row.customer_id || row.key || null,
+      customer_name: row.customer_name || row.customer_id || TEXT_EMPTY,
+      account_owner_name: row.account_owner_name || TEXT_EMPTY,
+      territory_name: row.territory_name || TEXT_EMPTY,
+      delivery_lat: row.delivery_lat,
+      delivery_lng: row.delivery_lng,
+      delivery_city: row.delivery_city,
+      delivery_province: row.delivery_province,
+    };
+    setFocusedCustomer(row);
+    if (typeof focusMapOnCustomer === "function") focusMapOnCustomer(row, { zoom: 14, duration: 900 });
+    window.closeFollowUpDrawer();
+    document.getElementById("srLiveMap")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    dispatchFiltersForCustomer(row);
+  };
+
   const _visibleCustomerRows = (rows) => {
     const filtered = _customerFilterRows(rows);
     if (!filtered.length) return [];
@@ -3018,21 +3627,22 @@
 
   const _buildCustomerRowHtml = (row, badge = null) => {
     const badgeHtml = badge?.text ? `<span class="sr-cust-badge ${badge.cls || ""}">${escapeHtml(badge.text)}</span>` : "";
-    const rowClass = badge?.view === "best" ? "sr-cust-best-row" : badge?.view === "atrisk" ? "sr-cust-risk-row" : "";
+    const focusClass = focusedCustomer && customerFocusKey(row) === customerFocusKey(focusedCustomer) ? " is-focused-customer" : "";
+    const rowClass = `${badge?.view === "best" ? "sr-cust-best-row" : badge?.view === "atrisk" ? "sr-cust-risk-row" : ""}${focusClass}`;
     const risk = computeCustomerRisk(row);
     const riskHtml = _riskPillHtml(risk);
     const rev = num(row.revenue);
     const maxRev = row._maxRevenue || rev || 1;
     const barPct = Math.min(100, Math.round((rev / maxRev) * 100));
-    const revBarHtml = `<div style="height:3px;width:${barPct}%;background:rgba(150,89,81,0.35);border-radius:2px;margin-top:2px"></div>`;
+    const revBarHtml = `<div style="height:3px;width:${barPct}%;background:${alphaColor(SR_THEME.oxblood, 0.4)};border-radius:2px;margin-top:2px"></div>`;
     const ordersVal = row.orders != null ? num(row.orders) : null;
     const ordersHtml = ordersVal != null && ordersVal > 0
-      ? `<div style="font-size:0.68rem;color:#6b7280;margin-top:1px">${fmtInt.format(ordersVal)} order${ordersVal !== 1 ? "s" : ""}</div>`
+      ? `<div style="font-size:0.68rem;color:${SR_THEME.tick};margin-top:1px">${fmtInt.format(ordersVal)} order${ordersVal !== 1 ? "s" : ""}</div>`
       : "";
     const silentCell = _custDaysSilentCell(row);
 
     return `
-      <tr class="sr-virtual-row ${rowClass}"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>
+      <tr class="sr-virtual-row ${rowClass.trim()}" data-customer-id="${escapeHtml(row.customer_id || row.key || row.customer_name || "")}"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>
         <td>
           ${badgeHtml}
           <span class="sr-link"${drillAttr(customerPayload(row, "Customer Intelligence", "Top Customers", "Revenue", row.revenue))}>${escapeHtml(row.customer_name || row.customer_id || NA)}</span>
@@ -3085,15 +3695,15 @@
       const totalRev    = _allCustomerRows.reduce((s, r) => s + num(r.revenue ?? r.revenue_last_30), 0);
       summaryEl.innerHTML = `
         <span style="display:inline-flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:0.78rem">
-          <span><span style="color:#965951;font-weight:700">${fmtInt.format(totalActive)}</span> active</span>
-          <span style="color:#d1d5db">|</span>
+          <span><span style="color:${SR_THEME.oxblood};font-weight:700">${fmtInt.format(totalActive)}</span> active</span>
+          <span style="color:${SR_THEME.tanSoft}">|</span>
           <span style="font-weight:600">${fmtMoney0.format(totalRev)}</span> total rev
-          <span style="color:#d1d5db">|</span>
-          <span style="color:#047857;font-weight:700">+${gained}</span> gained
-          <span style="color:#d1d5db">|</span>
-          <span style="color:#dc2626;font-weight:700">${atRisk}</span> at-risk
-          <span style="color:#d1d5db">|</span>
-          <span style="color:#dc2626;font-weight:700">${lostN}</span> lost
+          <span style="color:${SR_THEME.tanSoft}">|</span>
+          <span style="color:${SR_THEME.forest};font-weight:700">+${gained}</span> gained
+          <span style="color:${SR_THEME.tanSoft}">|</span>
+          <span style="color:${SR_THEME.blood};font-weight:700">${atRisk}</span> at-risk
+          <span style="color:${SR_THEME.tanSoft}">|</span>
+          <span style="color:${SR_THEME.blood};font-weight:700">${lostN}</span> lost
         </span>`;
     }
   };
@@ -3162,7 +3772,7 @@
     });
   };
 
-  // ── Phase 3B: Follow-Up List CSV export (global so header button can call it) ──
+  // ── Phase 3B: Follow-Up List CSV export ──
   window.exportFollowUpList = () => {
     const atRisk = _allCustomerRows.filter((r) => {
       const sig = computeCustomerRisk(r).signal;
@@ -3180,10 +3790,10 @@
       const days = customerSilentDays(r) ?? "";
       const momPct = customerMoMValue(r);
       const action = risk.signal === "critical"
-        ? `Critical recovery call — silent ${days || "?"}d and MoM ${momPct == null ? NA : `${momPct.toFixed(1)}%`}`
+        ? `Critical recovery call - silent ${days || "?"}d and MoM ${momPct == null ? NA : `${momPct.toFixed(1)}%`}`
         : risk.signal === "lost"
-          ? `Re-engagement call — no orders in ${days || "?"} days`
-          : "Account review — declining momentum";
+          ? `Re-engagement call - no orders in ${days || "?"} days`
+          : "Account review - declining momentum";
       return [
         `"${(r.customer_name || r.customer_id || "").replace(/"/g, '""')}"`,
         `"${(r.account_owner_name || "").replace(/"/g, '""')}"`,
@@ -3201,25 +3811,141 @@
     a.click();
   };
 
+  // ── v4.0: Follow-Up Priority Queue Drawer ──
+  const _buildDrawerQueueHtml = (repName) => {
+    const scopedRep = cleanText(repName).toLowerCase();
+    const atRisk = _allCustomerRows
+      .filter((r) => {
+        const sig = computeCustomerRisk(r).signal;
+        if (!(sig === "critical" || sig === "atrisk" || sig === "lost")) return false;
+        if (!scopedRep) return true;
+        return businessRepName(r.account_owner_name, r.account_owner_id, UNASSIGNED_REP_FALLBACK).toLowerCase() === scopedRep;
+      })
+      .sort((a, b) => {
+        // Sort: critical first, then by silent days desc
+        const sigOrder = { critical: 0, lost: 1, atrisk: 2 };
+        const aSig = computeCustomerRisk(a).signal;
+        const bSig = computeCustomerRisk(b).signal;
+        const aOrd = sigOrder[aSig] ?? 3;
+        const bOrd = sigOrder[bSig] ?? 3;
+        if (aOrd !== bOrd) return aOrd - bOrd;
+        return (customerSilentDays(b) ?? 0) - (customerSilentDays(a) ?? 0);
+      });
+
+    if (!atRisk.length) {
+      return '<div class="text-muted text-center py-4">&#9989; No at-risk accounts in the current view.</div>';
+    }
+
+    const repLabel = repName ? `for ${escapeHtml(repName)}` : "";
+    const subtitle = document.getElementById("srDrawerSubtitle");
+    if (subtitle) subtitle.textContent = `${atRisk.length} accounts require follow-up${repLabel ? " " + repLabel : ""}`;
+
+    return atRisk.map((r, idx) => {
+      const risk = computeCustomerRisk(r);
+      const days = customerSilentDays(r);
+      const momPct = customerMoMValue(r);
+      const velLabel = momPct !== null
+        ? `MoM ${momPct >= 0 ? "+" : ""}${fmtPct.format(momPct)}%`
+        : "";
+      const action = risk.signal === "critical"
+        ? `Recovery call - silent ${days ?? "?"}d${velLabel ? " | " + velLabel : ""}`
+        : risk.signal === "lost"
+          ? `Re-engagement - no orders in ${days ?? "?"} days`
+          : `Account review - declining momentum${velLabel ? " | " + velLabel : ""}`;
+      const sigClass = risk.signal === "critical" ? "is-critical" : risk.signal === "atrisk" ? "is-atrisk" : "";
+      const customerId = cleanText(r.customer_id || r.key || r.customer_name || "");
+      return `
+        <div class="sr-priority-item ${sigClass}">
+          <div class="sr-priority-rank">#${idx + 1}</div>
+          <div class="sr-priority-meta">
+            <div class="sr-priority-name">
+              <button
+                type="button"
+                class="sr-priority-link"
+                data-priority-customer-id="${escapeHtml(customerId)}"
+                data-priority-owner="${escapeHtml(r.account_owner_name || "")}"
+              >${escapeHtml(r.customer_name || r.customer_id || NA)}</button>
+            </div>
+            <div class="sr-priority-sub">${escapeHtml(r.account_owner_name || "Unassigned")}${r.territory_name ? " · " + escapeHtml(r.territory_name) : ""}</div>
+            <div class="sr-priority-sub">${days !== null && days !== undefined ? `Silent: ${days}d` : "Silent: unknown"} · Revenue: ${money(r.revenue_prev_30 ?? r.revenue)}</div>
+            <div class="sr-priority-action">&#128204; ${escapeHtml(action)}</div>
+          </div>
+          <span class="badge text-bg-${risk.signal === "critical" ? "danger" : risk.signal === "lost" ? "secondary" : "warning"} ms-1" style="align-self:flex-start;font-size:0.65rem">${escapeHtml(risk.label)}</span>
+        </div>
+      `;
+    }).join("");
+  };
+
+  const wireFollowUpDrawer = () => {
+    if (followUpDrawerWired) return;
+    const body = document.getElementById("srFollowUpDrawerBody");
+    if (!body) return;
+    body.addEventListener("click", (evt) => {
+      const trigger = evt.target.closest("[data-priority-customer-id]");
+      if (!trigger) return;
+      evt.preventDefault();
+      const customerId = cleanText(trigger.getAttribute("data-priority-customer-id"));
+      const row = findCustomerRow(_allCustomerRows, { customer_id: customerId });
+      if (row) focusCustomerFromPriority(row);
+    });
+    followUpDrawerWired = true;
+  };
+
+  window.openFollowUpDrawer = (repName) => {
+    const drawer = document.getElementById("srFollowUpDrawer");
+    if (!drawer) return;
+    wireFollowUpDrawer();
+    const body = document.getElementById("srFollowUpDrawerBody");
+    if (body) body.innerHTML = _buildDrawerQueueHtml(repName);
+    drawer.style.display = "flex";
+    requestAnimationFrame(() => {
+      drawer.classList.add("is-open");
+      syncBodyScrollLock();
+    });
+  };
+
+  window.closeFollowUpDrawer = () => {
+    const drawer = document.getElementById("srFollowUpDrawer");
+    if (!drawer) return;
+    drawer.classList.remove("is-open");
+    drawer.addEventListener("transitionend", () => {
+      drawer.style.display = "none";
+      syncBodyScrollLock();
+    }, { once: true });
+  };
+
   const buildLostAccountActionText = (account = {}) => {
     const days = account.days_since_order != null ? `${account.days_since_order} days` : "an unknown number of days";
     const territory = account.territory_name ? ` Territory: ${account.territory_name}.` : "";
     const lastDate = account.last_order_date || "unknown";
     const revenueText = money(account.revenue_prev_30 ?? 0);
+    const reason = account.opportunity_reason || `${revenueText}/mo account silent for ${days}`;
+    
+    const proteinText = (account.historical_proteins || []).length 
+      ? ` historically purchased ${account.historical_proteins.join(", ")}` 
+      : "";
+    const proteinBody = (account.historical_proteins || []).length
+      ? `This customer has historically purchased: ${account.historical_proteins.join(", ")}. Use this to tailor your outreach.`
+      : "Check their historical order guide for species-specific opportunities.";
+
     return {
-      emailSubject: `Re-engagement: ${account.customer_name || account.customer_id || "Customer"} — ${days} silent`,
+      emailSubject: `RE: ${account.customer_name || account.customer_id || "Customer"}${proteinText ? ` (${account.historical_proteins[0]} orders)` : ""} - Re-engagement Opportunity`,
       emailBody:
         `Hi ${account.account_owner_name || "Team"},\n\n` +
-        `${account.customer_name || account.customer_id || "Customer"} has been silent for ${days} (last invoice: ${lastDate}).` +
+        `This is an automated priority alert for ${account.customer_name || account.customer_id || "Customer"}.\n\n` +
+        `Signal: ${reason}. (Last invoice: ${lastDate}).` +
         `${territory}\n\n` +
-        `Trailing prior-30-day revenue was ${revenueText}. Please review for a same-day follow-up.\n\nThanks`,
+        `${proteinBody}\n\n` +
+        `Prior-period monthly revenue was ${revenueText}. This account is currently in the recovery sweet-spot. Please reach out today to secure the next order.\n\nThanks`,
       callBrief:
-        `${account.customer_name || account.customer_id || "Customer"} is ${days} silent. ` +
-        `Last invoice: ${lastDate}. Prior 30-day revenue: ${revenueText}.` +
+        `Follow-up priority: ${account.customer_name || account.customer_id || "Customer"}. ${reason}. ` +
+        `Last invoice: ${lastDate}. Prior revenue: ${revenueText}.` +
+        `${proteinText ? ` Historically buys ${account.historical_proteins.join(", ")}.` : ""}` +
         `${account.territory_name ? ` Territory: ${account.territory_name}.` : ""}`,
       noteText:
-        `Follow-up note: ${account.customer_name || account.customer_id || "Customer"} is ${days} silent, ` +
-        `last invoice ${lastDate}, prior 30-day revenue ${revenueText}.`,
+        `Recovery Opportunity: ${account.customer_name || account.customer_id || "Customer"} - ${reason}, ` +
+        `last invoice ${lastDate}, prior revenue ${revenueText}.` +
+        `${proteinText ? ` Species: ${account.historical_proteins.join(", ")}.` : ""}`,
     };
   };
 
@@ -3369,16 +4095,19 @@
     const header  = body?.previousElementSibling;
     if (!badge || !body) return;
 
-    // Sort by days silent descending (most urgent first)
+    // Use priority_score if available, otherwise fallback to days_since_order
     const sorted = [...lostAccounts].sort((a, b) => {
+      if (a.priority_score != null && b.priority_score != null) {
+        return b.priority_score - a.priority_score;
+      }
       const da = a.days_since_order ?? 0;
       const db = b.days_since_order ?? 0;
       return db - da;
     });
 
     const n = sorted.length;
-    const urgentCount  = sorted.filter(a => (a.days_since_order ?? 0) > 60).length;
-    const warningCount = sorted.filter(a => { const d = a.days_since_order ?? 0; return d > 30 && d <= 60; }).length;
+    const criticalCount = sorted.filter(a => a.urgency_label === "Critical" || (a.days_since_order ?? 0) > 60).length;
+    const highCount     = sorted.filter(a => a.urgency_label === "High" || ((a.days_since_order ?? 0) > 45 && (a.days_since_order ?? 0) <= 60)).length;
     const totalRevAtRisk = sorted.reduce((s, a) => s + (a.revenue_prev_30 ?? 0), 0);
 
     badge.textContent = n;
@@ -3399,30 +4128,69 @@
     const rows = sorted.map((a) => {
       const days = a.days_since_order ?? null;
       const daysStr = days !== null ? `${days}d` : "\u2014";
-      let urgencyEmoji = "";
+      const score = a.priority_score ?? 0;
+      const urgency = a.urgency_label || (days > 60 ? "Critical" : days > 30 ? "High" : "Medium");
+      
+      let urgencyClass = "text-bg-secondary";
       let rowBg = "";
-      if (days !== null && days > 60)      { urgencyEmoji = "\uD83D\uDD34"; rowBg = "background:rgba(220,38,38,0.06);"; }
-      else if (days !== null && days > 30) { urgencyEmoji = "\uD83D\uDFE1"; rowBg = "background:rgba(217,119,6,0.06);"; }
+      
+      if (urgency === "Critical") { 
+        urgencyClass = "text-bg-danger";
+        rowBg = `background:${alphaColor(SR_THEME.blood, 0.08)};`; 
+      }
+      else if (urgency === "High") { 
+        urgencyClass = "text-bg-warning";
+        rowBg = `background:${alphaColor(SR_THEME.gold, 0.12)};`; 
+      }
 
       const owner     = a.account_owner_name || "\u2014";
       const territory = a.territory_name     || "\u2014";
       const lastDate  = a.last_order_date    || "\u2014";
+      const reason    = a.opportunity_reason || `${money(a.revenue_prev_30 ?? 0)} silent for ${daysStr}`;
+      
+      const phone = a.customer_phone ? `<div class="small text-muted"><i class="bi bi-telephone"></i> ${escapeHtml(a.customer_phone)}</div>` : "";
+      const email = a.customer_email ? `<div class="small text-muted"><i class="bi bi-envelope"></i> ${escapeHtml(a.customer_email)}</div>` : "";
+
       const actionText = buildLostAccountActionText(a);
       const subject = encodeURIComponent(actionText.emailSubject);
       const bodyText = encodeURIComponent(actionText.emailBody);
       const callText = encodeURIComponent(actionText.callBrief);
       const noteText = encodeURIComponent(actionText.noteText);
 
+      const proteinBadges = (a.historical_proteins || []).slice(0, 3).map(p => {
+        const lower = String(p).toLowerCase();
+        const color = lower.includes("beef") ? "bg-danger" : lower.includes("pork") ? "bg-warning text-dark" : lower.includes("poultry") || lower.includes("chicken") ? "bg-success" : "bg-info";
+        return `<span class="badge ${color}" style="font-size:0.6rem;padding:0.2em 0.4em">${escapeHtml(p.slice(0,4))}</span>`;
+      }).join(" ");
+
       return `<tr style="${rowBg}">
-        <td style="font-weight:500">${urgencyEmoji} ${escapeHtml(a.customer_name || a.customer_id || NA)}</td>
-        <td>${escapeHtml(owner)}</td>
-        <td>${escapeHtml(territory)}</td>
-        <td class="text-end" style="font-variant-numeric:tabular-nums">${money(a.revenue_prev_30 ?? 0)}</td>
-        <td style="color:#6b7280;font-size:0.82rem">${escapeHtml(lastDate)}</td>
-        <td style="font-weight:${days !== null && days > 60 ? "700" : days !== null && days > 30 ? "600" : "400"};color:${days !== null && days > 60 ? "#dc2626" : days !== null && days > 30 ? "#d97706" : "#6b7280"}">${daysStr}</td>
+        <td>
+            <div class="fw-bold text-dark">${escapeHtml(a.customer_name || a.customer_id || NA)}</div>
+            <div class="d-flex align-items-center gap-1 mt-1">
+              ${proteinBadges}
+              <span class="small text-muted ms-1" style="font-size:0.65rem">${escapeHtml(territory)}</span>
+            </div>
+            ${phone}
+            ${email}
+        </td>
+        <td class="text-center">
+            <span class="badge ${urgencyClass}" style="font-size:0.7rem">${urgency.toUpperCase()}</span>
+            <div class="small text-muted" title="Priority Score: 0-100 (Revenue + Churn Probability)">Score: ${score}</div>
+        </td>
+        <td>
+          <div class="small fw-semibold text-oxblood">${escapeHtml(reason)}</div>
+          <div class="small text-muted mt-1">
+            Last invoice: ${escapeHtml(lastDate)}
+            ${days !== null ? ` · ${daysStr} since` : ""}
+          </div>
+        </td>
+        <td class="text-end" style="font-variant-numeric:tabular-nums">
+          <div class="fw-bold">${money(a.revenue_prev_30 ?? 0)}</div>
+          <div class="small text-muted" style="font-size:0.65rem">Prior LTM</div>
+        </td>
         <td>
           <div class="sr-quick-actions">
-            <a href="mailto:?subject=${subject}&body=${bodyText}" class="sr-quick-action" title="Email follow-up" aria-label="Email follow-up">
+            <a href="mailto:${a.customer_email || ""}?subject=${subject}&body=${bodyText}" class="sr-quick-action" title="Email follow-up briefing" aria-label="Email follow-up briefing">
               <i class="bi bi-envelope"></i>
             </a>
             <button type="button" class="sr-quick-action" data-followup-action="call" data-followup-text="${callText}" title="Copy call brief" aria-label="Copy call brief">
@@ -3437,11 +4205,11 @@
     }).join("");
 
     const summaryBar = `
-      <div style="display:flex;gap:1.5rem;padding:8px 12px 10px;border-bottom:1px solid #e5e7eb;background:#f9fafb;font-size:0.82rem;flex-wrap:wrap">
-        <span style="color:#dc2626;font-weight:700">\uD83D\uDD34 ${urgentCount} urgent (&gt;60d)</span>
-        <span style="color:#d97706;font-weight:600">\uD83D\uDFE1 ${warningCount} warning (31–60d)</span>
-        <span style="color:#374151">Total accounts: <strong>${n}</strong></span>
-        <span style="color:#374151;margin-left:auto">Rev at risk: <strong>${money(totalRevAtRisk)}</strong></span>
+      <div style="display:flex;gap:1.5rem;padding:8px 12px 10px;border-bottom:1px solid ${SR_THEME.gridStrong};background:${alphaColor(SR_THEME.cream, 0.94)};font-size:0.82rem;flex-wrap:wrap">
+        <span style="color:${SR_THEME.blood};font-weight:700">\uD83D\uDD34 ${criticalCount} critical</span>
+        <span style="color:${SR_THEME.bronze};font-weight:600">\uD83D\uDFE1 ${highCount} high priority</span>
+        <span style="color:${SR_THEME.espresso}">Opportunities: <strong>${n}</strong></span>
+        <span style="color:${SR_THEME.espresso};margin-left:auto">Revenue at risk: <strong>${money(totalRevAtRisk)}</strong></span>
       </div>`;
 
     body.innerHTML = `
@@ -3450,21 +4218,18 @@
         <table class="table table-sm table-hover mb-0" style="font-size:0.85rem">
           <thead class="table-light">
             <tr>
-              <th>Customer</th>
-              <th>Owner</th>
-              <th>Territory</th>
-              <th class="text-end">Last 30d Rev</th>
-              <th>Last Order</th>
-              <th>Days Silent</th>
-              <th>Quick Action</th>
+              <th>Customer / Species Focus</th>
+              <th class="text-center">Urgency</th>
+              <th>Reason for Opportunity</th>
+              <th class="text-end">Risk Exposure</th>
+              <th class="text-end">Re-engage</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
       <p class="text-muted mb-0 px-2 py-2" style="font-size:0.78rem">
-        Accounts that ordered in the prior window but placed <strong>no orders</strong> in the current period.
-        Sorted by days silent — most urgent first. Use Follow-up to pre-fill a contextual email.
+        Priority queue uses <strong>Predictive Churn</strong> (Custom Frequency Pulse) and <strong>Silent Account</strong> detection to identify high-value re-engagement opportunities.
       </p>
     `;
     bindLostAccountQuickActions();
@@ -3508,11 +4273,11 @@
       let tintStyle = "";
       if (isDown) {
         if (isLost) {
-          tintStyle = " style=\"background:rgba(220,38,38,0.07)\"";
+          tintStyle = ` style="background:${alphaColor(SR_THEME.blood, 0.08)}"`;
         } else if (pctVal !== null && pctVal <= -50) {
-          tintStyle = " style=\"background:rgba(220,38,38,0.04)\"";
+          tintStyle = ` style="background:${alphaColor(SR_THEME.blood, 0.05)}"`;
         } else if (pctVal !== null && pctVal <= -25) {
-          tintStyle = " style=\"background:rgba(245,158,11,0.04)\"";
+          tintStyle = ` style="background:${alphaColor(SR_THEME.gold, 0.08)}"`;
         }
       }
       return `
@@ -3594,12 +4359,12 @@
           {
             label: "Revenue",
             data: ranked.map((row) => num(row.revenue)),
-            backgroundColor: "#1f5f9a",
+            backgroundColor: SR_THEME.gold,
           },
           {
             label: "YoY Δ Revenue",
             data: ranked.map((row) => num(row.yoy_delta_revenue)),
-            backgroundColor: "#d88b2a",
+            backgroundColor: SR_THEME.oxblood,
           },
         ],
       },
@@ -3686,14 +4451,14 @@
         if (x < xAxis.left || x > xAxis.right) return;
         ctx2.save();
         ctx2.setLineDash([6, 4]);
-        ctx2.strokeStyle = "rgba(150,89,81,0.55)";
+        ctx2.strokeStyle = alphaColor(SR_THEME.oxblood, 0.55);
         ctx2.lineWidth = 1.5;
         ctx2.beginPath();
         ctx2.moveTo(x, yAxis.top);
         ctx2.lineTo(x, yAxis.bottom);
         ctx2.stroke();
-        ctx2.fillStyle = "#965951";
-        ctx2.font = "11px Inter, system-ui";
+        ctx2.fillStyle = SR_THEME.oxblood;
+        ctx2.font = '11px "Avenir Next", "Segoe UI", system-ui';
         ctx2.textAlign = "right";
         ctx2.fillText(`Avg: ${conf.fmt(averageValue)}`, xAxis.right - 4, yAxis.top + 14);
         ctx2.restore();
@@ -3708,7 +4473,7 @@
         datasets: [{
           label: scopedMetricLabel,
           data: topRows.map((r) => scopedMetricValue(r)),
-          backgroundColor: "#0d6efd",
+          backgroundColor: SR_THEME.gold,
           borderRadius: 4,
         }],
       },
@@ -3721,6 +4486,7 @@
           if (idx == null) return;
           const row = topRows[idx];
           if (!row) return;
+          _flyToRep(row.rep_name);
           openUniversal(salesrepPayload(row, "Ranking & Performance", "Top Reps", scopedMetricLabel, scopedMetricValue(row)), document.getElementById(canvasId));
         },
         plugins: {
@@ -3776,13 +4542,13 @@
             type: "bar",
             label: conf.label,
             data: sorted.map((r) => rowMetricValue(r, metric)),
-            backgroundColor: "#0dcaf0",
+            backgroundColor: SR_THEME.gold,
           },
           {
             type: "line",
             label: "Cumulative %",
             data: cumulative,
-            borderColor: "#0d6efd",
+            borderColor: SR_THEME.oxblood,
             yAxisID: "y1",
             tension: 0.25,
           },
@@ -3838,7 +4604,7 @@
 
     const chart = createChart("eff", canvasId, {
       type: "bubble",
-      data: { datasets: [{ data: points, backgroundColor: "rgba(25,135,84,0.55)" }] },
+      data: { datasets: [{ data: points, backgroundColor: alphaColor(SR_THEME.gold, 0.55) }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -3893,12 +4659,12 @@
           {
             label: "Top 1 Share %",
             data: ranked.map((r) => num(r.top_customer_share) * 100),
-            backgroundColor: "#fd7e14",
+            backgroundColor: SR_THEME.oxblood,
           },
           {
             label: "Top 5 Share %",
             data: ranked.map((r) => num(r.top_5_customer_share) * 100),
-            backgroundColor: "#6f42c1",
+            backgroundColor: SR_THEME.gold,
           },
         ],
       },
@@ -3965,13 +4731,13 @@
           {
             label: "Reps",
             data: points,
-            backgroundColor: "rgba(220,53,69,0.65)",
+            backgroundColor: alphaColor(SR_THEME.oxblood, 0.65),
           },
           {
             type: "line",
             label: "Revenue midpoint",
             data: [{ x: midX, y: 0 }, { x: midX, y: maxY * 1.05 }],
-            borderColor: "rgba(13,110,253,0.55)",
+            borderColor: alphaColor(SR_THEME.gold, 0.62),
             borderDash: [6, 6],
             pointRadius: 0,
           },
@@ -3979,7 +4745,7 @@
             type: "line",
             label: "Profit midpoint",
             data: [{ x: 0, y: midY }, { x: maxX * 1.05, y: midY }],
-            borderColor: "rgba(25,135,84,0.55)",
+            borderColor: alphaColor(SR_THEME.forest, 0.62),
             borderDash: [6, 6],
             pointRadius: 0,
           },
@@ -4036,7 +4802,7 @@
       type: "bar",
       data: {
         labels: sorted.map((r) => repDisplayName(r)),
-        datasets: [{ label: "ASP", data: sorted.map((r) => num(r.asp)), backgroundColor: "#6f42c1" }],
+        datasets: [{ label: "ASP", data: sorted.map((r) => num(r.asp)), backgroundColor: SR_THEME.bronze }],
       },
       options: {
         indexAxis: "y",
@@ -4150,6 +4916,7 @@
     const signals = rowSignalChip(row);
     const focused = state.focusedRepIds.includes(String(repId));
     const selected = selectedRepIds.has(String(repId));
+    const silentMeta = silentAge(row.last_order_date);
     return `
       <tr class="sr-virtual-row${focused ? " is-rep-focus" : ""}${row.revenue_quartile === 4 ? " sr-row-q4" : row.revenue_quartile === 1 ? " sr-row-q1" : ""}${selected ? " sr-row-selected" : ""}" tabindex="0" data-row-index="${rowIndex}" data-rep-id="${escapeHtml(repId)}" data-href="${escapeHtml(href)}"${payload ? ` data-drilldown-payload="${escapeHtml(JSON.stringify(payload))}"` : ""}>
         <td class="col-select text-center" onclick="event.stopPropagation()">
@@ -4163,10 +4930,15 @@
           <div class="sr-secondary-metric">${fmtInt.format(num(row.current_owned_customers))} current owned · ${fmtInt.format(num(row.inherited_customers))} inherited</div>
         </td>
         <td class="col-health text-center">
-          ${row.health_label ? `<span class="badge" style="${healthBadgeStyle(row.health_color)}" title="Score: ${row.health_score}/100 | Momentum: ${(row.health_components||{}).momentum||0} | Margin: ${(row.health_components||{}).margin||0} | Retention: ${(row.health_components||{}).retention||0} | Concentration: ${(row.health_components||{}).concentration||0}">${escapeHtml(row.health_label)}</span>` : NA}
+          ${healthRingHtml(row)}
         </td>
+        <td class="col-direct_ratio">${directInheritedRatioHtml(row)}</td>
         <td class="col-quartile text-center">
-          ${row.quartile_label === "Top 25%" ? `<span title="${escapeHtml(row.quartile_label)}">★ ${escapeHtml(row.quartile_label)}</span>` : row.quartile_label === "Bottom 25%" ? `<span title="${escapeHtml(row.quartile_label)}">⚑ ${escapeHtml(row.quartile_label)}</span>` : `<span class="text-muted small">${escapeHtml(row.quartile_label || NA)}</span>`}
+          <div title="Smart Rank: composite score weighting 60% revenue + 40% margin. Lower number = stronger overall performer."
+               class="sr-composite-rank${row._composite_rank === 1 ? " sr-rank-gold" : row._composite_rank <= 3 ? " sr-rank-silver" : ""}">
+            ${row._composite_rank != null ? `#${row._composite_rank}` : escapeHtml(row.quartile_label || NA)}
+          </div>
+          <div class="sr-rank-sub">${escapeHtml(row.quartile_label || "")}</div>
         </td>
         <td class="text-end col-revenue">
           <div>${money(row.revenue)}</div>
@@ -4174,19 +4946,8 @@
         </td>
         <td class="text-end col-profit">${row.profit == null ? NA : money(row.profit)}</td>
         <td class="text-end col-margin_pct">${marginCellHtml(row)}</td>
-        <td class="text-end col-silent_days ${(() => {
-          const lastOrder = row.last_order_date ? new Date(row.last_order_date) : null;
-          const refDate = referenceDate();
-          const silentDays = lastOrder ? Math.floor((refDate - lastOrder) / (1000 * 60 * 60 * 24)) : null;
-          if (silentDays > 60) return "text-danger fw-bold";
-          if (silentDays > 30) return "text-warning";
-          return "";
-        })()}">${(() => {
-          const lastOrder = row.last_order_date ? new Date(row.last_order_date) : null;
-          const refDate = referenceDate();
-          return lastOrder ? Math.floor((refDate - lastOrder) / (1000 * 60 * 60 * 24)) : NA;
-        })()}</td>
-        <td class="text-end col-mom_revenue_delta">${money(row.mom_revenue_delta)}</td>
+        <td class="text-end col-silent_days ${silentMeta.days > 60 ? "text-danger fw-bold" : silentMeta.days > 30 ? "text-warning" : ""}">${silentMeta.days == null ? TEXT_EMPTY : fmtInt.format(silentMeta.days)}</td>
+        <td class="text-end col-mom_revenue_delta">${momentumArrowHtml(row)}</td>
         <td class="text-end col-yoy_revenue_delta">${money(row.yoy_revenue_delta)}</td>
         <td class="text-end col-weight_lb">${fmtInt.format(num(row.weight_lb))}</td>
         <td class="text-end col-active_customers">${fmtInt.format(num(row.active_customers))}</td>
@@ -4200,6 +4961,23 @@
         <td class="col-top_territory" title="${escapeHtml(row.top_territory_name || NA)}"><span class="sr-link"${drillAttr(territoryPayload(row.top_territory_name, "Detailed Table", "Top Territory", "Revenue", row.top_territory_revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.top_territory_name || NA)}</span></td>
         <td class="col-top_customer" title="${escapeHtml(row.top_customer_name || NA)}"><span class="sr-link"${drillAttr(repWorkspacePayload(row, "Detailed Table", "Top Customer", "Revenue", row.top_customer_revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.top_customer_name || NA)}</span></td>
         <td class="col-top_protein"><span class="sr-link"${drillAttr(proteinPayload(row.top_protein_family, "Detailed Table", "Top Protein", "Revenue", row.top_protein_revenue, { filter_mode: "current_window" }))}>${escapeHtml(row.top_protein_family || NA)}</span></td>
+        <td class="text-end col-leakage" title="Revenue sold below minimum protein margin target">
+          <div class="${row.leakage_revenue > 0 ? "text-danger fw-bold" : "text-muted"}">${money(row.leakage_revenue)}</div>
+          <div class="sr-secondary-metric">${fmtInt.format(num(row.leakage_count))} lines</div>
+        </td>
+        <td class="col-protein_penetration">
+          <div class="d-flex flex-wrap gap-1">
+            ${(row.protein_penetration || []).slice(0, 3).map(p => `
+              <span class="badge ${p.penetration_pct > 50 ? "bg-success" : p.penetration_pct > 20 ? "bg-info" : "bg-light text-dark"}" style="font-size:0.65rem" title="${escapeHtml(p.family)}: ${fmtInt.format(p.customers)} customers (${pct(p.penetration_pct)} penetration)">
+                ${escapeHtml(p.family.slice(0,3))} ${pct(p.penetration_pct)}
+              </span>
+            `).join('')}
+          </div>
+        </td>
+        <td class="text-end col-overdue_customers">
+          <div class="${row.overdue_customers > 0 ? "text-danger fw-bold" : ""}">${fmtInt.format(num(row.overdue_customers))}</div>
+          <div class="sr-secondary-metric">Predictive Churn</div>
+        </td>
         <td class="col-flags">${signals || '<span class="text-muted small">--</span>'}</td>
         <td class="text-end"><a class="btn btn-sm btn-outline-primary sr-row-open" href="${href}" aria-label="Open detail for ${repName}">&#8599;</a></td>
       </tr>
@@ -4360,6 +5138,26 @@
     tbody.innerHTML = "";
 
     const rows = Array.isArray(table.rows) ? table.rows : [];
+
+    // ── Smart Rank: composite score = 60% revenue percentile + 40% margin percentile ──
+    // Weighting is explicit and stable so leadership can verify/adjust
+    if (rows.length > 1) {
+      const revs = rows.map((r) => num(r.revenue));
+      const margins = rows.map((r) => opt(r.margin_pct) ?? 0);
+      const maxRev = Math.max(...revs, 1);
+      const maxMargin = Math.max(...margins, 1);
+      rows.forEach((r) => {
+        const revScore = num(r.revenue) / maxRev;          // 0..1
+        const marginScore = Math.max(opt(r.margin_pct) ?? 0, 0) / maxMargin; // 0..1
+        r._composite_score = 0.6 * revScore + 0.4 * marginScore;
+      });
+      const sorted = [...rows].sort((a, b) => (b._composite_score ?? 0) - (a._composite_score ?? 0));
+      sorted.forEach((r, idx) => { r._composite_rank = idx + 1; });
+    } else if (rows.length === 1) {
+      rows[0]._composite_score = 1;
+      rows[0]._composite_rank = 1;
+    }
+
     virtualTable.rows = rows;
     virtualTable.lastRange = "";
     // ── Phase 6D: empty state ──
@@ -4408,6 +5206,29 @@
     scrollFocusedRepIntoView();
   };
 
+  const resolveFocusedCustomerFromPayload = (payload = {}) => {
+    const rows = Array.isArray(payload.analysis?.top_customers) ? payload.analysis.top_customers : [];
+    const customerFilters = currentUrlFilters().customers || [];
+    const requested = pendingCustomerFocus
+      || (customerFilters.length
+        ? { customer_id: customerFilters[0], customer_name: focusedCustomer?.customer_name || customerFilters[0] }
+        : null);
+    if (!requested) {
+      focusedCustomer = null;
+      return null;
+    }
+    const match = findCustomerRow(rows, requested);
+    if (match) {
+      focusedCustomer = match;
+      pendingCustomerFocus = null;
+      return match;
+    }
+    if (!focusedCustomer || customerFocusKey(focusedCustomer) !== customerFocusKey(requested)) {
+      focusedCustomer = requested;
+    }
+    return focusedCustomer;
+  };
+
   const applyColumnVisibility = () => {
     document.querySelectorAll("[data-col-toggle]").forEach((cb) => {
       const key = cb.dataset.colToggle;
@@ -4423,9 +5244,9 @@
   // ── Phase 4D: column presets ──
   const COLUMN_PRESETS = {
     "Full View":    null,   // all visible
-    "Executive":    ["revenue", "profit", "margin_pct", "active_customers", "health", "quartile"],
-    "Risk View":    ["health", "quartile", "revenue", "yoy_revenue_pct", "margin_pct", "flags"],
-    "Scott's View": ["revenue", "active_customers", "yoy_revenue_pct", "margin_pct", "top_customer"],
+    "Executive":    ["revenue", "profit", "margin_pct", "active_customers", "health", "quartile", "protein_penetration"],
+    "Risk View":    ["health", "quartile", "revenue", "yoy_revenue_pct", "margin_pct", "leakage", "overdue_customers", "flags"],
+    "Scott's View": ["revenue", "active_customers", "yoy_revenue_pct", "margin_pct", "top_customer", "protein_penetration"],
   };
   const ALL_COLUMN_KEYS = Object.keys(DEFAULT_COLUMN_VISIBILITY);
 
@@ -4464,57 +5285,100 @@
     const payload = window.normalizeBundlePayload ? window.normalizeBundlePayload(rawPayload) : rawPayload;
     lastPayload = payload;
     clearDeferredChartWork();
-    updateColumnLabels(payload.meta || {});
-    renderExecutive(payload);
-    renderSummaryNarrative(payload);
-    renderWarnings(payload.warnings, payload);
-    renderInsights(payload);
-    renderOwnershipHighlights(payload);
+    
+    try {
+      updateColumnLabels(payload.meta || {});
+      resolveFocusedCustomerFromPayload(payload);
+      renderExecutive(payload);
+      renderSummaryNarrative(payload);
+      renderWarnings(payload.warnings, payload);
+      renderInsights(payload);
+      renderOwnershipHighlights(payload);
+    } catch (err) {
+      logError("Header rendering failed", err);
+    }
+
     const analysis = payload.analysis || {};
-    renderPortfolioSection(payload);
-    renderTopCustomers(analysis.top_customers || [], payload.lost_accounts ?? []);
-    renderCustomerMovers(analysis);
-    renderLostAccountsPanel(payload.lost_accounts ?? []);
-    initLiveMap(payload);
-    renderProteinTable(analysis.proteins || []);
-    // 6D: Protein section subtitle
-    (() => {
+    
+    try {
+      renderPortfolioSection(payload);
+      renderTopCustomers(analysis.top_customers || [], payload.lost_accounts ?? []);
+      renderCustomerMovers(analysis);
+      renderLostAccountsPanel(payload.lost_accounts ?? []);
+    } catch (err) {
+      logError("Portfolio/Customers rendering failed", err);
+    }
+
+    try {
+      initLiveMap(payload);
+    } catch (err) {
+      logError("Live map rendering failed", err);
+    }
+
+    try {
+      renderProteinTable(analysis.proteins || []);
+      // 6D: Protein section subtitle
       const proteins = analysis.proteins || [];
       if (proteins.length) {
         setText("srSectionProteinSubtitle", `${proteins.length} protein famil${proteins.length !== 1 ? "ies" : "y"} in scope · margin benchmarks applied where available`);
       }
-    })();
-    renderDataQuality(analysis.data_quality || []);
-    renderTable(payload.table || {});
-    renderRiskFlags(payload.risk_flags || [], payload);
+    } catch (err) {
+      logError("Protein table rendering failed", err);
+    }
+
+    try {
+      renderDataQuality(analysis.data_quality || []);
+      renderTable(payload.table || {});
+      renderTableFooter(payload);
+      renderRiskFlags(payload.risk_flags || [], payload);
+      renderGapFocusPanel(focusedCustomer);
+      renderFilterBreadcrumb(payload);
+    } catch (err) {
+      logError("Table/Flags rendering failed", err);
+    }
+
     if (window.universalDrilldown && typeof window.universalDrilldown.enhanceAll === "function") {
       window.universalDrilldown.enhanceAll();
     }
-    applyColumnVisibility();
+    
     syncSortClasses();
+    scheduleViewportHeightSync();
+    
     const tableRows = payload.table?.rows || [];
     const topRepRows = payload.charts?.top_reps || tableRows;
+
     scheduleDeferredChartWork(() => {
-      const proteinSignature = signatureForRows(analysis.proteins || [], ["protein_family", "revenue", "profit", "margin_pct", "minimum_margin_pct", "target_margin_pct", "status_key"]);
-      memoizedRender("protein-chart", proteinSignature, () => renderProteinChart(analysis.proteins || []));
-      renderTopReps(topRepRows);
-      // 6D: Comparison section subtitle
-      (() => {
+      try {
+        const proteinSignature = signatureForRows(analysis.proteins || [], ["protein_family", "revenue", "profit", "margin_pct", "minimum_margin_pct", "target_margin_pct", "status_key"]);
+        memoizedRender("protein-chart", proteinSignature, () => renderProteinChart(analysis.proteins || []));
+        
+        renderTopReps(topRepRows);
+        // 6D: Comparison section subtitle
         const n = topRepRows.length;
         if (n) setText("srSectionComparisonSubtitle", `${n} rep${n !== 1 ? "s" : ""} · select checkboxes in the table below to compare side-by-side`);
-      })();
-      renderPareto(topRepRows);
-      renderAspLeaders(payload.charts?.asp_leaders || tableRows);
-    }, { delay: 0 });
-    scheduleDeferredChartWork(() => {
-      renderMonthlyCompare(payload.charts?.monthly_compare || payload.trend?.monthly_compare || {});
-      renderTransfers(payload.charts?.transfers || []);
-      renderTrend(payload.charts?.trend || payload.trend || {});
-      renderConcentration(payload.charts?.concentration || []);
-      const efficiencySignature = signatureForRows(payload.charts?.scatter || tableRows, ["rep_id", "customers", "revenue", "profit", "margin_pct"]);
-      memoizedRender("efficiency-chart", efficiencySignature, () => renderEfficiency(payload.charts?.scatter || tableRows));
-      renderProfitRevenue(payload.charts?.profit_vs_revenue || []);
-    }, { delay: 60, idle: true });
+        
+        renderPareto(topRepRows);
+        renderAspLeaders(payload.charts?.asp_leaders || tableRows);
+        
+        renderMonthlyCompare(payload.charts?.monthly_compare || payload.trend?.monthly_compare || {});
+        renderTransfers(payload.charts?.transfers || []);
+        renderTrend(payload.charts?.trend || payload.trend || {});
+        renderConcentration(payload.charts?.concentration || []);
+        
+        const efficiencySignature = signatureForRows(payload.charts?.scatter || tableRows, ["rep_id", "customers", "revenue", "profit", "margin_pct"]);
+        memoizedRender("efficiency-chart", efficiencySignature, () => renderEfficiency(payload.charts?.scatter || tableRows));
+        
+        renderProfitRevenue(payload.charts?.profit_vs_revenue || []);
+      } catch (err) {
+        logError("Deferred chart rendering failed", err);
+      } finally {
+        setAllChartsLoading(false);
+      }
+    }, { delay: 30 });
+
+    setScorecardLoading(false);
+    setSummaryNarrativeLoading(false);
+    
     persistSnapshot(payload);
   };
 
@@ -4525,8 +5389,10 @@
       const payload = await res.json();
       if (payload.eff) renderEfficiency(payload.eff);
     } catch (err) {
-      console.error("Efficiency fetch failed", err);
+      logError("Efficiency fetch failed", err);
       toggleEmpty("effChart", true);
+    } finally {
+      setChartShellLoading("effChart", false);
     }
   };
 
@@ -4566,7 +5432,7 @@
       renderBundle(payload);
     } catch (err) {
       if (err?.name === "AbortError") return;
-      console.error("salesreps bundle failed", err);
+      logError("salesreps bundle failed", err);
       if (!lastPayload) {
         ["trendChart", "topRepsChart", "monthlyCompareChart", "transferChart", "srProteinChart", "concentrationChart", "effChart", "profitRevenueChart", "revenueShareChart", "aspChart"].forEach((id) => toggleEmpty(id, true));
         setScorecardLoading(false);
@@ -4979,121 +5845,213 @@
     });
   };
 
-  let liveMap = null;
-  let mapReady = false;
-  let mapPopup = null;
-  let pendingMapPayload = null;
-  let mapAnimationId = null;
-  let lastMapRows = [];
-  let lastMapFeatures = [];
-  const MAP_DEFAULT_VIEW = { center: [-123.11, 49.27], zoom: 6.8 };
-  const MAP_THEME = {
-    brand: "#1f5f9a",
-    opportunity: "#0f8c5a",
-    opportunityDeep: "#0b5f3d",
-    risk: "#c53939",
-    riskSoft: "#f2b0b0",
-    lost: "#64748b",
-    ink: "#122033",
-    muted: "#5b6676",
-  };
-  const MAP_REP_COLORS = [
-    "#1f5f9a",
-    "#0f8c5a",
-    "#a36b00",
-    "#7c3aed",
-    "#c2410c",
-    "#0f766e",
-    "#be123c",
-    "#475569",
+  // ── v4.0: Live Map — MapLibre GL JS, zero cost, OSM tiles ──
+  let _liveMap = null;
+  let _mapStyleReady = false;   // true after "style.load" fires
+  let _mapPopup = null;         // single reusable popup instance
+  let _pendingMapPayload = null; // payload queued before map was ready
+  let _mapAnimationId = null;
+  let _mapStyleFallbackTimer = null;
+  let _lastMapFeatures = [];
+  const MAP_DEFAULT_VIEW = { center: [-123.11, 49.27], zoom: 7.1 };
+
+  // ── Rep colour palette (hex-matched to brand tokens) ──
+  const REP_COLOR_MAP = [
+    ["fraser",  "#10B981"], // Emerald
+    ["rachel",  "#3B82F6"], // Electric Blue
+    ["scott",   "#8B5CF6"], // Royal Purple
+    ["kim",     "#F97316"], // Sunset Orange
+    ["mike",    "#D946EF"], // Deep Pink
+    ["sarah",   "#06B6D4"], // Cyan
+    ["dave",    "#84CC16"], // Lime
+    ["john",    "#6366F1"], // Indigo
   ];
-  const TERRITORY_CENTROIDS = {
-    bc: [-123.11, 49.27],
-    "british columbia": [-123.11, 49.27],
-    vancouver: [-123.11, 49.27],
-    burnaby: [-122.98, 49.25],
-    richmond: [-123.14, 49.17],
-    surrey: [-122.85, 49.19],
-    delta: [-122.94, 49.08],
-    langley: [-122.67, 49.11],
-    abbotsford: [-122.31, 49.05],
-    chilliwack: [-121.95, 49.16],
-    coquitlam: [-122.83, 49.28],
-    "new westminster": [-122.91, 49.20],
-    victoria: [-123.37, 48.43],
-    nanaimo: [-123.94, 49.17],
-    kelowna: [-119.50, 49.89],
-    vernon: [-119.27, 50.27],
-    penticton: [-119.59, 49.49],
-    kamloops: [-120.33, 50.68],
-    prince_george: [-122.75, 53.92],
-    "prince george": [-122.75, 53.92],
-    calgary: [-114.07, 51.05],
-    edmonton: [-113.49, 53.55],
-    alberta: [-113.49, 53.55],
-    toronto: [-79.38, 43.70],
-    ontario: [-79.38, 43.70],
-    canada: [-123.11, 49.27],
-  };
-
-  const mapModeValue = () => document.querySelector('input[name="srMapMode"]:checked')?.value || "bubbles";
-  const mapStatusValue = () => document.querySelector('input[name="srMapStatus"]:checked')?.value || "active";
-
-  const stableMapHash = (value) => {
-    const raw = cleanText(value).toLowerCase();
-    let hash = 0;
-    for (let idx = 0; idx < raw.length; idx += 1) {
-      hash = ((hash << 5) - hash + raw.charCodeAt(idx)) >>> 0;
+  const _repColor = (repName) => {
+    if (!repName) return "#CBD5E1";
+    const lower = String(repName).toLowerCase();
+    for (const [key, color] of REP_COLOR_MAP) {
+      if (lower.includes(key)) return color;
     }
-    return hash >>> 0;
+    // deterministic hash fallback so unknown reps get stable colours
+    let h = 0;
+    for (let i = 0; i < lower.length; i++) h = (h * 31 + lower.charCodeAt(i)) >>> 0;
+    const FALLBACKS = ["#10B981", "#3B82F6", "#8B5CF6", "#F97316", "#D946EF", "#06B6D4", "#84CC16", "#6366F1", "#DC2626", "#F59E0B"];
+    return FALLBACKS[h % FALLBACKS.length];
   };
 
-  const repColor = (repName) => {
-    const label = cleanText(repName);
-    if (!label) return "#94a3b8";
-    return MAP_REP_COLORS[stableMapHash(label) % MAP_REP_COLORS.length];
+  // ── BC territory/city centroid lookup — built from real production GPS data ──
+  // Coords derived from AVG(DeliveryLat/Long) across all fact rows where available.
+  // Keys lowercase; fuzzy matching handles typos and region prefixes (e.g. "Int Kelowna" → "kelowna").
+  const _TERRITORY_CENTROIDS_RAW = {
+    // ── Province abbreviations ──
+    "bc":  [-123.11, 49.27],
+    "ab":  [-113.49, 53.55],
+    "on":  [-79.38,  43.70],
+    "qc":  [-73.56,  45.50],
+    "mb":  [-97.13,  49.89],
+    "sk":  [-104.61, 50.45],
+    "ns":  [-63.58,  44.68],
+    "nb":  [-66.46,  46.50],
+    "nl":  [-52.71,  47.56],
+    "pei": [-63.13,  46.23],
+    "nt":  [-114.37, 62.45],
+    "nu":  [-86.79,  70.30],
+    "yk":  [-135.06, 60.72],
+    // ── Province full names ──
+    "british columbia":     [-123.11, 49.27],
+    "alberta":              [-113.49, 53.55],
+    "ontario":              [-79.38,  43.70],
+    "quebec":               [-73.56,  45.50],
+    "manitoba":             [-97.13,  49.89],
+    "saskatchewan":         [-104.61, 50.45],
+    "nova scotia":          [-63.58,  44.68],
+    "new brunswick":        [-66.46,  46.50],
+    "newfoundland":         [-52.71,  47.56],
+    "prince edward island": [-63.13,  46.23],
+    "northwest territories":[-114.37, 62.45],
+    "nunavut":              [-86.79,  70.30],
+    "yukon":                [-135.06, 60.72],
+
+    // ── Greater Vancouver & Lower Mainland (real GPS averages from fact data) ──
+    "vancouver":            [-123.11, 49.27],
+    "vancouver w":          [-123.18, 49.26],
+    "vancouver e":          [-123.05, 49.27],
+    "vancouver ns":         [-123.08, 49.32],   // north shore
+    "vancouver dt":         [-123.12, 49.28],   // downtown
+    "north vancouver":      [-123.04, 49.31],
+    "north van":            [-123.04, 49.31],
+    "west vancouver":       [-123.16, 49.33],
+    "west van":             [-123.14, 49.33],
+    "burnaby":              [-122.98, 49.21],
+    "richmond":             [-123.16, 49.16],
+    "surrey":               [-122.86, 49.19],
+    "delta":                [-122.94, 49.09],
+    "ladner":               [-123.09, 49.09],
+    "tsawwassen":           [-123.08, 49.03],
+    "langley":              [-122.67, 49.11],
+    "langley twp":          [-122.67, 49.17],
+    "fort langley":         [-122.57, 49.17],
+    "white rock":           [-122.80, 49.03],
+    "new westminster":      [-122.91, 49.20],
+    "new west":             [-122.91, 49.20],
+    "coquitlam":            [-122.83, 49.25],
+    "port coquitlam":       [-122.78, 49.27],
+    "port moody":           [-122.85, 49.28],
+    "maple ridge":          [-122.60, 49.22],
+    "pitt meadows":         [-122.69, 49.23],
+    "abbotsford":           [-122.31, 49.05],
+    "mission":              [-122.31, 49.13],
+    "chilliwack":           [-121.95, 49.16],
+    "greater vancouver":    [-122.85, 49.25],
+    "lower mainland":       [-122.85, 49.22],
+
+    // ── Sea to Sky Corridor (real GPS averages) ──
+    "squamish":             [-123.14, 49.71],
+    "brackendale":          [-123.15, 49.77],
+    "britannia beach":      [-123.21, 49.62],
+    "lions bay":            [-123.24, 49.46],
+    "loins bay":            [-123.24, 49.46],  // typo variant in data
+    "bowen island":         [-123.33, 49.38],
+    "whistler":             [-122.96, 50.11],
+    "pemberton":            [-122.80, 50.32],
+    "sea to sky":           [-123.00, 49.90],
+    "s2s":                  [-123.00, 49.90],
+
+    // ── Vancouver Island & Sunshine Coast ──
+    "victoria":             [-123.37, 48.43],
+    "north saanich":        [-123.42, 48.62],
+    "brentwood bay":        [-123.46, 48.57],
+    "sooke":                [-123.73, 48.38],
+    "mill bay":             [-123.55, 48.65],
+    "duncan":               [-123.70, 48.78],
+    "nanaimo":              [-123.94, 49.17],
+    "parksville":           [-124.31, 49.32],
+    "qualicum beach":       [-124.43, 49.35],
+    "tofino":               [-125.91, 49.15],
+    "ucluelet":             [-125.55, 48.94],
+    "campbell river":       [-125.25, 50.02],
+    "north island":         [-125.50, 50.70],
+    "west coast":           [-125.55, 49.20],
+    "salt spring island":   [-123.49, 48.80],
+    "salt spring":          [-123.49, 48.80],
+    "sunshine coast":       [-123.75, 49.80],
+    "gibsons":              [-123.51, 49.40],
+
+    // ── BC Interior — Okanagan ──
+    "kelowna":              [-119.50, 49.89],
+    "west kelowna":         [-119.59, 49.86],
+    "lake country":         [-119.42, 50.05],
+    "naramata":             [-119.60, 49.59],
+    "penticton":            [-119.59, 49.49],
+    "oliver":               [-119.55, 49.18],
+    "osoyoos":              [-119.47, 49.03],
+    "vernon":               [-119.27, 50.27],
+    "int kelowna":          [-119.50, 49.89],
+    "int penticton":        [-119.59, 49.49],
+    "int vernon":           [-119.27, 50.27],
+    "interior":             [-119.50, 50.00],
+
+    // ── BC Interior — Kootenays ──
+    "nelson":               [-117.29, 49.50],
+    "south slocan":         [-117.54, 49.49],
+    "castlegar":            [-117.66, 49.32],
+    "trail":                [-117.71, 49.10],
+    "cranbrook":            [-115.77, 49.51],
+    "kimberley":            [-116.00, 49.68],
+    "golden":               [-116.96, 51.30],
+    "revelstoke":           [-118.20, 51.00],
+    "int castlegar":        [-117.66, 49.32],
+    "int nelson":           [-117.29, 49.50],
+    "int cranbrook":        [-115.77, 49.51],
+
+    // ── BC Interior — Central / North ──
+    "kamloops":             [-120.33, 50.68],
+    "prince george":        [-122.75, 53.92],
+    "terrace":              [-128.60, 54.52],
+    "smithers":             [-127.17, 54.78],
+    "haida gwaii":          [-132.07, 53.25],
+    "queen charlotte":      [-132.07, 53.25],
+    "int kamloops":         [-120.33, 50.68],
+    "int terrace":          [-128.60, 54.52],
+    "int smithers":         [-127.17, 54.78],
+    "int prince rupert":    [-130.32, 54.32],
+    "int williams lake":    [-122.14, 52.14],
+    "prince rupert":        [-130.32, 54.32],
+    "williams lake":        [-122.14, 52.14],
+
+    // ── Named sales regions (from RegionName column) ──
+    "trsm house":           [-123.11, 49.27],   // company internal → Vancouver
+    "jason house":          [-123.11, 49.27],
+    "d2c":                  [-123.11, 49.27],
+    "alberta":              [-113.49, 53.55],
+    "crossfit north van":   [-123.07, 49.32],
+    "rebel fitness squam":  [-123.14, 49.71],
+
+    // ── Other Canadian cities (fallback) ──
+    "toronto":              [-79.38,  43.70],
+    "montreal":             [-73.56,  45.50],
+    "calgary":              [-114.07, 51.05],
+    "edmonton":             [-113.49, 53.55],
+    "winnipeg":             [-97.13,  49.89],
+    "ottawa":               [-75.70,  45.42],
+
+    // ── Generic fallbacks ──
+    "canada":               [-123.11, 49.27],   // default to Vancouver (all data is BC)
   };
 
-  const validCoordinatePair = (latValue, lngValue) => {
-    const lat = Number(latValue);
-    const lng = Number(lngValue);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-    if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return null;
-    return [lng, lat];
+  // Fuzzy territory/city → [lng, lat]: always returns a valid coord (never null)
+  const _coordForTerritory = (territoryName) => {
+    if (!territoryName) return [-123.11, 49.27]; // default: Vancouver (all data is BC)
+    const lower = String(territoryName).toLowerCase().trim();
+    if (!lower) return [-123.11, 49.27];
+    if (_TERRITORY_CENTROIDS_RAW[lower]) return _TERRITORY_CENTROIDS_RAW[lower];
+    for (const [key, coord] of Object.entries(_TERRITORY_CENTROIDS_RAW)) {
+      if (lower.includes(key) || key.includes(lower)) return coord;
+    }
+    return [-123.11, 49.27]; // fallback: Vancouver (all customers are BC)
   };
 
-  const coordForTerritory = (territoryName) => {
-    const key = cleanText(territoryName).toLowerCase();
-    if (!key) return TERRITORY_CENTROIDS.bc;
-    if (TERRITORY_CENTROIDS[key]) return TERRITORY_CENTROIDS[key];
-    const match = Object.entries(TERRITORY_CENTROIDS).find(([token]) => key.includes(token) || token.includes(key));
-    return match ? match[1] : TERRITORY_CENTROIDS.bc;
-  };
-
-  const resolveMapCoordinate = (row = {}) => {
-    const exact = validCoordinatePair(
-      row.delivery_lat ?? row.lat ?? row.latitude,
-      row.delivery_lng ?? row.delivery_long ?? row.lng ?? row.longitude,
-    );
-    if (exact) return { coordinates: exact, approx: false, approx_reason: "" };
-
-    const centroid = coordForTerritory(row.delivery_city || row.territory_name || row.delivery_province || "bc");
-    const hash = stableMapHash(row.customer_id || row.customer_name || row.territory_name || JSON.stringify(row));
-    const angle = ((hash % 360) * Math.PI) / 180;
-    const ring = 1 + ((hash >> 8) % 3);
-    const radius = 0.012 * ring;
-    return {
-      coordinates: [
-        +(centroid[0] + (Math.cos(angle) * radius)).toFixed(6),
-        +(centroid[1] + (Math.sin(angle) * radius * 0.68)).toFixed(6),
-      ],
-      approx: true,
-      approx_reason: "territory_centroid",
-    };
-  };
-
-  const mapRasterStyle = () => ({
+  const _fallbackLightRasterStyle = () => ({
     version: 8,
     sources: {
       carto_light: {
@@ -5106,474 +6064,784 @@
     layers: [{ id: "carto-light", type: "raster", source: "carto_light" }],
   });
 
-  const mapStatusMatch = (row, status) => {
-    const token = cleanText(row?.customer_status).toLowerCase();
-    const revenue = num(row?.revenue);
-    const priorRevenue = num(row?.prior_revenue);
-    const lost = Number(row?.is_lost || 0) === 1 || (revenue <= 0 && priorRevenue > 0);
-    if (status === "all") return true;
-    if (status === "lost") return token === "lost" || lost;
-    if (status === "prospect") return token === "prospect" || (revenue <= 0 && priorRevenue <= 0);
-    return token ? token === "active" : !lost;
+  const _stableHash = (value) => {
+    const raw = String(value || "").trim().toLowerCase();
+    let hash = 0;
+    for (let idx = 0; idx < raw.length; idx += 1) {
+      hash = ((hash << 5) - hash + raw.charCodeAt(idx)) >>> 0;
+    }
+    return hash >>> 0;
   };
 
-  const filterMapRows = (rows = []) => {
-    const status = mapStatusValue();
-    return (Array.isArray(rows) ? rows : []).filter((row) => mapStatusMatch(row, status));
+  const _validCoordinatePair = (latValue, lngValue) => {
+    const lat = Number(latValue);
+    const lng = Number(lngValue);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return [lng, lat];
   };
 
-  const buildMapFeatures = (rows = []) => {
-    const visibleRows = filterMapRows(rows);
-    const maxRevenue = Math.max(
-      1,
-      ...visibleRows.map((row) => Math.max(num(row?.revenue), num(row?.prior_revenue), num(row?.opportunity_score) * 100)),
+  const _isSurreyCustomer = (row = {}) =>
+    /surrey/.test(
+      [
+        row.territory_name,
+        row.delivery_city,
+        row.delivery_province,
+      ]
+        .map((value) => cleanText(value).toLowerCase())
+        .join(" ")
     );
-    return visibleRows.map((row, index) => {
-      const location = resolveMapCoordinate(row);
-      const silentDays = customerSilentDays(row) ?? (opt(row.silent_days) == null ? null : Number(row.silent_days));
-      const score = Math.max(num(row.revenue), num(row.prior_revenue), num(row.opportunity_score) * 100);
-      const radius = Math.max(6, Math.min(24, 6 + (Math.sqrt(score / maxRevenue) * 18)));
-      const reasons = Array.isArray(row.opportunity_reasons)
-        ? row.opportunity_reasons.filter(Boolean).join("; ")
-        : cleanText(row.opportunity_reason_text || row.opportunity_reasons);
+
+  const _resolvedCoordinate = (row = {}) => {
+    const actual = _validCoordinatePair(
+      row.delivery_lat ?? row.lat ?? row.latitude,
+      row.delivery_lng ?? row.delivery_long ?? row.lng ?? row.longitude,
+    );
+    if (actual) return { coordinates: actual, approx: false, approx_reason: "" };
+
+    // Enterprise-grade fallback: Try city first, then territory, then province
+    const city = cleanText(row.delivery_city || row.city || "").toLowerCase();
+    const territory = cleanText(row.territory_name || row.text_1 || "").toLowerCase();
+    const province = cleanText(row.delivery_province || row.province || "").toLowerCase();
+    
+    let centroid = null;
+    let reason = "vancouver_centroid";
+    
+    if (city && _TERRITORY_CENTROIDS_RAW[city]) {
+      centroid = _TERRITORY_CENTROIDS_RAW[city];
+      reason = "city_centroid";
+    } else if (territory && _TERRITORY_CENTROIDS_RAW[territory]) {
+      centroid = _TERRITORY_CENTROIDS_RAW[territory];
+      reason = "territory_centroid";
+    } else if (_isSurreyCustomer(row)) {
+      centroid = _TERRITORY_CENTROIDS_RAW.surrey || [-122.84, 49.19];
+      reason = "surrey_centroid";
+    } else if (province && _TERRITORY_CENTROIDS_RAW[province]) {
+      centroid = _TERRITORY_CENTROIDS_RAW[province];
+      reason = "province_centroid";
+    }
+
+    if (!centroid) centroid = MAP_DEFAULT_VIEW.center;
+
+    const hash = _stableHash(row.customer_id || row.key || row.customer_name || JSON.stringify(row));
+    const angle = ((hash % 360) * Math.PI) / 180;
+    const ring = 1 + ((hash >> 9) % 3);
+    const radius = 0.0105 * ring;
+    const lngOffset = Math.cos(angle) * radius;
+    const latOffset = Math.sin(angle) * radius * 0.68;
+    
+    return {
+      coordinates: [centroid[0] + lngOffset, centroid[1] + latOffset],
+      approx: true,
+      approx_reason: reason,
+    };
+  };
+
+  const _focusedMapFeature = (features = _lastMapFeatures) => {
+    const requested = pendingCustomerFocus || focusedCustomer;
+    const targetKey = customerFocusKey(requested);
+    if (!targetKey || !Array.isArray(features)) return null;
+    return features.find((feature) => String(feature?.properties?.focus_key || "") === targetKey) || null;
+  };
+
+  const focusMapOnCustomer = (row, { zoom = 14, duration = 950 } = {}) => {
+    if (!_liveMap) return false;
+    const feature = _focusedMapFeature(_lastMapFeatures) || _lastMapFeatures.find((item) => String(item?.properties?.focus_key || "") === customerFocusKey(row));
+    const center = feature?.geometry?.coordinates || _resolvedCoordinate(row).coordinates;
+    if (!Array.isArray(center) || center.length !== 2) return false;
+    try {
+      if (_liveMap.resize) _liveMap.resize();
+      _liveMap.flyTo({ center, zoom, duration, essential: true });
+      return true;
+    } catch (_err) {
+      return false;
+    }
+  };
+
+  const _fitMapToFeatures = (features = []) => {
+    if (!_liveMap || !_mapStyleReady || !window.maplibregl) return;
+    if (!Array.isArray(features) || !features.length) {
+      _liveMap.easeTo({ center: MAP_DEFAULT_VIEW.center, zoom: MAP_DEFAULT_VIEW.zoom, duration: 800 });
+      return;
+    }
+    const focusedFeature = _focusedMapFeature(features);
+    if (focusedFeature) {
+      _liveMap.flyTo({ center: focusedFeature.geometry.coordinates, zoom: 14, duration: 900, essential: true });
+      return;
+    }
+    if (features.length === 1) {
+      _liveMap.easeTo({ center: features[0].geometry.coordinates, zoom: 11.2, duration: 800 });
+      return;
+    }
+    const bounds = new window.maplibregl.LngLatBounds(features[0].geometry.coordinates, features[0].geometry.coordinates);
+    features.forEach((feature) => bounds.extend(feature.geometry.coordinates));
+    _liveMap.fitBounds(bounds, {
+      padding: { top: 72, right: 72, bottom: 72, left: 72 },
+      maxZoom: 10.8,
+      duration: 900,
+    });
+  };
+
+  const _buildCustomerFeatures = (customers = []) => {
+    const totalRev = Math.max((customers || []).reduce((sum, row) => sum + num(row.revenue), 0), 1);
+    const features = (customers || []).map((row) => {
+      const silentDays = customerSilentDays(row) ?? (Number(row.silent_days) || 0);
+      
+      // Use precise coordinates from backend if available (metric_12/13)
+      let location = _resolvedCoordinate(row);
+      if (num(row.metric_12) !== 0 && num(row.metric_13) !== 0) {
+        location = { coordinates: [num(row.metric_13), num(row.metric_12)], approx: false, approx_reason: "" };
+      }
+
+      const revShare = num(row.revenue) / totalRev;
+      const radius = Math.max(6, Math.min(38, Math.sqrt(revShare) * 140));
       return {
         type: "Feature",
-        id: index + 1,
         properties: {
-          customer_id: row.customer_id || row.key || "",
-          customer_name: row.customer_name || row.customer_id || "Customer",
-          account_owner_name: row.account_owner_name || "",
-          account_owner_id: row.account_owner_id || "",
-          territory_name: row.territory_name || "",
-          delivery_city: row.delivery_city || "",
-          delivery_province: row.delivery_province || "",
+          id: row.customer_id || row.key || "",
+          focus_key: customerFocusKey(row),
+          name: row.customer_name || row.customer_id || "Customer",
+          owner_name: row.account_owner_name || "",
+          territory: row.territory_name || "",
+          city: row.delivery_city || "",
+          province: row.delivery_province || "",
           shipping_method: row.shipping_method || "",
           revenue: num(row.revenue),
-          prior_revenue: num(row.prior_revenue),
-          profit: opt(row.profit),
-          silent_days: silentDays == null ? null : Number(silentDays),
-          opportunity_score: num(row.opportunity_score),
-          opportunity_band: row.opportunity_band || "",
-          opportunity_reasons: reasons,
-          risk_score: num(row.risk_score),
-          customer_status: row.customer_status || "",
-          is_lost: Number(row.is_lost || 0),
-          is_risk: Number(row.is_risk || 0),
+          beef_revenue: num(row.beef_revenue || row.metric_7),
+          poultry_revenue: num(row.poultry_revenue || row.metric_8),
+          pork_revenue: num(row.pork_revenue || row.metric_9),
+          is_overdue: Number(row.is_overdue || row.metric_10 || 0),
+          avg_days: num(row.avg_days_between_orders || row.metric_11),
+          opportunity_score: num(row.opportunity_score || row.metric_14 || 0),
+          opportunity_reasons: row.opportunity_reasons || "",
+          historical_proteins: row.historical_proteins || [],
+          is_lost: Number(row.is_lost ?? 0),
           approx: location.approx ? 1 : 0,
           approx_reason: location.approx_reason || "",
+          is_risk: (silentDays > 45 || Number(row.is_overdue || row.metric_10)) ? 1 : 0,
           radius,
-          color: repColor(row.account_owner_name),
+          color: _repColor(row.account_owner_name),
+          mom_pct: opt(row.mom_revenue_pct ?? row.vs_prior_pct),
           last_order_date: row.last_order_date || "",
         },
         geometry: { type: "Point", coordinates: location.coordinates },
       };
     });
+    _lastMapFeatures = features;
+    return features;
   };
 
-  const setMapPlaceholder = (show, message = "Map loading...") => {
-    const placeholder = document.getElementById("srMapPlaceholder");
-    if (!placeholder) return;
-    const title = placeholder.querySelector(".fw-semibold");
-    if (title) title.textContent = message;
-    placeholder.classList.toggle("active", !!show);
-  };
-
-  const mapRowFromFeatureProps = (props = {}) => ({
-    customer_id: props.customer_id || "",
-    customer_name: props.customer_name || props.customer_id || "Customer",
-    account_owner_name: props.account_owner_name || "",
-    account_owner_id: props.account_owner_id || "",
-    territory_name: props.territory_name || "",
-    delivery_city: props.delivery_city || "",
-    delivery_province: props.delivery_province || "",
-    shipping_method: props.shipping_method || "",
-    revenue: opt(props.revenue),
-    prior_revenue: opt(props.prior_revenue),
-    profit: opt(props.profit),
-    silent_days: props.silent_days == null || props.silent_days === "" ? null : Number(props.silent_days),
-    opportunity_score: num(props.opportunity_score),
-    opportunity_band: props.opportunity_band || "",
-    opportunity_reasons: props.opportunity_reasons || "",
-    customer_status: props.customer_status || "",
-    is_lost: Number(props.is_lost || 0),
-    is_risk: Number(props.is_risk || 0),
-    last_order_date: props.last_order_date || "",
-    approx: Number(props.approx || 0) === 1,
-    approx_reason: props.approx_reason || "",
-  });
-
-  const mapPopupHtml = (row = {}) => {
-    const owner = businessRepName(row.account_owner_name, row.account_owner_id, READABLE_REP_FALLBACK);
-    const silentDays = row.silent_days == null ? customerSilentDays(row) : Number(row.silent_days);
-    const reasons = Array.isArray(row.opportunity_reasons)
-      ? row.opportunity_reasons.filter(Boolean).join("; ")
-      : cleanText(row.opportunity_reasons);
-    const badges = [
-      row.is_risk ? '<span class="sr-map-popup-badge is-risk">Silent Risk</span>' : "",
-      row.is_lost ? '<span class="sr-map-popup-badge is-lost">Lost Account</span>' : "",
-      num(row.opportunity_score) >= 35 ? `<span class="sr-map-popup-badge is-opportunity">Opportunity ${fmtInt.format(num(row.opportunity_score))}</span>` : "",
-    ].filter(Boolean).join("");
-    const approxNote = row.approx ? "Location estimated from territory centroid." : "";
-    return `
-      <div class="sr-map-popup-inner">
-        <div class="sr-map-popup-name">${escapeHtml(row.customer_name || row.customer_id || NA)}</div>
-        <div class="sr-map-popup-meta">${escapeHtml(owner)}${row.territory_name ? ` · ${escapeHtml(row.territory_name)}` : ""}</div>
-        <div class="sr-map-popup-divider"></div>
-        <div class="sr-map-popup-row">Revenue <strong>${money(row.revenue)}</strong></div>
-        ${row.prior_revenue ? `<div class="sr-map-popup-row">Prior revenue <strong>${money(row.prior_revenue)}</strong></div>` : ""}
-        ${silentDays != null ? `<div class="sr-map-popup-row">Silent <strong>${fmtInt.format(silentDays)}d</strong></div>` : ""}
-        ${reasons ? `<div class="sr-map-popup-note">${escapeHtml(reasons)}</div>` : ""}
-        ${badges ? `<div class="sr-map-popup-badges">${badges}</div>` : ""}
-        ${approxNote ? `<div class="sr-map-popup-note">${escapeHtml(approxNote)}</div>` : ""}
-        <a class="sr-map-popup-open" href="#" data-map-open="1">Open customer drilldown</a>
-      </div>
-    `;
-  };
-
-  const buildMapLegend = (rows = [], mode = mapModeValue()) => {
-    const legend = document.getElementById("srMapLegend");
-    if (!legend) return;
-    const total = rows.length;
-    const riskCount = rows.filter((row) => Number(row.is_risk || 0) === 1 || (opt(row.silent_days) || 0) >= 45).length;
-    if (mode === "opportunity") {
-      legend.innerHTML = `
-        <span class="sr-map-legend-item">
-          <span class="sr-map-legend-gradient" style="background:linear-gradient(90deg, #d6f5e5, ${MAP_THEME.opportunityDeep})"></span>
-          Opportunity intensity
-        </span>
-        <span class="sr-map-legend-item">${fmtInt.format(total)} account(s)</span>
-      `;
-      return;
-    }
-    if (mode === "risk") {
-      legend.innerHTML = `
-        <span class="sr-map-legend-item">
-          <span class="sr-map-legend-gradient" style="background:linear-gradient(90deg, #fde3e3, ${MAP_THEME.risk})"></span>
-          Risk concentration
-        </span>
-        <span class="sr-map-legend-item">${fmtInt.format(riskCount)} high-risk account(s)</span>
-      `;
-      return;
-    }
-    legend.innerHTML = [
-      '<span class="sr-map-legend-item"><span class="sr-map-legend-dot" style="background:#1f5f9a"></span>Bubble size = revenue</span>',
-      riskCount
-        ? `<span class="sr-map-legend-item"><span class="sr-map-legend-dot" style="background:transparent;border:2px solid ${MAP_THEME.risk}"></span>Pulsing halo = silent / declining</span>`
-        : "",
-      mode === "hybrid"
-        ? `<span class="sr-map-legend-item"><span class="sr-map-legend-gradient" style="background:linear-gradient(90deg, #d6f5e5, ${MAP_THEME.opportunityDeep})"></span>Opportunity background</span>`
-        : "",
-    ].filter(Boolean).join("");
-  };
-
-  const fitMapToFeatures = (features = []) => {
-    if (!liveMap || !mapReady || !window.maplibregl) return;
-    if (!features.length) {
-      liveMap.easeTo({ center: MAP_DEFAULT_VIEW.center, zoom: MAP_DEFAULT_VIEW.zoom, duration: 700 });
-      return;
-    }
-    if (features.length === 1) {
-      liveMap.easeTo({ center: features[0].geometry.coordinates, zoom: 10.8, duration: 700 });
-      return;
-    }
-    const bounds = new window.maplibregl.LngLatBounds(features[0].geometry.coordinates, features[0].geometry.coordinates);
-    features.forEach((feature) => bounds.extend(feature.geometry.coordinates));
-    liveMap.fitBounds(bounds, {
-      padding: { top: 56, right: 56, bottom: 56, left: 56 },
-      maxZoom: 10.2,
-      duration: 850,
+  const _pushMapData = (features) => {
+    if (!_liveMap || !_mapStyleReady) return;
+    [
+      "customers-risk-halo", 
+      "customers-bubbles", 
+      "customers-heatmap", 
+      "opportunity-heatmap", 
+      "risk-heatmap",
+      "beef-heatmap",
+      "poultry-heatmap",
+      "pork-heatmap",
+      "customers-risk-clusters"
+    ].forEach((id) => {
+      if (_liveMap.getLayer(id)) _liveMap.removeLayer(id);
     });
-  };
+    if (_liveMap.getSource("customers")) _liveMap.removeSource("customers");
 
-  const animateMapHalos = () => {
-    if (!liveMap || !mapReady || !liveMap.getLayer("sr-customer-halos")) {
-      mapAnimationId = null;
-      return;
-    }
-    if (mapAnimationId) cancelAnimationFrame(mapAnimationId);
-    const step = (Date.now() % 2200) / 2200;
-    const pulse = Math.sin(step * Math.PI);
-    try {
-      liveMap.setPaintProperty("sr-customer-halos", "circle-opacity", 0.1 + (0.16 * pulse));
-      liveMap.setPaintProperty("sr-customer-halos", "circle-radius", ["+", ["get", "radius"], 4 + (3 * pulse)]);
-    } catch (_err) {
-      mapAnimationId = null;
-      return;
-    }
-    mapAnimationId = requestAnimationFrame(animateMapHalos);
-  };
-
-  const pushMapData = (rows = []) => {
-    if (!liveMap || !mapReady) {
-      pendingMapPayload = { analysis: { map_customers: rows } };
-      return;
-    }
-
-    lastMapRows = Array.isArray(rows) ? rows.slice() : [];
-    const features = buildMapFeatures(lastMapRows);
-    lastMapFeatures = features;
-
-    ["sr-opportunity-heatmap", "sr-risk-heatmap", "sr-customer-halos", "sr-customer-bubbles", "sr-customer-hitpoints"].forEach((id) => {
-      if (liveMap.getLayer(id)) liveMap.removeLayer(id);
-    });
-    if (liveMap.getSource("sr-customers")) liveMap.removeSource("sr-customers");
-
-    liveMap.addSource("sr-customers", {
+    _liveMap.addSource("customers", {
       type: "geojson",
-      data: { type: "FeatureCollection", features },
-      generateId: true,
+      data: { type: "FeatureCollection", features: Array.isArray(features) ? features : [] },
+      cluster: false, // User requested no clustering for full visibility
     });
 
-    liveMap.addLayer({
-      id: "sr-opportunity-heatmap",
+    // 1. Revenue Heatmap Layer
+    _liveMap.addLayer({
+      id: "customers-heatmap",
       type: "heatmap",
-      source: "sr-customers",
-      maxzoom: 15,
+      source: "customers",
       paint: {
-        "heatmap-weight": ["interpolate", ["linear"], ["coalesce", ["get", "opportunity_score"], 0], 0, 0, 100, 1],
-        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.8, 8, 2.6],
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "revenue"], 0, 0, 50000, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 9, 3],
         "heatmap-color": [
           "interpolate", ["linear"], ["heatmap-density"],
-          0, "rgba(214,245,229,0)",
-          0.25, "#d6f5e5",
-          0.5, "#8dd9b3",
-          0.75, "#2ca56f",
-          1, MAP_THEME.opportunityDeep,
+          0, "rgba(33,102,172,0)",
+          0.2, "rgb(103,169,207)",
+          0.4, "rgb(209,229,240)",
+          0.6, "rgb(253,219,199)",
+          0.8, "rgb(239,138,98)",
+          1, "rgb(178,24,43)"
         ],
-        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 10, 8, 28],
-        "heatmap-opacity": 0.88,
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 9, 20],
+        "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 13, 0],
       },
-      layout: { visibility: "none" },
+      layout: { visibility: "none" }
     });
 
-    liveMap.addLayer({
-      id: "sr-risk-heatmap",
+    // 2. Opportunity Heatmap Layer (Optimized Green)
+    _liveMap.addLayer({
+      id: "opportunity-heatmap",
       type: "heatmap",
-      source: "sr-customers",
-      maxzoom: 15,
+      source: "customers",
       paint: {
-        "heatmap-weight": ["interpolate", ["linear"], ["coalesce", ["get", "risk_score"], 0], 0, 0, 100, 1],
-        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 8, 2.4],
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "opportunity_score"], 0, 0, 60, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 9, 3],
         "heatmap-color": [
           "interpolate", ["linear"], ["heatmap-density"],
-          0, "rgba(253,227,227,0)",
-          0.25, "#fde3e3",
-          0.5, "#f3abab",
-          0.75, "#df6767",
-          1, MAP_THEME.risk,
+          0, "rgba(0,0,0,0)",
+          0.1, "#f7fcf5",
+          0.3, "#e5f5e0",
+          0.5, "#a1d99b",
+          0.7, "#41ab5d",
+          0.9, "#006d2c"
         ],
-        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 10, 8, 30],
-        "heatmap-opacity": 0.86,
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 9, 30],
+        "heatmap-opacity": 0.85,
       },
-      layout: { visibility: "none" },
+      layout: { visibility: "none" }
     });
 
-    liveMap.addLayer({
-      id: "sr-customer-halos",
-      type: "circle",
-      source: "sr-customers",
-      filter: ["any", ["==", ["get", "is_risk"], 1], ["==", ["get", "is_lost"], 1]],
+    // 3. Risk Heatmap Layer (Optimized Red)
+    _liveMap.addLayer({
+      id: "risk-heatmap",
+      type: "heatmap",
+      source: "customers",
       paint: {
-        "circle-radius": ["+", ["get", "radius"], 4],
-        "circle-color": ["case", ["==", ["get", "is_lost"], 1], MAP_THEME.lost, MAP_THEME.risk],
-        "circle-opacity": 0.16,
-        "circle-blur": 0.7,
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "silent_days"], 0, 0, 90, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 9, 3],
+        "heatmap-color": [
+          "interpolate", ["linear"], ["heatmap-density"],
+          0, "rgba(0,0,0,0)",
+          0.1, "#fff5f0",
+          0.3, "#fee0d2",
+          0.5, "#fc9272",
+          0.7, "#ef3b2c",
+          0.9, "#99000d"
+        ],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 9, 30],
+        "heatmap-opacity": 0.85,
       },
-      layout: { visibility: "visible" },
+      layout: { visibility: "none" }
     });
 
-    liveMap.addLayer({
-      id: "sr-customer-bubbles",
-      type: "circle",
-      source: "sr-customers",
+    // 4. Beef Penetration Heatmap (Red)
+    _liveMap.addLayer({
+      id: "beef-heatmap",
+      type: "heatmap",
+      source: "customers",
       paint: {
-        "circle-radius": ["coalesce", ["get", "radius"], 7],
-        "circle-color": ["coalesce", ["get", "color"], MAP_THEME.brand],
-        "circle-opacity": ["case", ["==", ["get", "approx"], 1], 0.72, 0.92],
-        "circle-stroke-width": 1.8,
-        "circle-stroke-color": MAP_THEME.ink,
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "beef_revenue"], 0, 0, 10000, 1],
+        "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0,0,0,0)", 0.2, "#fee2e2", 0.5, "#ef4444", 0.9, "#7f1d1d"],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 9, 30],
+      },
+      layout: { visibility: "none" }
+    });
+
+    // 5. Poultry Penetration Heatmap (Green)
+    _liveMap.addLayer({
+      id: "poultry-heatmap",
+      type: "heatmap",
+      source: "customers",
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "poultry_revenue"], 0, 0, 5000, 1],
+        "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0,0,0,0)", 0.2, "#f0fdf4", 0.5, "#22c55e", 0.9, "#14532d"],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 9, 30],
+      },
+      layout: { visibility: "none" }
+    });
+
+    // 6. Pork Penetration Heatmap (Orange)
+    _liveMap.addLayer({
+      id: "pork-heatmap",
+      type: "heatmap",
+      source: "customers",
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "pork_revenue"], 0, 0, 5000, 1],
+        "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0,0,0,0)", 0.2, "#fff7ed", 0.5, "#f97316", 0.9, "#7c2d12"],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 9, 30],
+      },
+      layout: { visibility: "none" }
+    });
+
+    _liveMap.addLayer({
+      id: "customers-lost-halo",
+      type: "circle",
+      source: "customers",
+      filter: ["==", ["get", "is_lost"], 1],
+      paint: {
+        "circle-radius": ["*", ["coalesce", ["get", "radius"], 6], 2.2],
+        "circle-color": "#64748b", // Slate grey for lost
+        "circle-opacity": 0,
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#64748b",
+        "circle-stroke-opacity": 0.6,
+      },
+    });
+
+    _liveMap.addLayer({
+      id: "customers-risk-halo",
+      type: "circle",
+      source: "customers",
+      filter: ["==", ["get", "is_risk"], 1],
+      paint: {
+        "circle-radius": ["*", ["coalesce", ["get", "radius"], 6], 1.7],
+        "circle-color": SR_THEME.blood,
+        "circle-opacity": 0,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": SR_THEME.blood,
+        "circle-stroke-opacity": 0.42,
+      },
+    });
+
+    _liveMap.addLayer({
+      id: "customers-bubbles",
+      type: "circle",
+      source: "customers",
+      paint: {
+        "circle-radius": ["coalesce", ["get", "radius"], 6],
+        "circle-color": ["coalesce", ["get", "color"], "#CCCCCC"],
+        "circle-opacity": [
+          "interpolate", ["linear"], ["zoom"],
+          3, ["case", ["==", ["get", "approx"], 1], 0.62, 0.95],
+          10, ["case", ["==", ["get", "approx"], 1], 0.85, 1.0],
+        ],
+        "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 10, 2, 15, 3],
+        "circle-stroke-color": "#1E293B", 
         "circle-stroke-opacity": 0.9,
       },
-      layout: { visibility: "visible" },
     });
 
-    liveMap.addLayer({
-      id: "sr-customer-hitpoints",
-      type: "circle",
-      source: "sr-customers",
-      paint: {
-        "circle-radius": ["+", ["coalesce", ["get", "radius"], 7], 8],
-        "circle-color": "rgba(0,0,0,0)",
-        "circle-opacity": 0.01,
-      },
-      layout: { visibility: "visible" },
-    });
-
-    const emptyMessage = mapStatusValue() === "active"
-      ? "No active accounts are visible for the current filter scope."
-      : mapStatusValue() === "lost"
-        ? "No lost accounts are visible for the current filter scope."
-        : mapStatusValue() === "prospect"
-          ? "No prospect accounts are available in the current scope."
-          : "No map accounts are visible for the current filter scope.";
-    setMapPlaceholder(!features.length, features.length ? "Map loading..." : emptyMessage);
-    buildMapLegend(filterMapRows(lastMapRows), mapModeValue());
-    fitMapToFeatures(features);
-    animateMapHalos();
-    updateMapMode(mapModeValue());
+    _animateHalo();
+    _fitMapToFeatures(features);
+    
+    // Maintain current mode
+    const activeMode = document.querySelector('input[name="srMapMode"]:checked')?.value || "bubbles";
+    _updateMapMode(activeMode);
   };
 
-  const updateMapMode = (mode = mapModeValue()) => {
-    if (!liveMap || !mapReady) return;
-    const visible = {
-      "sr-opportunity-heatmap": mode === "opportunity" || mode === "hybrid",
-      "sr-risk-heatmap": mode === "risk",
-      "sr-customer-halos": mode === "bubbles" || mode === "hybrid",
-      "sr-customer-bubbles": mode === "bubbles" || mode === "hybrid",
-      "sr-customer-hitpoints": true,
-    };
-    Object.entries(visible).forEach(([id, on]) => {
-      if (liveMap.getLayer(id)) {
-        liveMap.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  const _animateHalo = () => {
+    if (!_liveMap || !_mapStyleReady || !_liveMap.getLayer("customers-risk-halo")) {
+      _mapAnimationId = null;
+      return;
+    }
+    if (_mapAnimationId) cancelAnimationFrame(_mapAnimationId);
+    const step = (Date.now() % 2200) / 2200;
+    const opacity = 0.2 + (0.58 * Math.sin(step * Math.PI));
+    const radiusScale = 1.34 + (0.4 * Math.sin(step * Math.PI));
+    try {
+      if (_liveMap.getLayer("customers-risk-halo")) {
+        _liveMap.setPaintProperty("customers-risk-halo", "circle-stroke-opacity", opacity);
+        _liveMap.setPaintProperty("customers-risk-halo", "circle-radius", ["*", ["get", "radius"], radiusScale]);
+      }
+    } catch (_err) {
+      /* ignore transient style swaps */
+    }
+    _mapAnimationId = requestAnimationFrame(_animateHalo);
+  };
+
+  // ── Map legend hover: highlight matching rep bubbles, dim others ──
+  const _highlightRepOnMap = (repName) => {
+    if (!_liveMap || !_mapStyleReady) return;
+    try {
+      _liveMap.setPaintProperty("customers-bubbles", "circle-opacity", [
+        "case",
+        ["==", ["get", "owner_name"], repName], 1.0,
+        0.12,
+      ]);
+      _liveMap.setPaintProperty("customers-bubbles", "circle-radius", [
+        "case",
+        ["==", ["get", "owner_name"], repName],
+        ["*", ["get", "radius"], 1.35],
+        ["get", "radius"],
+      ]);
+    } catch (_err) { /* transient paint failures are non-critical */ }
+  };
+
+  const _clearMapRepHighlight = () => {
+    if (!_liveMap || !_mapStyleReady) return;
+    try {
+      _liveMap.setPaintProperty("customers-bubbles", "circle-opacity", [
+        "interpolate", ["linear"], ["zoom"],
+        3, ["case", ["==", ["get", "approx"], 1], 0.62, 0.95],
+        8, ["case", ["==", ["get", "approx"], 1], 0.78, 1.0],
+      ]);
+      _liveMap.setPaintProperty("customers-bubbles", "circle-radius", ["get", "radius"]);
+    } catch (_err) { /* ignore */ }
+  };
+
+  const _buildMapLegend = (customers = [], mode = "bubbles") => {
+    const legendEl = document.getElementById("srMapLegend");
+    if (!legendEl) return;
+
+    if (mode === "opportunity") {
+      legendEl.innerHTML = `
+        <span class="sr-map-legend-item">
+          <span class="sr-map-legend-gradient" style="background:linear-gradient(to right, rgb(232,245,233), rgb(27,94,32))"></span>
+          Opportunity Score (High = Dark Green)
+        </span>
+      `;
+      return;
+    }
+
+    if (mode === "risk") {
+      legendEl.innerHTML = `
+        <span class="sr-map-legend-item">
+          <span class="sr-map-legend-gradient" style="background:linear-gradient(to right, rgb(255,235,238), rgb(183,28,28))"></span>
+          Risk Intensity (High = Dark Red)
+        </span>
+      `;
+      return;
+    }
+
+    const reps = [...new Set((customers || []).map((row) => row.account_owner_name || row.owner_name).filter(Boolean))].slice(0, 8);
+    const approxCount = (customers || []).filter((row) => row.approx === 1).length;
+    const riskCount = (customers || []).filter((row) => (row.silent_days ?? 0) > 45).length;
+    legendEl.innerHTML = [
+      ...reps.map((rep) => `
+        <span class="sr-map-legend-item sr-map-legend-rep" data-rep-name="${escapeHtml(rep)}" role="button" tabindex="0" aria-label="Highlight ${escapeHtml(rep)} on map">
+          <span class="sr-map-legend-dot" style="background:${_repColor(rep)}"></span>
+          ${escapeHtml(rep)}
+        </span>
+      `),
+      riskCount > 0
+        ? `<span class="sr-map-legend-item sr-map-legend-risk">
+            <span class="sr-map-legend-dot" style="border:2px solid ${SR_THEME.blood};background:transparent"></span>
+            ${fmtInt.format(riskCount)} silent&nbsp;&gt;45d
+          </span>`
+        : "",
+      approxCount > 0
+        ? `<span class="sr-map-legend-item sr-map-legend-approx">
+            <span class="sr-map-legend-dot" style="background:${SR_THEME.bronze};opacity:0.58"></span>
+            ${fmtInt.format(approxCount)} centroid fallback
+          </span>`
+        : "",
+    ].filter(Boolean).join("");
+
+    // Bind hover/focus events for rep highlight
+    legendEl.querySelectorAll(".sr-map-legend-rep").forEach((item) => {
+      const repName = item.dataset.repName;
+      item.addEventListener("mouseenter", () => _highlightRepOnMap(repName));
+      item.addEventListener("mouseleave", () => _clearMapRepHighlight());
+      item.addEventListener("focus", () => _highlightRepOnMap(repName));
+      item.addEventListener("blur", () => _clearMapRepHighlight());
+      item.addEventListener("keydown", (evt) => { if (evt.key === "Enter" || evt.key === " ") _highlightRepOnMap(repName); });
+    });
+  };
+
+  const _scheduleMapStyleFallback = () => {
+    if (_mapStyleFallbackTimer) window.clearTimeout(_mapStyleFallbackTimer);
+    _mapStyleFallbackTimer = window.setTimeout(() => {
+      if (!_liveMap || _mapStyleReady) return;
+      try {
+        _liveMap.setStyle(_fallbackLightRasterStyle());
+      } catch (err) {
+        logWarn("Live map style fallback failed", err);
+      }
+    }, 3500);
+  };
+
+  const _updateMapMode = (mode) => {
+    if (!_liveMap || !_mapStyleReady) return;
+    const layers = [
+      "customers-bubbles", 
+      "customers-risk-halo", 
+      "customers-lost-halo",
+      "customers-heatmap", 
+      "opportunity-heatmap", 
+      "risk-heatmap",
+      "beef-heatmap",
+      "poultry-heatmap",
+      "pork-heatmap"
+    ];
+    layers.forEach(id => {
+      if (_liveMap.getLayer(id)) {
+        let visible = false;
+        if (mode === "bubbles") {
+          visible = (id === "customers-bubbles" || id === "customers-risk-halo" || id === "customers-lost-halo");
+        } else if (mode === "opportunity") {
+          visible = (id === "opportunity-heatmap");
+        } else if (mode === "risk") {
+          visible = (id === "risk-heatmap");
+        } else if (mode === "beef") {
+          visible = (id === "beef-heatmap");
+        } else if (mode === "poultry") {
+          visible = (id === "poultry-heatmap");
+        } else if (mode === "pork") {
+          visible = (id === "pork-heatmap");
+        } else if (mode === "hybrid") {
+          visible = (id === "opportunity-heatmap" || id === "customers-bubbles");
+        }
+        _liveMap.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
       }
     });
-    buildMapLegend(filterMapRows(lastMapRows), mode);
+    _buildMapLegend(_lastMapFeatures?.map(f => f.properties) || [], mode);
   };
 
-  const initMapOnce = () => {
+  const wireMapModes = () => {
+    document.querySelectorAll('input[name="srMapMode"]').forEach(input => {
+      input.addEventListener("change", (evt) => {
+        _updateMapMode(evt.target.value);
+      });
+    });
+  };
+
+  const _flyToRep = (repName) => {
+    if (!_liveMap || !_mapStyleReady || !repName) return;
+    const features = _lastMapFeatures.filter(f => f.properties.owner_name === repName);
+    if (!features.length) return;
+    
+    _fitMapToFeatures(features);
+  };
+
+  const dispatchFiltersForTerritory = (territory) => {
+    const territoryName = cleanText(territory);
+    if (!territoryName) return;
+    dispatchPageFilters(
+      {
+        ...currentFilterState(),
+        regions: [territoryName],
+      },
+      "map_territory",
+    );
+  };
+
+  const _rowFromFeatureProps = (props = {}) => ({
+    customer_id: props.id || null,
+    customer_name: props.name || TEXT_EMPTY,
+    account_owner_name: props.owner_name || TEXT_EMPTY,
+    territory_name: props.territory || TEXT_EMPTY,
+    delivery_city: props.city || "",
+    delivery_province: props.province || "",
+    shipping_method: props.shipping_method || "",
+    revenue: opt(props.revenue),
+    days_since_order: props.silent_days == null ? null : Number(props.silent_days),
+    last_order_date: props.last_order_date || "",
+    mom_revenue_pct: props.mom_pct == null || props.mom_pct === "null" ? null : Number(props.mom_pct),
+  });
+
+  const _initMapOnce = () => {
     const mapEl = document.getElementById("srLiveMap");
-    if (!mapEl || liveMap || !window.maplibregl) return;
-    liveMap = new window.maplibregl.Map({
+    if (!mapEl || _liveMap) return;
+    _liveMap = new window.maplibregl.Map({
       container: "srLiveMap",
-      style: mapRasterStyle(),
+      style: _fallbackLightRasterStyle(),
       center: MAP_DEFAULT_VIEW.center,
       zoom: MAP_DEFAULT_VIEW.zoom,
-      maxBounds: [[-145, 35], [-50, 75]],
+      maxBounds: [[-145, 40], [-50, 75]],
     });
-    liveMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    liveMap.addControl(new window.maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }), "bottom-left");
-    mapPopup = new window.maplibregl.Popup({
+
+    _liveMap.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    _liveMap.addControl(new window.maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }), "bottom-left");
+
+    _mapPopup = new window.maplibregl.Popup({
       closeButton: true,
       closeOnClick: false,
-      maxWidth: "300px",
+      maxWidth: "280px",
       className: "sr-map-popup",
     });
-    liveMap.on("style.load", () => {
-      mapReady = true;
-      liveMap.resize();
-      if (pendingMapPayload) {
-        const rows = pendingMapPayload.analysis?.map_customers || pendingMapPayload.analysis?.top_customers || [];
-        pushMapData(rows);
-        pendingMapPayload = null;
-      }
-    });
-    const hoverHandler = (evt) => {
-      liveMap.getCanvas().style.cursor = "pointer";
-      const row = mapRowFromFeatureProps(evt.features?.[0]?.properties || {});
-      mapPopup.setLngLat(evt.lngLat).setHTML(mapPopupHtml(row)).addTo(liveMap);
-      const openEl = mapPopup.getElement()?.querySelector("[data-map-open='1']");
-      if (openEl) {
-        openEl.addEventListener("click", (clickEvt) => {
-          clickEvt.preventDefault();
-          const sourceRow = lastMapRows.find((item) => String(item?.customer_id || "") === String(row.customer_id || ""));
-          openUniversal(
-            customerPayload(
-              sourceRow || row,
-              "Live Account Map",
-              modeLabelForMap(mapModeValue()),
-              "Revenue",
-              sourceRow?.revenue ?? row.revenue,
-              {
-                filter_mode: "current_window",
-                map_mode: mapModeValue(),
-                map_status: mapStatusValue(),
-                opportunity_score: sourceRow?.opportunity_score ?? row.opportunity_score,
-              },
-            ),
-            document.getElementById("srLiveMap"),
-          );
-        }, { once: true });
-      }
-    };
-    liveMap.on("mouseenter", "sr-customer-hitpoints", hoverHandler);
-    liveMap.on("mousemove", "sr-customer-hitpoints", hoverHandler);
-    liveMap.on("mouseleave", "sr-customer-hitpoints", () => {
-      liveMap.getCanvas().style.cursor = "";
-      mapPopup?.remove();
-    });
-    liveMap.on("click", "sr-customer-hitpoints", (evt) => {
-      const row = mapRowFromFeatureProps(evt.features?.[0]?.properties || {});
-      const sourceRow = lastMapRows.find((item) => String(item?.customer_id || "") === String(row.customer_id || ""));
-      openUniversal(
-        customerPayload(
-          sourceRow || row,
-          "Live Account Map",
-          modeLabelForMap(mapModeValue()),
-          "Revenue",
-          sourceRow?.revenue ?? row.revenue,
-          {
-            filter_mode: "current_window",
-            map_mode: mapModeValue(),
-            map_status: mapStatusValue(),
-            opportunity_score: sourceRow?.opportunity_score ?? row.opportunity_score,
-          },
-        ),
-        document.getElementById("srLiveMap"),
-      );
-    });
-  };
 
-  const modeLabelForMap = (mode) => {
-    if (mode === "opportunity") return "Opportunity";
-    if (mode === "risk") return "Risk";
-    if (mode === "hybrid") return "Hybrid";
-    return "Customers";
+    _scheduleMapStyleFallback();
+
+    _liveMap.on("style.load", () => {
+      _mapStyleReady = true;
+      if (_mapStyleFallbackTimer) {
+        window.clearTimeout(_mapStyleFallbackTimer);
+        _mapStyleFallbackTimer = null;
+      }
+      _liveMap.resize();
+      if (_pendingMapPayload) {
+        const payload = _pendingMapPayload;
+        const customers = payload.analysis?.map_customers || payload.analysis?.top_customers || [];
+        const features = _buildCustomerFeatures(customers);
+        _pushMapData(features);
+        _buildMapLegend(customers, document.querySelector('input[name="srMapMode"]:checked')?.value || "bubbles");
+        _pendingMapPayload = null;
+      } else if (_lastMapFeatures.length) {
+        _pushMapData(_lastMapFeatures);
+      }
+    });
+
+    _liveMap.on("error", (evt) => {
+      if (!_mapStyleReady) logWarn("Live map style error", evt?.error || evt);
+    });
+
+    _liveMap.on("mouseenter", "customers-bubbles", (evt) => {
+      _liveMap.getCanvas().style.cursor = "pointer";
+      const props = evt.features?.[0]?.properties || {};
+      const silentDays = Number(props.silent_days || 0);
+      const silentColor = silentDays > 60 ? SR_THEME.blood : silentDays > 45 ? SR_THEME.bronze : SR_THEME.forest;
+      
+      const revenue = num(props.revenue);
+      const profit = num(props.profit);
+      const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+      
+      const momPct = props.mom_pct;
+      const momStr = (momPct != null && momPct !== "null")
+        ? `<div class="sr-map-popup-row">MoM Velocity: <b style="color:${Number(momPct) >= 0 ? SR_THEME.forest : SR_THEME.blood}">${Number(momPct) >= 0 ? "+" : ""}${fmtPct.format(Number(momPct))}%</b></div>`
+        : "";
+      
+      // Calculate YoY if available
+      const yoyRev = num(props.yoy_revenue);
+      const yoyStr = (yoyRev > 0)
+        ? `<div class="sr-map-popup-row">YoY Growth: <b style="color:${revenue >= yoyRev ? SR_THEME.forest : SR_THEME.blood}">${revenue >= yoyRev ? "+" : ""}${fmtPct.format(((revenue - yoyRev) / yoyRev) * 100)}%</b></div>`
+        : "";
+
+      const lastOrder = props.last_order_date ? formatDateCA(props.last_order_date) : "Never";
+      
+      const riskBadge = (Number(props.is_risk) === 1 || Number(props.is_overdue) === 1)
+        ? `<span class="sr-map-popup-risk-badge">${Number(props.is_overdue) === 1 ? '&#9201; OVERDUE' : '&#9888; SILENT RISK'}</span>`
+        : "";
+      
+      const overdueDetail = Number(props.is_overdue) === 1 
+        ? `<div class="sr-map-popup-row text-danger small fw-bold">Pulse Missed: ${fmtInt.format(num(props.avg_days))}d expected cycle</div>`
+        : "";
+
+      const proteins = Array.isArray(props.historical_proteins) ? props.historical_proteins : (props.historical_proteins || "").split(",").filter(Boolean);
+      const proteinHtml = proteins.length
+        ? `<div class="sr-map-popup-row text-muted" style="font-size:0.68rem">Core Species: ${proteins.slice(0,3).join(", ")}</div>`
+        : "";
+
+      const lostBadge = Number(props.is_lost) === 1
+        ? `<span class="sr-map-popup-risk-badge" style="background:#64748b;color:white">LOST ACCOUNT</span>`
+        : "";
+      
+      const oppScore = Number(props.opportunity_score || 0);
+      const oppReasons = (props.opportunity_reasons || "").replace(/;\s*$/, "");
+      const oppBadge = oppScore > 40
+        ? `<span class="sr-map-popup-risk-badge" style="background:${SR_THEME.forest};color:white" title="${escapeHtml(oppReasons)}">HIGH OPPORTUNITY (${oppScore})</span>`
+        : oppScore > 20
+          ? `<span class="sr-map-popup-risk-badge" style="background:${SR_THEME.bronze};color:white" title="${escapeHtml(oppReasons)}">MID OPPORTUNITY (${oppScore})</span>`
+          : "";
+
+      _mapPopup
+        .setLngLat(evt.lngLat)
+        .setHTML(`
+          <div class="sr-map-popup-inner">
+            <div class="sr-map-popup-header">
+              <div class="sr-map-popup-name">${escapeHtml(props.name || "Unknown Customer")}</div>
+              <div class="sr-map-popup-meta">
+                ${escapeHtml(props.owner_name || "Unassigned")} &middot; ${escapeHtml(props.territory || "No Territory")}
+              </div>
+            </div>
+            <div class="sr-map-popup-divider"></div>
+            <div class="sr-map-popup-stats">
+              <div class="sr-map-popup-row">Window Revenue: <b>${money(revenue)}</b></div>
+              <div class="sr-map-popup-row">Gross Margin: <b style="color:${margin >= 25 ? SR_THEME.forest : SR_THEME.blood}">${fmtPct.format(margin)}%</b></div>
+              ${momStr}
+              ${yoyStr}
+              <div class="sr-map-popup-row">Last Order: <b>${lastOrder}</b> (${fmtInt.format(silentDays)}d ago)</div>
+              ${overdueDetail}
+              ${proteinHtml}
+              ${props.shipping_method ? `<div class="sr-map-popup-row text-muted" style="font-size:0.7rem">Method: ${escapeHtml(props.shipping_method)}</div>` : ""}
+            </div>
+            <div class="mt-2 d-flex flex-wrap gap-1">
+              ${riskBadge}${lostBadge}${oppBadge}
+            </div>
+            ${Number(props.approx) === 1 ? `<div class="sr-map-popup-approx mt-1" style="font-size:0.65rem;color:${SR_THEME.bronze}">&#9432; Location fallback active</div>` : ""}
+            <div class="sr-map-popup-footer mt-2" style="font-size:0.68rem;color:${SR_THEME.brand};border-top:1px solid rgba(0,0,0,0.05);padding-top:4px">
+              Click bubble for full account drilldown
+            </div>
+          </div>`)
+        .addTo(_liveMap);
+        
+      if (evt.features.length > 0) {
+        _liveMap.setPaintProperty('customers-bubbles', 'circle-stroke-width', [
+          'case',
+          ['==', ['get', 'id'], evt.features[0].properties.id],
+          4,
+          2
+        ]);
+        _liveMap.setPaintProperty('customers-bubbles', 'circle-stroke-color', [
+          'case',
+          ['==', ['get', 'id'], evt.features[0].properties.id],
+          '#FBBF24',
+          '#FFFFFF'
+        ]);
+      }
+    });
+
+    _liveMap.on("mouseleave", "customers-bubbles", () => {
+      _liveMap.getCanvas().style.cursor = "";
+      _mapPopup.remove();
+      _liveMap.setPaintProperty('customers-bubbles', 'circle-stroke-width', 2);
+      _liveMap.setPaintProperty('customers-bubbles', 'circle-stroke-color', '#FFFFFF');
+    });
+
+    _liveMap.on("click", "customers-bubbles", (evt) => {
+      const props = evt.features?.[0]?.properties || {};
+      _mapPopup.remove();
+      const existingRow = findCustomerRow(_allCustomerRows, { customer_id: props.id, customer_name: props.name });
+      focusCustomerFromPriority(existingRow || _rowFromFeatureProps(props));
+    });
+
+    document.getElementById("srMapResetBtn")?.addEventListener("click", () => {
+      pendingCustomerFocus = null;
+      // Clear territory and rep scope filters so all dependent widgets return to global view
+      const current = currentFilterState();
+      const hasRegions = Array.isArray(current.regions) && current.regions.length > 0;
+      const hasSalesReps = Array.isArray(current.sales_reps) && current.sales_reps.length > 0;
+      const hasCustomers = Array.isArray(current.customers) && current.customers.length > 0;
+      if (hasRegions || hasSalesReps || hasCustomers) {
+        dispatchPageFilters({ ...current, regions: [], sales_reps: [], customers: [] }, "map_reset");
+      }
+      // Reset map view to show all features
+      if (_lastMapFeatures.length) {
+        _fitMapToFeatures(_lastMapFeatures);
+      } else {
+        _liveMap?.easeTo({ center: MAP_DEFAULT_VIEW.center, zoom: MAP_DEFAULT_VIEW.zoom, duration: 800 });
+      }
+    });
   };
 
   const initLiveMap = (payload) => {
     const mapEl = document.getElementById("srLiveMap");
+    const placeholder = document.getElementById("srMapPlaceholder");
     if (!mapEl) return;
-    const rows = Array.isArray(payload?.analysis?.map_customers)
-      ? payload.analysis.map_customers
-      : Array.isArray(payload?.analysis?.top_customers)
-        ? payload.analysis.top_customers
-        : [];
-    lastMapRows = rows.slice();
 
     if (!window.maplibregl) {
-      const scriptEl = document.querySelector("script[src*='maplibre-gl']");
-      if (scriptEl) scriptEl.addEventListener("load", () => initLiveMap(payload), { once: true });
-      setMapPlaceholder(true, "Map library is still loading.");
+      if (placeholder) placeholder.classList.add("active");
+      mapEl.style.display = "none";
+      
+      if (!window._srMapPolling) {
+        window._srMapPolling = true;
+        let attempts = 0;
+        const poll = setInterval(() => {
+          attempts += 1;
+          if (window.maplibregl) {
+            clearInterval(poll);
+            window._srMapPolling = false;
+            initLiveMap(payload);
+          } else if (attempts > 30) {
+            clearInterval(poll);
+            window._srMapPolling = false;
+            logError("MapLibre GL failed to load after 30 attempts");
+          }
+        }, 200);
+      }
       return;
     }
 
-    setMapPlaceholder(!rows.length, rows.length ? "Map loading..." : "No map accounts are visible for the current filter scope.");
-    if (!liveMap) {
-      pendingMapPayload = payload;
-      initMapOnce();
+    if (placeholder) placeholder.classList.remove("active");
+    mapEl.style.display = "block";
+    mapEl.style.minHeight = "420px";
+
+    const customers = payload.analysis?.map_customers || payload.analysis?.top_customers || [];
+    const features = _buildCustomerFeatures(customers);
+
+    if (!_liveMap) {
+      _pendingMapPayload = payload;
+      _initMapOnce();
+      _buildMapLegend(customers, document.querySelector('input[name="srMapMode"]:checked')?.value || "bubbles");
       return;
     }
-    liveMap.resize();
-    if (mapReady) {
-      pushMapData(rows);
+
+    _liveMap.resize();
+    if (_mapStyleReady) {
+      _pushMapData(features);
+      _buildMapLegend(customers, document.querySelector('input[name="srMapMode"]:checked')?.value || "bubbles");
     } else {
-      pendingMapPayload = payload;
+      _pendingMapPayload = payload;
     }
-  };
-
-  const wireMapModes = () => {
-    document.querySelectorAll('input[name="srMapMode"]').forEach((input) => {
-      input.addEventListener("change", () => updateMapMode(input.value));
-    });
-    document.querySelectorAll('input[name="srMapStatus"]').forEach((input) => {
-      input.addEventListener("change", () => {
-        if (!lastPayload) return;
-        initLiveMap(lastPayload);
-      });
-    });
-    document.getElementById("srMapResetBtn")?.addEventListener("click", () => {
-      fitMapToFeatures(lastMapFeatures);
-    });
   };
 
   const bootstrap = async (qsHint) => {
@@ -5603,13 +6871,28 @@
   wireRowClicks();
   wireMiniSorts();
   wireControls();
-  wireMapModes();
   wireCompare();
+  wireMapModes();
   initCustomerViewToggle();
+  wireFilterDrawer();
+  wireFollowUpDrawer();
+
+  document.getElementById("srGapFocusClear")?.addEventListener("click", (evt) => {
+    evt.preventDefault();
+    clearCustomerFocus();
+  });
+
+  window.addEventListener("resize", scheduleViewportHeightSync, { passive: true });
 
   window.addEventListener("globalFilters:apply", (evt) => {
     currentApplyId = String(evt?.detail?.applyId || "");
     applyFilters(evt?.detail?.qs || "", evt?.detail?.filters || null, { scroll: focusedRepIdsFromFilters(evt?.detail?.filters || {}).length > 0 });
+  });
+  window.addEventListener("globalFilters:applied", () => {
+    closeFilterDrawer();
+    if (!currentUrlFilters().customers.length && !pendingCustomerFocus && focusedCustomer) {
+      setFocusedCustomer(null);
+    }
   });
   window.addEventListener("globalFilters:ready", (evt) => bootstrap(evt?.detail?.qs || ""));
   window.addEventListener("pagehide", () => {

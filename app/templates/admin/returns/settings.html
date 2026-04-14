@@ -39,6 +39,22 @@
           <label class="form-label" for="rejection_subject">Rejection Subject</label>
           <input class="form-control" id="rejection_subject" name="rejection_subject" value="{{ settings.email_templates.rejection_subject }}">
         </div>
+        <div class="col-12 mt-4">
+          <h2 class="h5 mb-1">Workflow Options</h2>
+          <p class="text-muted small">Comma-separated lists for dropdown menus.</p>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="follow_up_actions">Follow Up Actions</label>
+          <input class="form-control" id="follow_up_actions" name="follow_up_actions" value="{{ settings.workflow_options.follow_up_actions|join(', ') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="warehouse_outcomes">Warehouse Outcomes</label>
+          <input class="form-control" id="warehouse_outcomes" name="warehouse_outcomes" value="{{ settings.workflow_options.warehouse_outcomes|join(', ') }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="companies">Companies</label>
+          <input class="form-control" id="companies" name="companies" value="{{ settings.workflow_options.companies|join(', ') }}">
+        </div>
         <div class="col-12">
           <button class="btn btn-primary" type="submit">Save Settings</button>
         </div>

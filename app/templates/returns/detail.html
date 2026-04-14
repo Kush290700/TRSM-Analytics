@@ -3,17 +3,122 @@
 {% set can_mgr_approve = can_permission('returns.approve.mgr') or can_permission('returns.ops.approve') or can_permission('admin.returns.manage') %}
 {% set can_edit_receiving = can_wh_approve or can_mgr_approve %}
 {% set can_reject = can_permission('returns.reject') or can_permission('returns.ops.deny') or can_permission('returns.warehouse.receive') or can_permission('admin.returns.manage') %}
+{% set can_ops = can_permission('returns.ops.queue.view') or can_permission('admin.returns.manage') %}
+{% set can_finance = can_permission('returns.finance.close') or can_permission('admin.returns.manage') %}
+{% block head %}
+{{ super() }}
+<style>
+  .stepper {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+    position: relative;
+  }
+  .stepper::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #e9ecef;
+    z-index: 1;
+    transform: translateY(-50%);
+  }
+  .step {
+    position: relative;
+    z-index: 2;
+    background: #fff;
+    padding: 0 10px;
+    text-align: center;
+    flex: 1;
+  }
+  .step-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #e9ecef;
+    color: #6c757d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+    font-size: 14px;
+    font-weight: bold;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+  }
+  .step.active .step-icon {
+    background: #0d6efd;
+    color: #fff;
+    border-color: #0d6efd;
+  }
+  .step.completed .step-icon {
+    background: #198754;
+    color: #fff;
+    border-color: #198754;
+  }
+  .step-label {
+    font-size: 12px;
+    color: #6c757d;
+    font-weight: 500;
+  }
+  .step.active .step-label { color: #0d6efd; font-weight: 700; }
+  .step.completed .step-label { color: #198754; }
+</style>
+{% endblock %}
 {% block content %}
 <section class="py-4">
   <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-4">
     <div>
       <h1 class="h3 mb-1">{{ rma.rma_number }}</h1>
       <p class="text-muted mb-0">Order {{ rma.order_id }} for {{ rma.customer_name or rma.customer_id }}</p>
+      {% if rma.company %}
+      <span class="badge text-bg-secondary">{{ rma.company }}</span>
+      {% endif %}
     </div>
     <div class="d-flex flex-wrap gap-2">
       <span class="badge text-bg-primary align-self-center">{{ rma.status_label }}</span>
       <a class="btn btn-outline-secondary" href="{{ url_for('returns_portal.index') }}">Back To Tracker</a>
       <a class="btn btn-outline-dark" href="{{ url_for('returns_portal.export_pdf', rma_id=rma.id) }}">PDF</a>
+      {% if rma.status == 'awaiting_finance' and can_finance %}
+      <a class="btn btn-outline-success" href="{{ url_for('returns_portal.export_sage_csv', rma_id=rma.id) }}">Sage CSV</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Enterprise Workflow Stepper #}
+  {% set current_status = rma.status %}
+  {% set steps = [
+    ('requested', 'Submitted'),
+    ('awaiting_ops', 'Operations'),
+    ('picked_up', 'Warehouse'),
+    ('wh_approved', 'Approval'),
+    ('awaiting_finance', 'Finance'),
+    ('completed', 'Closed')
+  ] %}
+  {% set active_idx = 0 %}
+  {% if current_status in ['requested'] %}{% set active_idx = 0 %}
+  {% elif current_status in ['awaiting_ops', 'pickup_scheduled'] %}{% set active_idx = 1 %}
+  {% elif current_status in ['picked_up', 'received', 'pending'] %}{% set active_idx = 2 %}
+  {% elif current_status in ['wh_approved'] %}{% set active_idx = 3 %}
+  {% elif current_status in ['awaiting_finance', 'approved'] %}{% set active_idx = 4 %}
+  {% elif current_status in ['completed'] %}{% set active_idx = 5 %}
+  {% endif %}
+
+  <div class="card shadow-sm border-0 mb-4 bg-light bg-opacity-10">
+    <div class="card-body py-4">
+      <div class="stepper">
+        {% for status_key, label in steps %}
+          {% set step_idx = loop.index0 %}
+          <div class="step {% if step_idx == active_idx %}active{% elif step_idx < active_idx %}completed{% endif %}">
+            <div class="step-icon">
+              {% if step_idx < active_idx %}✓{% else %}{{ loop.index }}{% endif %}
+            </div>
+            <div class="step-label">{{ label }}</div>
+          </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
 
@@ -21,7 +126,12 @@
     <div class="col-xl-8">
       <div class="card shadow-sm border-0 mb-4">
         <div class="card-body">
-          <h2 class="h5 mb-3">Header</h2>
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">Header</h2>
+            {% if rma.approval_target %}
+            <span class="badge text-bg-info">Approver: {{ rma.approval_target }}</span>
+            {% endif %}
+          </div>
           <div class="row g-3 small">
             <div class="col-md-3"><span class="text-muted d-block">Customer</span><strong>{{ rma.customer_name or rma.customer_id }}</strong></div>
             <div class="col-md-3"><span class="text-muted d-block">Rep</span><strong>{{ rma.rep_name or '-' }}</strong></div>
@@ -36,6 +146,7 @@
             <div class="col-md-3"><span class="text-muted d-block">Category</span><strong>{{ rma.primary_category or '-' }}</strong></div>
             <div class="col-md-3"><span class="text-muted d-block">Follow-up</span><strong>{{ rma.primary_follow_up or '-' }}</strong></div>
             <div class="col-md-3"><span class="text-muted d-block">Rec/Prod Signoff</span><strong>{{ 'Yes' if rma.rec_prod_signoff else 'No' }}</strong></div>
+            <div class="col-md-3"><span class="text-muted d-block">Company</span><strong>{{ rma.company or '-' }}</strong></div>
             <div class="col-12"><span class="text-muted d-block">Additional Notes</span><strong>{{ rma.additional_notes or rma.decision_summary or '-' }}</strong></div>
           </div>
         </div>
@@ -45,7 +156,20 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="h5 mb-0">Line Items</h2>
-            {% if rma.status == 'pending' and can_wh_approve %}
+            <div class="d-flex gap-2">
+            {% if rma.status == 'awaiting_ops' and can_ops %}
+            <form method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form_action" value="schedule_pickup">
+              <button class="btn btn-sm btn-primary" type="submit">Schedule Pickup</button>
+            </form>
+            {% elif rma.status == 'pickup_scheduled' and can_ops %}
+            <form method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form_action" value="mark_picked_up">
+              <button class="btn btn-sm btn-info" type="submit">Mark Picked Up</button>
+            </form>
+            {% elif rma.status in ['pending', 'picked_up', 'received'] and can_wh_approve %}
             <form method="post" action="{{ url_for('returns_portal.approve_wh', rma_id=rma.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="return_to" value="detail">
@@ -54,7 +178,13 @@
             {% elif rma.status == 'wh_approved' and can_mgr_approve %}
             <form method="post" action="{{ url_for('returns_portal.approve_mgr', rma_id=rma.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-success" type="submit">Manager Approve</button>
+              <button class="btn btn-sm btn-success" type="submit">Manager Approve ({{ rma.approval_target or 'Reviewer' }})</button>
+            </form>
+            {% elif rma.status == 'awaiting_finance' and can_finance %}
+            <form method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form_action" value="complete">
+              <button class="btn btn-sm btn-success" type="submit">Finance Close</button>
             </form>
             {% elif rma.status == 'approved' and can_mgr_approve %}
             <form method="post">
@@ -63,6 +193,7 @@
               <button class="btn btn-sm btn-success" type="submit">Mark Completed</button>
             </form>
             {% endif %}
+            </div>
           </div>
           <div class="table-responsive">
             <table class="table table-sm align-middle">
@@ -72,16 +203,14 @@
                   <th>Description</th>
                   <th>Price/lb</th>
                   <th>Weight</th>
+                  <th>Adj Weight</th>
                   <th>Credit %</th>
                   <th>Credit</th>
-                  <th>Product returning?</th>
-                  <th>Pack Barcode #</th>
-                  <th># of packs</th>
+                  <th>Returning?</th>
+                  <th>Outcome</th>
                   <th>Reason</th>
-                  <th>Category</th>
                   <th>Follow-up</th>
-                  <th>Supplier credit?</th>
-                  <th>Receiving notes</th>
+                  <th>Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -91,19 +220,17 @@
                   <td>{{ item.product_desc or item.product_name or '-' }}</td>
                   <td>{{ item.price_per_lb|currency }}</td>
                   <td>{{ '%.3f'|format(item.weight_lb or 0) }}</td>
+                  <td>{{ '%.3f'|format(item.received_weight_lb or 0) if item.received_weight_lb is not none else '-' }}</td>
                   <td>{{ '%.2f'|format(item.credit_pct or 100) }}%</td>
                   <td>{{ item.credit_amount|currency }}</td>
                   <td>{{ 'Yes' if item.product_returning else 'No' }}</td>
-                  <td>{{ item.pack_barcode or '-' }}</td>
-                  <td>{{ item.packs_count or 0 }}</td>
+                  <td><span class="badge text-bg-light">{{ item.warehouse_outcome or '-' }}</span></td>
                   <td>{{ item.reason_for_return or item.reason_code or '-' }}</td>
-                  <td>{{ item.category or '-' }}</td>
                   <td>{{ item.follow_up_action or '-' }}</td>
-                  <td>{{ 'Yes' if item.supplier_credit else 'No' }}</td>
                   <td>{{ item.receiving_notes or '-' }}</td>
                 </tr>
                 {% else %}
-                <tr><td class="text-muted" colspan="14">No items recorded.</td></tr>
+                <tr><td class="text-muted" colspan="12">No items recorded.</td></tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -144,35 +271,38 @@
                 <thead>
                   <tr>
                     <th>Product #</th>
-                    <th>Credit % (locked)</th>
-                    <th>Pack Barcode #</th>
-                    <th># of packs</th>
+                    <th>Orig Weight</th>
+                    <th>Adj Weight (lb)</th>
+                    <th># of Packs</th>
+                    <th>Outcome</th>
                     <th>Follow-up</th>
-                    <th>Supplier credit?</th>
                     <th>Receiving notes</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {% set _outcome_options = (returns_settings.get('workflow_options', {}).get('warehouse_outcomes') or ['Returning to Inventory', 'Spoilage']) if returns_settings else ['Returning to Inventory', 'Spoilage'] %}
                   {% for item in rma['items'] %}
                   <tr>
                     <td>
                       {{ item.product_code or item.sku or '-' }}
                       <input type="hidden" name="item_ids" value="{{ item.id }}">
                     </td>
-                    <td>{{ '%.2f'|format(item.credit_pct or 100) }}%</td>
-                    <td><input class="form-control form-control-sm" name="item_pack_barcode_{{ item.id }}" value="{{ item.pack_barcode or '' }}"></td>
+                    <td>{{ '%.3f'|format(item.weight_lb or 0) }}</td>
+                    <td><input class="form-control form-control-sm" name="item_received_weight_lb_{{ item.id }}" type="number" min="0" step="0.001" value="{{ item.received_weight_lb if item.received_weight_lb is not none else item.weight_lb }}"></td>
                     <td><input class="form-control form-control-sm" name="item_packs_count_{{ item.id }}" type="number" min="0" step="1" value="{{ item.packs_count or 0 }}"></td>
-                    <td><input class="form-control form-control-sm" name="item_follow_up_action_{{ item.id }}" value="{{ item.follow_up_action or '' }}"></td>
                     <td>
-                      <select class="form-select form-select-sm" name="item_supplier_credit_{{ item.id }}">
-                        <option value="0" {% if not item.supplier_credit %}selected{% endif %}>No</option>
-                        <option value="1" {% if item.supplier_credit %}selected{% endif %}>Yes</option>
+                      <select class="form-select form-select-sm" name="item_warehouse_outcome_{{ item.id }}">
+                        <option value="">-- Select Outcome --</option>
+                        {% for option in _outcome_options %}
+                        <option value="{{ option }}" {% if item.warehouse_outcome == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
                       </select>
                     </td>
+                    <td><input class="form-control form-control-sm" name="item_follow_up_action_{{ item.id }}" value="{{ item.follow_up_action or '' }}"></td>
                     <td><input class="form-control form-control-sm" name="item_receiving_notes_{{ item.id }}" value="{{ item.receiving_notes or '' }}"></td>
                   </tr>
                   {% else %}
-                  <tr><td class="text-muted" colspan="7">No items recorded.</td></tr>
+                  <tr><td class="text-muted" colspan="6">No items recorded.</td></tr>
                   {% endfor %}
                 </tbody>
               </table>
@@ -187,7 +317,7 @@
           </form>
 
           <div class="d-flex flex-wrap gap-2">
-            {% if rma.status == 'pending' and can_wh_approve %}
+            {% if rma.status in ['pending', 'picked_up', 'received'] and can_wh_approve %}
             <form method="post" action="{{ url_for('returns_portal.approve_wh', rma_id=rma.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="return_to" value="detail">
@@ -197,7 +327,7 @@
             {% if rma.status == 'wh_approved' and can_mgr_approve %}
             <form method="post" action="{{ url_for('returns_portal.approve_mgr', rma_id=rma.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-outline-success" type="submit">Manager Approve + PDF</button>
+              <button class="btn btn-outline-success" type="submit">Manager Approve ({{ rma.approval_target or 'Reviewer' }})</button>
             </form>
             {% endif %}
             {% if can_reject %}

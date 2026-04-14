@@ -324,6 +324,8 @@ def require_login(fn):
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
+        if _cfg_flag("LOGIN_DISABLED", False) or _cfg_flag("AUTHZ_DISABLED", False):
+            return fn(*args, **kwargs)
         try:
             from flask_login import current_user  # type: ignore
 

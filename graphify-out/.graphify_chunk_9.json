@@ -1,0 +1,395 @@
+{
+  "nodes": [
+    {
+      "id": "blueprint_bundles",
+      "label": "API Bundles Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/bundles.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_views",
+      "label": "Saved Views Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/views.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_filters_actions",
+      "label": "Filter Actions Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/filters_actions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_events",
+      "label": "System Events API Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/events.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_regions",
+      "label": "Regions Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/regions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_suppliers",
+      "label": "Suppliers Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/suppliers.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_salesreps",
+      "label": "Sales Reps Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/salesreps.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_filters_api",
+      "label": "Filters API Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/filters_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_notifications",
+      "label": "Notifications Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/notifications.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "blueprint_dashboard",
+      "label": "Dashboard Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/dashboard.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_suggestions",
+      "label": "Returns Suggestion Engine",
+      "file_type": "code",
+      "source_file": "app/returns/suggestions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_models",
+      "label": "Returns Persistence Models",
+      "file_type": "code",
+      "source_file": "app/returns/models.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_blueprints",
+      "label": "Returns Workflow Blueprints",
+      "file_type": "code",
+      "source_file": "app/returns/blueprints.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_service",
+      "label": "Returns Workflow Service",
+      "file_type": "code",
+      "source_file": "app/returns/service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_orders_adapter",
+      "label": "Returns Order Lookup Adapter",
+      "file_type": "code",
+      "source_file": "app/returns/orders.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_migrations",
+      "label": "Returns Schema Migrations",
+      "file_type": "code",
+      "source_file": "app/returns/migrations.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "js_universal_drilldown",
+      "label": "Universal Drilldown Controller",
+      "file_type": "code",
+      "source_file": "app/static/js/universal_drilldown.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "js_filters_enhanced",
+      "label": "Enhanced Filters Controller",
+      "file_type": "code",
+      "source_file": "app/static/js/filters-enhanced.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "js_customer_drilldown_v2",
+      "label": "Customer Drilldown V2 Charts",
+      "file_type": "code",
+      "source_file": "app/static/js/customer_drilldown_v2.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "blueprint_bundles",
+      "target": "bundle_service",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/bundles.py",
+      "source_location": "_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_bundles",
+      "target": "fact_store",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/bundles.py",
+      "source_location": "_suppliers_export",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_views",
+      "target": "auth_db",
+      "relation": "persists_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/views.py",
+      "source_location": "save_current",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_filters_actions",
+      "target": "filters_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/filters_actions.py",
+      "source_location": "apply_filters",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_events",
+      "target": "event_bus",
+      "relation": "subscribes_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/events.py",
+      "source_location": "events",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_regions",
+      "target": "regions_bundle",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/regions.py",
+      "source_location": "export_region",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_suppliers",
+      "target": "bundle_service",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/suppliers.py",
+      "source_location": "index",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_salesreps",
+      "target": "salesreps_bundle",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/salesreps.py",
+      "source_location": "_build_rep_export_response",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_filters_api",
+      "target": "filters_service",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/filters_api.py",
+      "source_location": "options",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_notifications",
+      "target": "notifications_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/notifications.py",
+      "source_location": "index",
+      "weight": 1.0
+    },
+    {
+      "source": "blueprint_dashboard",
+      "target": "churn_ml",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/dashboard.py",
+      "source_location": "churn_train",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_blueprints",
+      "target": "returns_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/blueprints.py",
+      "source_location": "create",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_service",
+      "target": "returns_models",
+      "relation": "persists_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/service.py",
+      "source_location": "create_rma",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_service",
+      "target": "returns_suggestions",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/service.py",
+      "source_location": "lookup_order_for_return",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_service",
+      "target": "returns_orders_adapter",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/service.py",
+      "source_location": "lookup_order_for_return",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_orders_adapter",
+      "target": "fact_store",
+      "relation": "queries",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/returns/orders.py",
+      "source_location": "get_order_detail",
+      "weight": 1.0
+    },
+    {
+      "source": "js_universal_drilldown",
+      "target": "blueprint_drilldowns",
+      "relation": "navigates_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/universal_drilldown.js",
+      "source_location": "buildUrl",
+      "weight": 1.0
+    },
+    {
+      "source": "js_customer_drilldown_v2",
+      "target": "plotly",
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/static/js/customer_drilldown_v2.js",
+      "source_location": "safePlot",
+      "weight": 1.0
+    }
+  ]
+}

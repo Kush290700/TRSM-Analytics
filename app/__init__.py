@@ -50,6 +50,7 @@ def register_blueprints(app: Flask) -> None:
     from .blueprints.suppliers import bp as suppliers_bp
     from .blueprints.labor import bp as labor_bp
     from .blueprints.salesreps import bp as salesreps_bp
+    from .blueprints.stakeholder_report import bp as stakeholder_report_bp
     from .blueprints.bundles import bp as bundles_bp
     from .blueprints.filters_api import bp as filters_api_bp
     from .blueprints.filters_actions import bp as filters_actions_bp
@@ -94,6 +95,7 @@ def register_blueprints(app: Flask) -> None:
     if bool(app.config.get("LABOR_ANALYTICS_ENABLED", True)):
         app.register_blueprint(labor_bp)
     app.register_blueprint(salesreps_bp)
+    app.register_blueprint(stakeholder_report_bp)
     app.register_blueprint(filters_api_bp)
     app.register_blueprint(filters_actions_bp)
     app.register_blueprint(api_slice_bp)
@@ -595,8 +597,11 @@ def create_app() -> Flask:
             from flask_login import current_user
             from app.auth.permissions import canonical_permission_key
             from app.core.rbac import effective_permissions
-
-            if getattr(current_user, "is_authenticated", False):
+            
+            login_disabled = bool(app.config.get("LOGIN_DISABLED", False))
+            if login_disabled:
+                perms = {"*"}
+            elif getattr(current_user, "is_authenticated", False):
                 perms = effective_permissions(current_user)
             else:
                 perms = set()

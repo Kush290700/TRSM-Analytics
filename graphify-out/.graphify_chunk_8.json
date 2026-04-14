@@ -1,0 +1,539 @@
+{
+  "nodes": [
+    {
+      "id": "playwright_salesreps_spec",
+      "label": "Playwright Sales Reps Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/salesreps.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_products_spec",
+      "label": "Playwright Products Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/products.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_filter_navigation_stability_spec",
+      "label": "Playwright Filter Navigation Stability Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/filter-navigation-stability.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_theme_audit_spec",
+      "label": "Playwright Theme Audit Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/theme-audit.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_filters_spec",
+      "label": "Playwright Filters Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/filters.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_auth_helper",
+      "label": "Playwright Auth Helper",
+      "file_type": "code",
+      "source_file": "tests/playwright/helpers/auth.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "playwright_theme_audit_helper",
+      "label": "Playwright Theme Audit Helper",
+      "file_type": "code",
+      "source_file": "tests/playwright/helpers/theme-audit.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_logging_setup",
+      "label": "App Logging Setup",
+      "file_type": "code",
+      "source_file": "app/logging_setup.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_config",
+      "label": "App Config",
+      "file_type": "code",
+      "source_file": "app/config.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_cache",
+      "label": "App Cache",
+      "file_type": "code",
+      "source_file": "app/cache.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_init",
+      "label": "App Factory (__init__)",
+      "file_type": "code",
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_limiter",
+      "label": "App Limiter",
+      "file_type": "code",
+      "source_file": "app/limiter.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "schema_velocity",
+      "label": "Velocity Schema",
+      "file_type": "code",
+      "source_file": "app/schemas/velocity.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_admin_api",
+      "label": "Admin API Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/admin_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_customers",
+      "label": "Customers Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/customers.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_pages",
+      "label": "Pages Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/pages.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_api_slice",
+      "label": "API Slice Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/api_slice.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_drilldowns",
+      "label": "Drilldowns Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/drilldowns.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_labor",
+      "label": "Labor Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/labor.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_products",
+      "label": "Products Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/products.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_admin",
+      "label": "Admin Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/admin.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bp_overview",
+      "label": "Overview Blueprint",
+      "file_type": "code",
+      "source_file": "app/blueprints/overview.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "playwright_salesreps_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/salesreps.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_products_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/products.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_filter_navigation_stability_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/filter-navigation-stability.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_theme_audit_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/theme-audit.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_theme_audit_spec",
+      "target": "playwright_theme_audit_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/theme-audit.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "playwright_filters_spec",
+      "target": "playwright_auth_helper",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/playwright/filters.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_config",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_logging_setup",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_cache",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "app_limiter",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_pages",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_overview",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_customers",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_products",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_labor",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_admin",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_admin_api",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_api_slice",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_init",
+      "target": "bp_drilldowns",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_customers",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/customers.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_products",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/products.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_overview",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/overview.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_api_slice",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/api_slice.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_admin_api",
+      "target": "app_cache",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/admin_api.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_admin_api",
+      "target": "app_limiter",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/blueprints/admin_api.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bp_pages",
+      "target": "bp_overview",
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/blueprints/pages.py",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "playwright_test_suite",
+      "label": "Playwright E2E Test Suite",
+      "nodes": ["playwright_salesreps_spec", "playwright_products_spec", "playwright_filter_navigation_stability_spec", "playwright_theme_audit_spec", "playwright_filters_spec"],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/playwright/"
+    },
+    {
+      "id": "flask_application_factory",
+      "label": "Flask Application Factory Pattern",
+      "nodes": ["app_init", "app_config", "app_logging_setup", "app_cache", "app_limiter"],
+      "relation": "implement",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/__init__.py"
+    },
+    {
+      "id": "analytics_blueprints",
+      "label": "Analytics Domain Blueprints",
+      "nodes": ["bp_customers", "bp_products", "bp_labor", "bp_overview"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "app/blueprints/"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

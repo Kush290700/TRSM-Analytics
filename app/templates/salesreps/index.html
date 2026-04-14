@@ -3,10 +3,10 @@
 {% block title %}Sales Reps Performance{% endblock %}
 
 {% block head_extras %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260411-v8') }}">
-<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/salesreps_v2.css', v='20260411-v20') }}">
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.3.2/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.3.2/dist/maplibre-gl.js" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -14,6 +14,7 @@
 <div id="SalesRepsApp"
      class="salesreps-v2"
      data-page="salesreps"
+     data-theme-ready="true"
      data-bundle-url="{{ url_for('bundles.salesreps_bundle') }}"
      data-export-xlsx="{{ url_for('salesreps.export_xlsx') }}"
      data-export-csv="{{ url_for('salesreps.export_csv') }}"
@@ -22,15 +23,25 @@
      data-asp-label="{{ asp_label }}"
      data-asp-lb-label="{{ asp_lb_label }}">
 
+  <section class="sr-page-toolbar mb-3" aria-label="Sales reps workspace controls">
+    <button type="button" class="btn btn-outline-secondary btn-sm sr-filter-toggle" id="srFilterDrawerToggle">
+      Filters
+    </button>
+    <div class="sr-filter-breadcrumb-shell">
+      <div class="sr-filter-breadcrumb-label">Active Scope</div>
+      <div class="sr-filter-breadcrumb" id="srFilterBreadcrumb">All Time | All Regions | All Reps</div>
+    </div>
+  </section>
+
   <section class="card shadow-sm border-0 sr-hero mb-4">
     <div class="card-body">
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
         <div class="sr-hero-copy">
-          <p class="text-uppercase text-muted small mb-1">Sales Rep Performance</p>
-          <h2 class="fw-bold mb-1">Current Owner Roll-Up</h2>
+          <p class="text-uppercase text-muted small mb-1">Sales Intelligence</p>
+          <h2 class="fw-bold mb-1">Sales Executive Dashboard</h2>
           <p class="text-muted mb-2">
-            Current account ownership is the primary lens. Historical sales stay audit-safe, but inherited books roll
-            forward to the rep who owns the account now so period-over-period reporting reflects today’s structure.
+            Revenue, profitability, account health, and territory performance — all under the current ownership lens.
+            Period comparisons reflect today’s rep structure for consistent, actionable attribution.
           </p>
           <div class="text-muted small" id="srWhatChanged">What changed: loading...</div>
         </div>
@@ -93,7 +104,7 @@
   <section class="mb-4">
     <div class="row g-3 scorecard-v2" id="srKpiGrid" aria-live="polite">
       <!-- Primary: Revenue / Profit -->
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <div class="card h-100 border-0 shadow-sm scorecard-column primary-column">
           <div class="card-header bg-primary text-white py-1 fw-bold small">PRIMARY: REVENUE / PROFIT</div>
           <div class="card-body p-2">
@@ -105,12 +116,14 @@
         </div>
       </div>
       <!-- Efficiency: Margin / ASP -->
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <div class="card h-100 border-0 shadow-sm scorecard-column efficiency-column">
-          <div class="card-header bg-success text-white py-1 fw-bold small">EFFICIENCY: MARGIN / ASP</div>
+          <div class="card-header bg-success text-white py-1 fw-bold small">EFFICIENCY: MARGIN / ASP / ORDER</div>
           <div class="card-body p-2">
             <div class="row g-2">
               <div class="col-12"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="margin_pct"><div class="label">Margin % <span id="statusMargin" class="status-dot"></span></div><div class="value" id="kpiMargin"><span class="skeleton"></span></div><div class="delta" id="kpiMarginDelta"><span class="skeleton" style="width:40px"></span></div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="aov"><div class="label">AOV <span title="Average Order Value = Revenue ÷ Order Count. T12M sparkline shown when trailing data is available." style="cursor:help;font-size:0.8em">ⓘ</span></div><div class="value" id="kpiAov"><span class="skeleton"></span></div><div class="delta" id="kpiAovDelta">&nbsp;</div></div></div>
+              <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="ppo"><div class="label">Profit / Order <span title="Total gross profit ÷ order count. Reveals rep efficiency. MoM (FMTD) delta shown below." style="cursor:help;font-size:0.8em">ⓘ</span></div><div class="value" id="kpiPpo"><span class="skeleton"></span></div><div class="delta" id="kpiPpoDelta">&nbsp;</div></div></div>
               <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp"><div class="label" id="kpiAspLabel">ASP</div><div class="value" id="kpiAsp"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
               <div class="col-6"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="asp_lb"><div class="label" id="kpiAspLbLabel">ASP / lb</div><div class="value" id="kpiAspLb"><span class="skeleton"></span></div><div class="delta">&nbsp;</div></div></div>
             </div>
@@ -118,7 +131,7 @@
         </div>
       </div>
       <!-- Portfolio: Customers / Volume -->
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <div class="card h-100 border-0 shadow-sm scorecard-column portfolio-column">
           <div class="card-header bg-info text-white py-1 fw-bold small">PORTFOLIO: CUSTOMERS / VOLUME</div>
           <div class="card-body p-2">
@@ -131,55 +144,62 @@
           </div>
         </div>
       </div>
+      <!-- Intelligence: Leakage / Churn -->
+      <div class="col-12 col-lg-3">
+        <div class="card h-100 border-0 shadow-sm scorecard-column intelligence-column">
+          <div class="card-header bg-dark text-white py-1 fw-bold small">INTELLIGENCE: LEAKAGE / CHURN</div>
+          <div class="card-body p-2">
+            <div class="row g-2">
+              <div class="col-12"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="leakage_revenue"><div class="label">Margin Leakage <span id="statusLeakage" class="status-dot"></span></div><div class="value" id="kpiLeakage"><span class="skeleton"></span></div><div class="delta" id="kpiLeakageDelta">&nbsp;</div></div></div>
+              <div class="col-12"><div class="sr-kpi sr-kpi-clickable" data-kpi-sort="overdue_customers"><div class="label">Overdue Accounts</div><div class="value" id="kpiOverdue"><span class="skeleton"></span></div><div class="delta" id="kpiOverdueDelta">Predictive Churn</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
+  <!-- Live-Action Geospatial Map -->
   <section class="mb-4" id="srMapSection">
     <article class="card shadow-sm border-0">
-      <div class="card-header bg-white border-0 d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
         <div>
           <div class="fw-semibold">Live Account Map</div>
-          <div class="text-muted small">
-            Switch between customer coverage, whitespace opportunity, and risk concentration without losing direct customer drilldown.
-          </div>
+          <div class="text-muted small">Customer locations sized by revenue. Pulsing red halo = silent &gt; 30 days. Click a territory bar or bubble to filter the dashboard.</div>
         </div>
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-          <div class="sr-map-legend" id="srMapLegend"></div>
+        <div class="d-flex gap-2 align-items-center">
+          <div class="sr-map-legend d-none d-lg-flex" id="srMapLegend"></div>
           <div class="btn-group btn-group-sm" role="group" aria-label="Map Mode">
             <input type="radio" class="btn-check" name="srMapMode" id="srMapModeBubbles" value="bubbles" checked autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapModeBubbles">Customers</label>
-
+            <label class="btn btn-outline-secondary" for="srMapModeBubbles" title="Standard point map">Customers</label>
+            
             <input type="radio" class="btn-check" name="srMapMode" id="srMapModeOpportunity" value="opportunity" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapModeOpportunity">Opportunity</label>
+            <label class="btn btn-outline-secondary" for="srMapModeOpportunity" title="Weighted opportunity heatmap">Opportunity</label>
 
             <input type="radio" class="btn-check" name="srMapMode" id="srMapModeRisk" value="risk" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapModeRisk">Risk</label>
+            <label class="btn btn-outline-secondary" for="srMapModeRisk" title="Risk concentration heatmap">Risk</label>
+
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModeBeef" value="beef" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModeBeef" title="Beef penetration heatmap">Beef</label>
+
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModePoultry" value="poultry" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModePoultry" title="Poultry penetration heatmap">Poultry</label>
+
+            <input type="radio" class="btn-check" name="srMapMode" id="srMapModePork" value="pork" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="srMapModePork" title="Pork penetration heatmap">Pork</label>
 
             <input type="radio" class="btn-check" name="srMapMode" id="srMapModeHybrid" value="hybrid" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapModeHybrid">Hybrid</label>
+            <label class="btn btn-outline-secondary" for="srMapModeHybrid" title="Opportunity heatmap with customer bubbles">Hybrid</label>
           </div>
-          <div class="btn-group btn-group-sm" role="group" aria-label="Account Status Filter">
-            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusActive" value="active" checked autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapStatusActive">Active</label>
-
-            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusLost" value="lost" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapStatusLost">Lost</label>
-
-            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusProspect" value="prospect" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapStatusProspect">Prospect</label>
-
-            <input type="radio" class="btn-check" name="srMapStatus" id="srMapStatusAll" value="all" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="srMapStatusAll">All</label>
-          </div>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="srMapResetBtn">Reset View</button>
+          <button class="btn btn-outline-secondary btn-sm" id="srMapResetBtn" title="Reset territory filter">Reset Filter</button>
         </div>
       </div>
-      <div class="card-body p-0 position-relative">
-        <div id="srLiveMap" class="sr-live-map" aria-label="Customer account map"></div>
-        <div id="srMapPlaceholder" class="sr-map-placeholder active">
+      <div class="card-body p-0">
+        <div id="srLiveMap" class="sr-live-map" aria-label="Customer account geospatial map"></div>
+        <div id="srMapPlaceholder" class="sr-map-placeholder">
           <div class="sr-map-placeholder-icon">&#127758;</div>
-          <div class="fw-semibold">Map loading...</div>
-          <div class="text-muted small">Customer and opportunity layers will appear when bundle data is ready.</div>
+          <div class="fw-semibold text-secondary">Map loading...</div>
+          <div class="text-muted small mt-1">Account locations will appear once data is ready.</div>
         </div>
       </div>
     </article>
@@ -362,7 +382,7 @@
     <div>
       <p class="sr-section-kicker mb-1">Trend Intelligence</p>
       <h3 class="mb-1">Current Versus Prior Performance, Rep Momentum, And Transfer Flow</h3>
-      <p class="text-muted mb-0" id="srSectionTrendSubtitle">Aligned current-period trends, prior-year comparisons, transfer exposure, and rep-level performance movement with drill-ready context.</p>
+      <p class="text-muted mb-0" id="srSectionTrendSubtitle">Aligned current-period trends, prior-year comparisons, transfer exposure, and rep-level performance movement.</p>
     </div>
   </section>
 
@@ -530,10 +550,10 @@
     </div>
     <div class="d-flex gap-2">
       <button id="btnExportFollowUpHeader"
-              onclick="exportFollowUpList()"
+              onclick="openFollowUpDrawer()"
               class="btn btn-sm"
-              style="background:var(--trsm-primary);color:#fff;border:none;border-radius:6px;font-size:0.82rem">
-        &#11015; Scott&#8217;s Follow-Up List
+              style="background:#660000;color:#fff;border:none;border-radius:6px;font-size:0.82rem">
+        &#128203; Daily Priority Queue
       </button>
     </div>
   </section>
@@ -548,6 +568,17 @@
           </div>
         </div>
         <div class="card-body sr-top-customers-card">
+          <div class="sr-gap-focus-panel d-none" id="srGapFocusPanel" aria-live="polite">
+            <div class="sr-gap-focus-head">
+              <div>
+                <div class="sr-gap-focus-kicker">Gap Analysis</div>
+                <div class="sr-gap-focus-title" id="srGapFocusTitle">Customer gap analysis</div>
+              </div>
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="srGapFocusClear">Clear Focus</button>
+            </div>
+            <div class="sr-gap-focus-meta" id="srGapFocusMeta">Select a customer from the priority queue to open gap analysis details.</div>
+            <div class="sr-gap-focus-grid" id="srGapFocusGrid"></div>
+          </div>
           <div class="sr-customer-toolbar" id="srCustomerToolbar">
             <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
               <input id="srCustomerSearch" type="text"
@@ -560,9 +591,9 @@
               </button>
               <button id="btnExportFollowUp"
                       class="btn btn-sm"
-                      onclick="exportFollowUpList()"
-                      style="background:var(--trsm-primary);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:0.82rem">
-                &#11015; Scott&#8217;s Follow-Up List
+                      onclick="openFollowUpDrawer()"
+                      style="background:#660000;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:0.82rem">
+                &#128203; Daily Priority Queue
               </button>
             </div>
             <div class="sr-owner-pills mb-2" id="srOwnerPills"></div>
@@ -608,14 +639,20 @@
         <div class="card-body sr-movers-body">
           <div class="row g-3">
             <div class="col-12 col-lg-6">
-              <div class="sr-subpanel sr-movers-panel">
-                <div class="sr-subpanel-title">New / Expanding</div>
+              <div class="sr-subpanel sr-movers-panel sr-movers-gained">
+                <div class="sr-movers-pane-header">
+                  <span class="sr-movers-pane-badge badge-gained">&#9650; Gained</span>
+                  <span class="text-muted small">New wins &amp; expanding accounts</span>
+                </div>
                 <ul class="sr-list" id="srCustomerMoversUp"></ul>
               </div>
             </div>
             <div class="col-12 col-lg-6">
-              <div class="sr-subpanel sr-movers-panel">
-                <div class="sr-subpanel-title">Lost / Contracting</div>
+              <div class="sr-subpanel sr-movers-panel sr-movers-lost">
+                <div class="sr-movers-pane-header">
+                  <span class="sr-movers-pane-badge badge-lost">&#9660; Lost</span>
+                  <span class="text-muted small">Lost &amp; contracting accounts</span>
+                </div>
                 <ul class="sr-list" id="srCustomerMoversDown"></ul>
               </div>
             </div>
@@ -626,7 +663,7 @@
   </section>
 
   <!-- Lost Accounts Panel -->
-  <section class="mb-4" id="lostAccountsPanel" style="border-left:3px solid #d39c5f;padding-left:0">
+  <section class="mb-4" id="lostAccountsPanel" style="border-left:3px solid #C5A059;padding-left:0">
     <div class="card shadow-sm border-0">
       <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center"
            style="cursor:pointer" onclick="srToggleLostPanel()" role="button" aria-expanded="false" aria-controls="lostAccountsBody">
@@ -646,7 +683,7 @@
     <div>
       <p class="sr-section-kicker mb-1">Protein / Product Intelligence</p>
       <h3 class="mb-1">Protein Mix, Margin Performance, And Contribution Detail</h3>
-      <p class="text-muted mb-0" id="srSectionProteinSubtitle">Category performance, mix shifts, and protein-level drilldowns tied back to customers and owner portfolios.</p>
+      <p class="text-muted mb-0" id="srSectionProteinSubtitle">Category performance, mix shifts, and protein-level details tied back to customers and owner portfolios.</p>
     </div>
   </section>
 
@@ -693,7 +730,7 @@
     <div>
       <p class="sr-section-kicker mb-1">Rep Ranking / Comparison</p>
       <h3 class="mb-1">Share, Pricing Leadership, And Full Rep Comparison</h3>
-      <p class="text-muted mb-0" id="srSectionComparisonSubtitle">Pareto concentration, pricing leaders, and the detailed rep comparison grid leadership uses to drill into owner performance.</p>
+      <p class="text-muted mb-0" id="srSectionComparisonSubtitle">Pareto concentration, pricing leaders, and the detailed rep comparison grid leadership uses to examine owner performance.</p>
     </div>
   </section>
 
@@ -763,7 +800,7 @@
             <label class="sr-column-option"><input type="checkbox" data-col-toggle="top_protein" checked> Top Protein</label>
             <label class="sr-column-option"><input type="checkbox" data-col-toggle="flags" checked> Flags</label>
             <label class="sr-column-option"><input type="checkbox" data-col-toggle="health" checked> Health Score</label>
-            <label class="sr-column-option"><input type="checkbox" data-col-toggle="quartile" checked> Rank</label>
+            <label class="sr-column-option"><input type="checkbox" data-col-toggle="quartile" checked> Smart Rank</label>
           </div>
         </div>
         <label class="visually-hidden" for="srSearchInput">Search sales rep</label>
@@ -790,13 +827,14 @@
           <tr>
             <th scope="col" class="col-select text-center"><input type="checkbox" id="srSelectAll" class="form-check-input" title="Select top 4 reps for comparison" aria-label="Select top 4 reps"></th>
             <th scope="col" class="sticky-col sortable" tabindex="0" data-sort-key="rep_name">Rep</th>
-            <th scope="col" class="text-center sortable col-health" tabindex="0" data-sort-key="health_score" title="Health Score: composite of momentum, margin, retention, and concentration">Health</th>
-            <th scope="col" class="text-center sortable col-quartile" tabindex="0" data-sort-key="revenue_quartile" title="Revenue quartile rank across all reps">Rank</th>
+            <th scope="col" class="text-center sortable col-health" tabindex="0" data-sort-key="health_score" title="Health Index: % of customers who placed an order in the last 30 days. Green ≥ 80%, Yellow ≥ 60%, Red below.">Health (30d)</th>
+            <th scope="col" class="text-center sortable col-direct_ratio" tabindex="0" data-sort-key="inherited_revenue_share_pct" title="Direct versus inherited revenue mix">Direct / Inherited</th>
+            <th scope="col" class="text-center sortable col-quartile" tabindex="0" data-sort-key="revenue_quartile" title="Smart Rank: composite score weighted 60% Revenue + 40% Margin. #1 = strongest overall performer.">Smart Rank</th>
             <th scope="col" class="text-end sortable col-revenue" tabindex="0" data-sort-key="revenue">Revenue</th>
             <th scope="col" class="text-end sortable col-profit" tabindex="0" data-sort-key="profit">Profit</th>
             <th scope="col" class="text-end sortable col-margin_pct" tabindex="0" data-sort-key="margin_pct">Margin %</th>
             <th scope="col" class="text-end sortable col-silent_days" tabindex="0" data-sort-key="last_order_date">Silent (Days)</th>
-            <th scope="col" class="text-end sortable col-mom_revenue_delta" tabindex="0" data-sort-key="mom_revenue_delta">MoM Delta</th>
+            <th scope="col" class="text-end sortable col-mom_revenue_delta" tabindex="0" data-sort-key="mom_revenue_pct">MoM Momentum</th>
             <th scope="col" class="text-end sortable col-yoy_revenue_delta" tabindex="0" data-sort-key="yoy_revenue_delta">YoY Delta</th>
             <th scope="col" class="text-end sortable col-weight_lb" tabindex="0" data-sort-key="weight_lb">Shipped LB</th>
             <th scope="col" class="text-end sortable col-active_customers" tabindex="0" data-sort-key="active_customers">Active Cust.</th>
@@ -804,17 +842,22 @@
             <th scope="col" class="text-end sortable col-inherited_customers" tabindex="0" data-sort-key="inherited_customers">Inherited</th>
             <th scope="col" class="text-end sortable col-transferred_in_revenue" tabindex="0" data-sort-key="transferred_in_revenue">Transferred In</th>
             <th scope="col" class="text-end sortable col-transferred_out_revenue" tabindex="0" data-sort-key="transferred_out_revenue">Transferred Out</th>
-            <th scope="col" class="text-end sortable col-yoy_revenue_pct" tabindex="0" data-sort-key="yoy_revenue_pct">YoY Rev %</th>
+            <th scope="col" class="text-end sortable col-yoy_revenue_pct" tabindex="0" data-sort-key="yoy_revenue_pct" title="Year-over-Year Revenue % — same fiscal month comparison based on the Period Financial Model (PFM). Compares current period against the identical fiscal-month window in the prior year.">YoY Rev % <span style="cursor:help;font-size:0.75em;opacity:0.7" aria-label="Same fiscal month comparison (PFM)">ⓘ</span></th>
             <th scope="col" class="text-end sortable col-territory_count" tabindex="0" data-sort-key="territory_count">Territories</th>
             <th scope="col" class="sortable col-replaced_reps" tabindex="0" data-sort-key="replaced_rep_count">Replaced Reps</th>
             <th scope="col" class="col-top_territory">Top Territory</th>
             <th scope="col" class="col-top_customer">Top Customer</th>
-            <th scope="col" class="col-top_protein">Top Protein</th>
-            <th scope="col" class="col-flags">Flags</th>
+            <th scope="col" class="col-top_protein" data-sort="top_protein_family">Top Protein</th>
+            <th scope="col" class="text-end col-leakage" data-sort="leakage_revenue" title="Revenue sold below minimum protein margin target">Leakage</th>
+            <th scope="col" class="col-protein_penetration" title="Species penetration across healthy customers">Protein Mix</th>
+            <th scope="col" class="text-end col-overdue_customers" data-sort="overdue_customers" title="Customers missing their historical order frequency pulse">Overdue</th>
+            <th scope="col" class="col-flags">Alerts</th>
+
             <th scope="col" class="text-end">Open</th>
           </tr>
         </thead>
         <tbody id="salesreps-table-body"></tbody>
+        <tfoot id="salesreps-table-foot"></tfoot>
       </table>
       <!-- Phase 6D: empty state shown when no reps match filters -->
       <div id="srTableEmpty">
@@ -834,19 +877,55 @@
     <div id="salesrepsPagerIndicator" class="text-muted small px-3 pb-2"></div>
   </section>
 
+  <div id="srFilterDrawer" class="sr-filter-drawer" role="dialog" aria-modal="true" aria-label="Global filters" style="display:none">
+    <div class="sr-filter-drawer-backdrop" id="srFilterDrawerBackdrop"></div>
+    <div class="sr-filter-drawer-panel">
+      <div class="sr-filter-drawer-header">
+        <div>
+          <div class="fw-bold">Global Filters</div>
+          <div class="text-muted small">Refine the sales workspace without consuming page height.</div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" id="srFilterDrawerClose" aria-label="Close filters"></button>
+      </div>
+      <div class="sr-filter-drawer-body">
+        <div id="srFilterDrawerMount"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Follow-Up Priority Queue Side Drawer -->
+  <div id="srFollowUpDrawer" class="sr-followup-drawer" role="dialog" aria-modal="true" aria-label="Daily Priority Queue" style="display:none">
+    <div class="sr-followup-drawer-backdrop" onclick="closeFollowUpDrawer()"></div>
+    <div class="sr-followup-drawer-panel">
+      <div class="sr-followup-drawer-header">
+        <div>
+          <div class="fw-bold">Daily Priority Queue</div>
+          <div class="text-muted small" id="srDrawerSubtitle">At-risk customers ranked by urgency</div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <button class="btn btn-outline-secondary btn-sm" onclick="exportFollowUpList()">&#11015; Export CSV</button>
+          <button class="btn-close" onclick="closeFollowUpDrawer()" aria-label="Close drawer"></button>
+        </div>
+      </div>
+      <div class="sr-followup-drawer-body" id="srFollowUpDrawerBody">
+        <p class="text-muted">Loading priority queue...</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Rep Side-by-Side Comparison Modal -->
   <div class="modal fade" id="srCompareModal" tabindex="-1" aria-labelledby="srCompareModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <div class="modal-content">
-        <div class="modal-header" style="background:#111111;color:#fff">
+        <div class="modal-header" style="background:#1A0F0A;color:#FDFBF7;border-bottom:2px solid #660000">
           <h5 class="modal-title" id="srCompareModalLabel">Rep Side-by-Side Comparison</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body p-0" id="srCompareModalBody">
-          <p class="text-muted p-3 mb-0">Select 2–4 reps from the table below, then click Compare.</p>
+          <p class="text-muted p-3 mb-0">Select 2–4 reps from the table, then click Compare.</p>
         </div>
-        <div class="modal-footer border-0 bg-light">
-          <span class="text-muted small me-auto">Green highlight = leader in that metric</span>
+        <div class="modal-footer border-0" style="background:#F8FAFC;border-top:1px solid #E2E8F0">
+          <span class="text-muted small me-auto">Gold highlight = leader in that metric</span>
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
         </div>
       </div>
@@ -856,5 +935,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/salesreps.js', v='20260411-v6') }}" defer></script>
+<script src="{{ url_for('static', filename='js/salesreps.js', v='20260411-v21') }}" defer></script>
 {% endblock %}

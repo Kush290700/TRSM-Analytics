@@ -123,6 +123,9 @@
       suppliers: coerceList(obj.suppliers || obj.supplier_ids),
       products: coerceList(obj.products || obj.product_ids),
       sales_reps: coerceList(obj.sales_reps || obj.sales_rep_ids),
+      protein_groups: coerceList(obj.protein_groups || obj.protein_group || obj.meat_type || obj.species),
+      yield_min: coerceScalar(obj.yield_min),
+      yield_max: coerceScalar(obj.yield_max),
       protein_min: coerceScalar(obj.protein_min),
       protein_max: coerceScalar(obj.protein_max),
       protein_name_like: coerceScalar(obj.protein_name_like || obj.protein_name || obj.protein),
@@ -161,6 +164,8 @@
       "suppliers", "supplier_ids",
       "products", "product_ids",
       "sales_reps", "sales_rep_ids",
+      "protein_groups", "protein_group", "meat_type", "species",
+      "yield_min", "yield_max",
       "statuses",
       "protein_min", "protein_max", "protein_name", "protein_name_like",
       "complete_months_only", "completeMonthsOnly", "full_months_only",
@@ -221,6 +226,9 @@
     appendAll("suppliers", payload.suppliers);
     appendAll("products", payload.products);
     appendAll("sales_reps", payload.sales_reps);
+    appendAll("protein_groups", payload.protein_groups);
+    if (payload.yield_min !== null) params.set("yield_min", payload.yield_min);
+    if (payload.yield_max !== null) params.set("yield_max", payload.yield_max);
     if (payload.protein_min !== null) params.set("protein_min", payload.protein_min);
     if (payload.protein_max !== null) params.set("protein_max", payload.protein_max);
     if (payload.protein_name_like) params.set("protein_name_like", payload.protein_name_like);
@@ -232,7 +240,7 @@
     current.forEach((value, key) => {
       if (params.has(key)) return;
       if (/^(_gf)$/.test(key)) return;
-      if (/^(start|end|date_preset|date_type|statuses|regions|region_ids|methods|shipping_methods|ship_method_ids|customers|customer_ids|suppliers|supplier_ids|products|product_ids|sales_reps|sales_rep_ids|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|completeMonthsOnly|full_months_only)/.test(key)) return;
+      if (/^(start|end|date_preset|date_type|statuses|regions|region_ids|methods|shipping_methods|ship_method_ids|customers|customer_ids|suppliers|supplier_ids|products|product_ids|sales_reps|sales_rep_ids|protein_groups|protein_group|meat_type|species|yield_min|yield_max|protein_min|protein_max|protein_name|protein_name_like|complete_months_only|completeMonthsOnly|full_months_only)/.test(key)) return;
       params.append(key, value);
     });
     return params.toString();
@@ -272,6 +280,9 @@
       suppliers: toArray("suppliers"),
       products: toArray("products"),
       sales_reps: toArray("sales_reps"),
+      protein_groups: toArray("protein_groups"),
+      yield_min: readScalar("yield_min"),
+      yield_max: readScalar("yield_max"),
       protein_min: readScalar("protein_min"),
       protein_max: readScalar("protein_max"),
       protein_name_like: readScalar("protein_name_like", "protein_name", "protein"),
@@ -322,6 +333,7 @@
     setMulti("#fSuppliers", filters.suppliers);
     setMulti("#fProducts", filters.products);
     setMulti("#fSalesReps", filters.sales_reps);
+    setMulti("#fProteinGroups", filters.protein_groups);
     const setNamedValue = (names, value) => {
       (names || []).forEach((name) => {
         const el = form.querySelector(`[name="${name}"]`) || document.querySelector(`[name="${name}"]`);
@@ -333,6 +345,8 @@
         }
       });
     };
+    setNamedValue(["yield_min"], filters.yield_min);
+    setNamedValue(["yield_max"], filters.yield_max);
     setNamedValue(["protein_min"], filters.protein_min);
     setNamedValue(["protein_max"], filters.protein_max);
     setNamedValue(["protein_name_like", "protein_name"], filters.protein_name_like);

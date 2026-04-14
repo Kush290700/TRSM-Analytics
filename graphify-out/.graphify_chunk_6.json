@@ -1,0 +1,368 @@
+{
+  "nodes": [
+    {
+      "id": "filters_frontend_contract",
+      "label": "Filters Frontend Contract",
+      "file_type": "code",
+      "source_file": "tests/test_filters_frontend_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "pages_smoke",
+      "label": "Pages Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_pages.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "admin_rbac_portal",
+      "label": "Admin RBAC and Portal",
+      "file_type": "code",
+      "source_file": "tests/test_admin_rbac_portal.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_bundle_extra",
+      "label": "Customers Bundle Extensions",
+      "file_type": "code",
+      "source_file": "tests/test_customers_bundle_extra.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_bundle_api",
+      "label": "Products Bundle API",
+      "file_type": "code",
+      "source_file": "tests/test_products_bundle_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_options_contract",
+      "label": "Filters Options API Contract",
+      "file_type": "code",
+      "source_file": "tests/test_filters_options_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_drilldown_v2",
+      "label": "Regions Drilldown v2",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "background_refresh",
+      "label": "Background Refresh Initialization",
+      "file_type": "code",
+      "source_file": "tests/test_background_refresh.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_forecast",
+      "label": "Products Forecasting Logic",
+      "file_type": "code",
+      "source_file": "tests/test_products_forecast.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_normalization",
+      "label": "Products Data Normalization",
+      "file_type": "code",
+      "source_file": "tests/test_products_normalization.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_v2_smoke",
+      "label": "Overview v2 Service Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_overview_v2_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_drilldown_v2",
+      "label": "Customers Drilldown v2",
+      "file_type": "code",
+      "source_file": "tests/test_customers_drilldown_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "assistant_feature",
+      "label": "AI Assistant Feature",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_feature.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "supplier_drilldown_v2",
+      "label": "Supplier Drilldown v2",
+      "file_type": "code",
+      "source_file": "tests/test_supplier_drilldown_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "gap_backfill",
+      "label": "ETL Gap Backfill",
+      "file_type": "code",
+      "source_file": "tests/test_gap_backfill.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_bundle_sections",
+      "label": "Customers Bundle Section-Aware Requests",
+      "file_type": "code",
+      "source_file": "tests/test_customers_bundle_sections.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_clv_v2",
+      "label": "Customers CLV v2",
+      "file_type": "code",
+      "source_file": "tests/test_customers_clv_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "returns_module",
+      "label": "Returns Module",
+      "file_type": "code",
+      "source_file": "tests/test_returns_module.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_v2",
+      "label": "Regions v2 Overview",
+      "file_type": "code",
+      "source_file": "tests/test_regions_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "region_filter_labels",
+      "label": "Region Filter Labels",
+      "file_type": "code",
+      "source_file": "tests/test_region_filter_labels.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_quick_upgrade",
+      "label": "Regions Quick Upgrade",
+      "file_type": "code",
+      "source_file": "tests/test_regions_quick_upgrade.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "filters_frontend_contract",
+      "target": "filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_frontend_contract.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "admin_rbac_portal",
+      "target": "rbac_access",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_admin_rbac_portal.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "products_bundle_api",
+      "target": "products",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_bundle_api.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_v2_smoke",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_v2_smoke.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_drilldown_v2",
+      "target": "customers",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_drilldown_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "assistant_feature",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_assistant_feature.py",
+      "source_location": "test_assistant_chat_masks_sensitive_kpis_for_user_without_cost_access",
+      "weight": 1.0
+    },
+    {
+      "source": "returns_module",
+      "target": "mailer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_returns_module.py",
+      "source_location": "test_email_notifications_sent_on_create_and_transition",
+      "weight": 1.0
+    },
+    {
+      "source": "gap_backfill",
+      "target": "partition_writer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_gap_backfill.py",
+      "source_location": "test_gap_backfill_invokes_loader_for_missing_ranges",
+      "weight": 1.0
+    },
+    {
+      "source": "customers_bundle_sections",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_bundle_sections.py",
+      "source_location": "test_customers_drilldown_reports_actual_query_count",
+      "weight": 1.0
+    },
+    {
+      "source": "region_filter_labels",
+      "target": "filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_region_filter_labels.py",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "v2_upgrade_pattern",
+      "label": "V2 Dashboard Upgrade Pattern",
+      "nodes": [
+        "customers_drilldown_v2",
+        "supplier_drilldown_v2",
+        "regions_drilldown_v2",
+        "regions_v2",
+        "customers_clv_v2"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/test_customers_drilldown_v2.py"
+    },
+    {
+      "id": "feature_assistant_returns",
+      "label": "Major Feature Modules",
+      "nodes": [
+        "assistant_feature",
+        "returns_module"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_assistant_feature.py"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

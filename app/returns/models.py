@@ -78,7 +78,15 @@ class ReturnRMA(Base):
     rejected_at = Column(DateTime, nullable=True)
     reject_reason = Column(Text, nullable=True)
     status = Column(String(64), nullable=False, default="requested")
+    company = Column(String(64), nullable=True)
+    approval_target = Column(String(64), nullable=True)
     created_by_user_id = Column(Integer, nullable=True)
+    
+    # SLA Timestamps
+    ops_cleared_at = Column(DateTime, nullable=True)
+    wh_reviewed_at = Column(DateTime, nullable=True)
+    fin_cleared_at = Column(DateTime, nullable=True)
+
     assigned_user_id = Column(Integer, nullable=True)
     decision_summary = Column(String(255), nullable=True)
     policy_version = Column(String(64), nullable=True)
@@ -121,6 +129,8 @@ class ReturnRMAItem(Base):
     item_condition = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
     receiving_notes = Column(Text, nullable=True)
+    warehouse_outcome = Column(String(128), nullable=True)
+    received_weight_lb = Column(Float, nullable=True)
     metadata_json = Column(Text, nullable=False, default="{}", server_default=text("'{}'"))
     created_at = Column(DateTime, nullable=False, default=utcnow, server_default=text("CURRENT_TIMESTAMP"))
 
@@ -161,6 +171,12 @@ class ReturnEvent(Base):
     event_type = Column(String(64), nullable=False)
     from_status = Column(String(64), nullable=True)
     to_status = Column(String(64), nullable=True)
+    
+    # Granular Field Changes for Enterprise Auditing
+    field_name = Column(String(128), nullable=True)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+
     actor_user_id = Column(Integer, nullable=True)
     payload_json = Column(Text, nullable=False, default="{}", server_default=text("'{}'"))
     created_at = Column(DateTime, nullable=False, default=utcnow, server_default=text("CURRENT_TIMESTAMP"))

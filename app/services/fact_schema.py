@@ -20,6 +20,9 @@ class FactColumns:
     region: str = "RegionName"
     ship_method: str = "ShippingMethodName"
     sales_rep: str = "SalesRepName"
+    protein_group: str = "ProteinGroup"
+    yield_pct: str = "YieldPct"
+    is_catch_weight: bool = "IsCatchWeight"
     revenue: str = "Revenue"
     cost: str = "Cost"
     qty_units: str = "QuantityShipped"
@@ -27,6 +30,31 @@ class FactColumns:
 
 
 CANON = FactColumns()
+
+PROTEIN_CANDIDATES: tuple[str, ...] = (
+    "ProteinGroup",
+    "ProteinCategory",
+    "MeatType",
+    "Species",
+    "Protein",
+    "CategoryName",
+    "SubCategoryName",
+)
+
+YIELD_CANDIDATES: tuple[str, ...] = (
+    "YieldPct",
+    "Yield",
+    "ProcessingYield",
+    "ShrinkagePct",
+    "RecoveryPct",
+)
+
+CATCH_WEIGHT_CANDIDATES: tuple[str, ...] = (
+    "IsCatchWeight",
+    "CatchWeight",
+    "VariableWeight",
+    "IsVariableWeight",
+)
 
 REVENUE_CANDIDATES: tuple[str, ...] = (
     "revenue_packs_only",
@@ -175,3 +203,15 @@ def resolve_weight_column(df: pd.DataFrame) -> Optional[str]:
 
 def resolve_date_column(df: pd.DataFrame) -> Optional[str]:
     return best_column(df, DATE_CANDIDATES)
+
+
+def resolve_protein_column(df: pd.DataFrame) -> Optional[str]:
+    return best_column(df, PROTEIN_CANDIDATES)
+
+
+def resolve_yield_column(df: pd.DataFrame) -> Optional[str]:
+    return best_column(df, YIELD_CANDIDATES)
+
+
+def resolve_catch_weight_column(df: pd.DataFrame) -> Optional[str]:
+    return best_column(df, CATCH_WEIGHT_CANDIDATES)

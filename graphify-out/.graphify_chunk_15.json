@@ -1,0 +1,505 @@
+{
+  "nodes": [
+    {
+      "id": "tests_test_salesreps_bundle_accuracy_py",
+      "label": "tests/test_salesreps_bundle_accuracy.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_bundle_accuracy_test_margin_is_revenue_weighted_not_simple_mean",
+      "label": "test_margin_is_revenue_weighted_not_simple_mean()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py",
+      "source_location": "L87"
+    },
+    {
+      "id": "tests_test_fact_normalization_costs_py",
+      "label": "tests/test_fact_normalization_costs.py",
+      "file_type": "code",
+      "source_file": "tests/test_fact_normalization_costs.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_fact_normalization_costs_test_normalize_fact_df_coalesces_cost_sources",
+      "label": "test_normalize_fact_df_coalesces_cost_sources()",
+      "file_type": "code",
+      "source_file": "tests/test_fact_normalization_costs.py",
+      "source_location": "L7"
+    },
+    {
+      "id": "tests_test_products_kpi_payload_py",
+      "label": "tests/test_products_kpi_payload.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_kpi_payload_test_products_overview_kpis_and_velocity",
+      "label": "test_products_overview_kpis_and_velocity()",
+      "file_type": "code",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": "L54"
+    },
+    {
+      "id": "tests_test_filters_protein_py",
+      "label": "tests/test_filters_protein.py",
+      "file_type": "code",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_filters_protein_test_parse_filters_protein_fields",
+      "label": "test_parse_filters_protein_fields()",
+      "file_type": "code",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": "L6"
+    },
+    {
+      "id": "tests_test_products_filters_py",
+      "label": "tests/test_products_filters.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_filters_test_products_parse_filters_uses_default_window",
+      "label": "test_products_parse_filters_uses_default_window()",
+      "file_type": "code",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": "L29"
+    },
+    {
+      "id": "tests_test_salesrep_drilldown_frontend_contract_py",
+      "label": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesrep_drilldown_frontend_contract_test_row_links_preserve_rep_and_filters_context",
+      "label": "test_row_links_preserve_rep_and_filters_context()",
+      "file_type": "code",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": "L8"
+    },
+    {
+      "id": "tests_test_products_static_assets_py",
+      "label": "tests/test_products_static_assets.py",
+      "file_type": "code",
+      "source_file": "tests/test_products_static_assets.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_products_static_assets_test_products_js_served",
+      "label": "test_products_js_served()",
+      "file_type": "code",
+      "source_file": "tests/test_products_static_assets.py",
+      "source_location": "L5"
+    },
+    {
+      "id": "tests_test_bundle_endpoints_py",
+      "label": "tests/test_bundle_endpoints.py",
+      "file_type": "code",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_bundle_endpoints_test_bundle_endpoints_basic",
+      "label": "test_bundle_endpoints_basic()",
+      "file_type": "code",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "L54"
+    },
+    {
+      "id": "tests_test_overview_metric_contract_py",
+      "label": "tests/test_overview_metric_contract.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_metric_contract_test_window_contract_includes_prior_windows",
+      "label": "test_window_contract_includes_prior_windows()",
+      "file_type": "code",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "L21"
+    },
+    {
+      "id": "tests_test_overview_insights_py",
+      "label": "tests/test_overview_insights.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_insights_test_insights_new_customer_detection",
+      "label": "test_insights_new_customer_detection()",
+      "file_type": "code",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": "L41"
+    },
+    {
+      "id": "tests_test_data_loader_incremental_py",
+      "label": "tests/test_data_loader_incremental.py",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_data_loader_incremental_test_refresh_parquet_incremental_window",
+      "label": "test_refresh_parquet_incremental_window()",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "tests_test_salesreps_module_py",
+      "label": "tests/test_salesreps_module.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_module_test_rep_rollup_basic_metrics",
+      "label": "test_rep_rollup_basic_metrics()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": "L17"
+    },
+    {
+      "id": "tests_test_json_safety_py",
+      "label": "tests/test_json_safety.py",
+      "file_type": "code",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_json_safety_test_sanitize_for_json_strips_nan_and_inf",
+      "label": "test_sanitize_for_json_strips_nan_and_inf()",
+      "file_type": "code",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "L13"
+    },
+    {
+      "id": "tests_test_fact_packs_only_py",
+      "label": "tests/test_fact_packs_only.py",
+      "file_type": "code",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_fact_packs_only_test_pack_revenue_uses_weight_or_units",
+      "label": "test_pack_revenue_uses_weight_or_units()",
+      "file_type": "code",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "tests_test_schema_py",
+      "label": "tests/test_schema.py",
+      "file_type": "code",
+      "source_file": "tests/test_schema.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_schema_test_min_columns_exist",
+      "label": "test_min_columns_exist()",
+      "file_type": "code",
+      "source_file": "tests/test_schema.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "tests_test_user_invite_flow_py",
+      "label": "tests/test_user_invite_flow.py",
+      "file_type": "code",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_user_invite_flow_test_token_creation_stores_hash_and_expiry",
+      "label": "test_token_creation_stores_hash_and_expiry()",
+      "file_type": "code",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "L87"
+    },
+    {
+      "id": "tests_test_rbac_access_py",
+      "label": "tests/test_rbac_access.py",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_rbac_access_test_scope_list_restricts_query",
+      "label": "test_scope_list_restricts_query()",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": "L82"
+    },
+    {
+      "id": "tests_test_customers_rfm_v2_py",
+      "label": "tests/test_customers_rfm_v2.py",
+      "file_type": "code",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_customers_rfm_v2_test_customers_rfm_v2_fixed_scoring_stable",
+      "label": "test_customers_rfm_v2_fixed_scoring_stable()",
+      "file_type": "code",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "L81"
+    },
+    {
+      "id": "tests_test_margin_rules_py",
+      "label": "tests/test_margin_rules.py",
+      "file_type": "code",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_margin_rules_test_resolve_margin_rule_for_beef",
+      "label": "test_resolve_margin_rule_for_beef()",
+      "file_type": "code",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": "L6"
+    },
+    {
+      "id": "tests_test_labor_store_py",
+      "label": "tests/test_labor_store.py",
+      "file_type": "code",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_labor_store_test_labor_store_views_and_kpi_summary",
+      "label": "test_labor_store_views_and_kpi_summary()",
+      "file_type": "code",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": "L8"
+    },
+    {
+      "id": "tests_test_overview_forecast_py",
+      "label": "tests/test_overview_forecast.py",
+      "file_type": "code",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_overview_forecast_test_forecast_v2_short_history_uses_limited_confidence",
+      "label": "test_forecast_v2_short_history_uses_limited_confidence()",
+      "file_type": "code",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "L170"
+    },
+    {
+      "id": "tests_test_salesreps_drilldown_bundle_py",
+      "label": "tests/test_salesreps_drilldown_bundle.py",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_salesreps_drilldown_bundle_test_salesreps_drilldown_bundle_panels",
+      "label": "test_salesreps_drilldown_bundle_panels()",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": "L56"
+    }
+  ],
+  "edges": [
+    {
+      "source": "tests_test_salesreps_bundle_accuracy_test_margin_is_revenue_weighted_not_simple_mean",
+      "target": "app_services_salesreps_bundle_build_salesreps_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_bundle_accuracy.py",
+      "source_location": "L88",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_fact_normalization_costs_test_normalize_fact_df_coalesces_cost_sources",
+      "target": "app_services_analytics_utils_normalize_fact_df",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_fact_normalization_costs.py",
+      "source_location": "L19",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_kpi_payload_test_products_overview_kpis_and_velocity",
+      "target": "app_blueprints_products_overview",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_filters_protein_test_parse_filters_protein_fields",
+      "target": "app_services_filters_parse_filters",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": "L7",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_products_filters_test_products_parse_filters_uses_default_window",
+      "target": "app_blueprints_products_parse_filters",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": "L41",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesrep_drilldown_frontend_contract_test_row_links_preserve_rep_and_filters_context",
+      "target": "app_static_js_salesrep_drilldown_js",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": "L9",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_bundle_endpoints_test_bundle_endpoints_basic",
+      "target": "app_services_bundle_service_bundle",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "L56",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_metric_contract_test_window_contract_includes_prior_windows",
+      "target": "app_services_overview_metrics_resolve_window_contract",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "L23",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_insights_test_insights_new_customer_detection",
+      "target": "app_services_overview_insights_build_insights_payload",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_data_loader_incremental_test_refresh_parquet_incremental_window",
+      "target": "data_loader_refresh_parquet",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": "L67",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesreps_module_test_rep_rollup_basic_metrics",
+      "target": "app_blueprints_salesreps__rep_rollup",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": "L28",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_json_safety_test_sanitize_for_json_strips_nan_and_inf",
+      "target": "app_core_json_sanitizer_sanitize_for_json",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "L22",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_fact_packs_only_test_pack_revenue_uses_weight_or_units",
+      "target": "app_services_fact_store_execute_sql_df",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": "L55",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_schema_test_min_columns_exist",
+      "target": "data_loader_get_dataframe",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_schema.py",
+      "source_location": "L13",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_user_invite_flow_test_token_creation_stores_hash_and_expiry",
+      "target": "app_auth_password_tokens_issue_password_token",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "L90",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_rbac_access_test_scope_list_restricts_query",
+      "target": "app_services_fact_store_query_fact",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": "L95",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_customers_rfm_v2_test_customers_rfm_v2_fixed_scoring_stable",
+      "target": "app_services_filters_service_scope_from_user",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "L82",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_margin_rules_test_resolve_margin_rule_for_beef",
+      "target": "app_services_margin_rules_resolve_margin_rule",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": "L7",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_labor_store_test_labor_store_views_and_kpi_summary",
+      "target": "app_services_labor_store_query_df",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": "L14",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_overview_forecast_test_forecast_v2_short_history_uses_limited_confidence",
+      "target": "app_services_overview_forecast_forecast_metric_v2",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "L181",
+      "weight": 0.8
+    },
+    {
+      "source": "tests_test_salesreps_drilldown_bundle_test_salesreps_drilldown_bundle_panels",
+      "target": "app_services_salesreps_bundle_build_salesreps_drilldown",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": "L62",
+      "weight": 0.8
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

@@ -38,7 +38,7 @@ _OPTIONS_CACHE = TTLValueCache(maxsize=64)
 _OPTIONS_STALE_CACHE = TTLValueCache(maxsize=64)
 _OPTION_GROUP_CACHE = TTLValueCache(maxsize=256)
 _OPTION_GROUP_STALE_CACHE = TTLValueCache(maxsize=256)
-OPTION_KEYS = ("statuses", "regions", "methods", "ship_methods", "customers", "suppliers", "products", "sales_reps")
+OPTION_KEYS = ("statuses", "regions", "methods", "ship_methods", "customers", "suppliers", "products", "sales_reps", "protein_groups")
 OPTION_KEY_SET = set(OPTION_KEYS)
 _OPTION_ALIAS_MAP = {
     "shipping_methods": "methods",
@@ -51,8 +51,11 @@ _OPTION_ALIAS_MAP = {
     "sales_rep": "sales_reps",
     "salesrep": "sales_reps",
     "salesreps": "sales_reps",
+    "protein_group": "protein_groups",
+    "meat_type": "protein_groups",
+    "species": "protein_groups",
 }
-_PRIMARY_OPTION_KEYS = ("statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps")
+_PRIMARY_OPTION_KEYS = ("statuses", "regions", "methods", "customers", "suppliers", "products", "sales_reps", "protein_groups")
 _OPTION_GROUPS = {
     "statuses": ("statuses",),
     "regions": ("regions",),
@@ -62,6 +65,7 @@ _OPTION_GROUPS = {
     "suppliers": ("suppliers",),
     "products": ("products",),
     "sales_reps": ("sales_reps",),
+    "protein_groups": ("protein_groups",),
 }
 
 
@@ -191,6 +195,9 @@ def schema(filters: Any = None) -> Dict[str, Any]:
         {"name": "products", "type": "multi", "label": "Products", "aliases": ["product_ids"]},
         {"name": "sales_reps", "type": "multi", "label": "Sales Reps", "aliases": ["sales_rep_ids"]},
         {"name": "shipping_methods", "type": "multi", "label": "Shipping Methods", "aliases": ["ship_method_ids", "methods"]},
+        {"name": "protein_groups", "type": "multi", "label": "Protein Groups", "aliases": ["protein_group", "meat_type", "species"]},
+        {"name": "yield_min", "type": "number", "label": "Yield Min %", "default": defaults.get("yield_min")},
+        {"name": "yield_max", "type": "number", "label": "Yield Max %", "default": defaults.get("yield_max")},
     ]
     return {
         "fields": fields,
@@ -254,6 +261,12 @@ def _option_selects(cols: set[str], requested_keys: tuple[str, ...]) -> List[str
         "sales_reps",
         ("SalesRepId", "PrimarySalesRepId", "SalesRepName", "PrimarySalesRepName"),
         ("SalesRepName", "PrimarySalesRepName", "SalesRepId", "PrimarySalesRepId"),
+    )
+    from app.services import fact_schema
+    add_bucket(
+        "protein_groups",
+        fact_schema.PROTEIN_CANDIDATES,
+        fact_schema.PROTEIN_CANDIDATES,
     )
     return selects
 
@@ -337,6 +350,8 @@ def selected_option_keys(filters: Any) -> tuple[str, ...]:
         requested.append("products")
     if getattr(params, "sales_reps", ()):
         requested.append("sales_reps")
+    if getattr(params, "protein_groups", ()):
+        requested.append("protein_groups")
     return normalize_requested_option_keys(requested)
 
 
@@ -468,6 +483,9 @@ def sanitize_filters_against_options(filters: Any, payload: Mapping[str, Any] | 
         suppliers=_sanitize("suppliers", getattr(params, "suppliers", ())),
         products=_sanitize("products", getattr(params, "products", ())),
         sales_reps=_sanitize("sales_reps", getattr(params, "sales_reps", ())),
+        protein_groups=_sanitize("protein_groups", getattr(params, "protein_groups", ())),
+        yield_min=params.yield_min,
+        yield_max=params.yield_max,
         preset=params.preset,
         protein_min=params.protein_min,
         protein_max=params.protein_max,

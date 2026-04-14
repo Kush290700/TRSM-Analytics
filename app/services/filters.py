@@ -50,6 +50,9 @@ class FilterParams:
     suppliers: tuple[str, ...] = ()
     products: tuple[str, ...] = ()
     sales_reps: tuple[str, ...] = ()
+    protein_groups: tuple[str, ...] = ()
+    yield_min: float | None = None
+    yield_max: float | None = None
     preset: str | None = None
     date_type: str | None = None
     protein_min: float | None = None
@@ -68,6 +71,9 @@ class FilterParams:
             self.suppliers,
             self.products,
             self.sales_reps,
+            self.protein_groups,
+            self.yield_min,
+            self.yield_max,
             self.preset,
             self.date_type,
             self.protein_min,
@@ -87,6 +93,9 @@ _EMPTY_FILTERS = FilterParams(
     suppliers=tuple(),
     products=tuple(),
     sales_reps=tuple(),
+    protein_groups=tuple(),
+    yield_min=None,
+    yield_max=None,
     preset=None,
     date_type=None,
     protein_min=None,
@@ -212,6 +221,8 @@ _FILTER_PARAM_NAMES = {
     # Singular rep identifiers (e.g. salesrep_id) are route/entity params on drilldowns.
     "sales_reps", "sales_rep_ids",
     "salesreps", "salesrep_ids",
+    "protein_groups", "protein_group", "meat_type", "species",
+    "yield_min", "yield_max", "yield_range",
     "protein_min", "protein_max", "protein_name", "protein_name_like", "protein",
     "complete_months_only", "completeMonthsOnly", "full_months_only",
 }
@@ -236,6 +247,7 @@ _OPTION_BUCKET_ALIASES: dict[str, tuple[str, ...]] = {
     "suppliers": ("suppliers",),
     "products": ("products",),
     "sales_reps": ("sales_reps", "sales_rep_ids"),
+    "protein_groups": ("protein_groups", "protein_group", "meat_type", "species"),
 }
 
 
@@ -752,10 +764,13 @@ def parse_filters(args: Any) -> FilterParams:
         "sales_reps", "sales_rep_ids",
         "salesreps", "salesrep_ids",
     )))
+    protein_groups = _strip_all(_collect_values(args, ("protein_groups", "protein_group", "meat_type", "species")))
 
     complete_months_only = _parse_bool_flag(args, ("complete_months_only", "completeMonthsOnly", "full_months_only"), False)
     protein_min = _parse_float(args, ("protein_min", "proteinMin"))
     protein_max = _parse_float(args, ("protein_max", "proteinMax"))
+    yield_min = _parse_float(args, ("yield_min", "yieldMin"))
+    yield_max = _parse_float(args, ("yield_max", "yieldMax"))
 
     protein_name_like = _first_value(args, ("protein_name", "proteinName", "protein_name_like"))
     if isinstance(protein_name_like, (list, tuple, set)):
@@ -803,6 +818,9 @@ def parse_filters(args: Any) -> FilterParams:
         suppliers=suppliers,
         products=products,
         sales_reps=sales_reps,
+        protein_groups=protein_groups,
+        yield_min=yield_min,
+        yield_max=yield_max,
         statuses=statuses,
         preset=preset,
         date_type=date_type,
@@ -839,9 +857,12 @@ def normalize_filters(filters: Any) -> FilterParams:
     suppliers = _stable_unique_tokens(_strip_all(tuple(getattr(candidate, "suppliers", ()) or ())))
     products = _stable_unique_tokens(_strip_all(tuple(getattr(candidate, "products", ()) or ())))
     sales_reps = _stable_unique_tokens(_strip_all(tuple(getattr(candidate, "sales_reps", ()) or ())))
+    protein_groups = _stable_unique_tokens(_strip_all(tuple(getattr(candidate, "protein_groups", ()) or ())))
 
     protein_min = getattr(candidate, "protein_min", None)
     protein_max = getattr(candidate, "protein_max", None)
+    yield_min = getattr(candidate, "yield_min", None)
+    yield_max = getattr(candidate, "yield_max", None)
     try:
         protein_min = float(protein_min) if protein_min not in (None, "") else None
     except Exception:
@@ -850,6 +871,14 @@ def normalize_filters(filters: Any) -> FilterParams:
         protein_max = float(protein_max) if protein_max not in (None, "") else None
     except Exception:
         protein_max = None
+    try:
+        yield_min = float(yield_min) if yield_min not in (None, "") else None
+    except Exception:
+        yield_min = None
+    try:
+        yield_max = float(yield_max) if yield_max not in (None, "") else None
+    except Exception:
+        yield_max = None
     protein_name_like = getattr(candidate, "protein_name_like", None)
     if protein_name_like:
         protein_name_like = (str(protein_name_like).strip() or None)
@@ -882,6 +911,9 @@ def normalize_filters(filters: Any) -> FilterParams:
         suppliers=suppliers,
         products=products,
         sales_reps=sales_reps,
+        protein_groups=protein_groups,
+        yield_min=yield_min,
+        yield_max=yield_max,
         statuses=statuses,
         preset=preset,
         date_type=date_type,
@@ -931,6 +963,9 @@ def filters_to_store(filters: FilterParams) -> dict[str, Any]:
         "suppliers": _list(getattr(filters, "suppliers", tuple())),
         "products": _list(getattr(filters, "products", tuple())),
         "sales_reps": _list(getattr(filters, "sales_reps", tuple())),
+        "protein_groups": _list(getattr(filters, "protein_groups", tuple())),
+        "yield_min": filters.yield_min,
+        "yield_max": filters.yield_max,
         "protein_min": filters.protein_min,
         "protein_max": filters.protein_max,
         "protein_name_like": filters.protein_name_like,
@@ -968,6 +1003,7 @@ def _compact_stored_filters(payload: Mapping[str, Any]) -> dict[str, Any]:
         "products",
         "sales_reps",
         "statuses",
+        "protein_groups",
     )
     for key in list_keys:
         raw = out.get(key)
@@ -1125,6 +1161,9 @@ def sanitize_filters(
         suppliers=_sanitize_values("suppliers", getattr(params, "suppliers", ())),
         products=_sanitize_values("products", getattr(params, "products", ())),
         sales_reps=_sanitize_values("sales_reps", getattr(params, "sales_reps", ())),
+        protein_groups=_sanitize_values("protein_groups", getattr(params, "protein_groups", ())),
+        yield_min=params.yield_min,
+        yield_max=params.yield_max,
         preset=params.preset,
         date_type=getattr(params, "date_type", None),
         protein_min=params.protein_min,
@@ -1396,6 +1435,34 @@ def build_filter_summary(filters: Any, *, max_items: int = 2) -> dict[str, Any]:
                 "count": len(values),
                 "summary": summarize_filter_values(values, max_items=max_items),
                 "values": [str(v) for v in values],
+            }
+        )
+
+    protein_group_values = tuple(getattr(params, "protein_groups", ()) or ())
+    if protein_group_values:
+        dimension_chips.append(
+            {
+                "key": "protein_groups",
+                "label": "Protein Group",
+                "count": len(protein_group_values),
+                "summary": summarize_filter_values(protein_group_values, max_items=max_items),
+                "values": [str(v) for v in protein_group_values],
+            }
+        )
+
+    yield_bounds: list[str] = []
+    if params.yield_min is not None:
+        yield_bounds.append(f">= {params.yield_min:g}%")
+    if params.yield_max is not None:
+        yield_bounds.append(f"<= {params.yield_max:g}%")
+    if yield_bounds:
+        dimension_chips.append(
+            {
+                "key": "yield_range",
+                "label": "Yield",
+                "count": len(yield_bounds),
+                "summary": " ".join(yield_bounds),
+                "values": yield_bounds,
             }
         )
 
@@ -1978,6 +2045,31 @@ def apply_filters(df: pd.DataFrame, filters: FilterParams) -> pd.DataFrame:
                 ser = df[col].astype("string").str.strip().str.lower()
                 mask &= ser.isin(status_set).to_numpy(dtype=bool, na_value=False)
                 break
+
+    # Protein Groups
+    protein_group_values = tuple(getattr(filters, "protein_groups", ()) or ())
+    if protein_group_values:
+        protein_set = {str(v).strip().lower() for v in protein_group_values if str(v).strip()}
+        if protein_set:
+            from app.services import fact_schema
+            protein_col = fact_schema.resolve_protein_column(df)
+            if protein_col:
+                ser = df[protein_col].astype("string").str.strip().str.lower()
+                mask &= ser.isin(protein_set).to_numpy(dtype=bool, na_value=False)
+
+    # Yield Range
+    yield_min = getattr(filters, "yield_min", None)
+    yield_max = getattr(filters, "yield_max", None)
+    if yield_min is not None or yield_max is not None:
+        from app.services import fact_schema
+        yield_col = fact_schema.resolve_yield_column(df)
+        if yield_col:
+            y_val = pd.to_numeric(df[yield_col], errors="coerce")
+            if y_val.notna().any():
+                if yield_min is not None:
+                    mask &= (y_val >= float(yield_min)).to_numpy(dtype=bool, na_value=False)
+                if yield_max is not None:
+                    mask &= (y_val <= float(yield_max)).to_numpy(dtype=bool, na_value=False)
 
     # Protein numeric bounds
     protein_min = getattr(filters, "protein_min", None)

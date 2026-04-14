@@ -217,7 +217,14 @@ def _register_fact_view(conn: duckdb.DuckDBPyConnection) -> None:
     global _duck_columns
     pattern = dataset_glob()
     pattern_sql = pattern.replace("'", "''")
-    conn.execute(f"CREATE OR REPLACE VIEW fact_raw AS SELECT * FROM parquet_scan('{pattern_sql}', union_by_name=true);")
+    # Enable hive_partitioning for automated pruning based on year/month/day folders.
+    try:
+        conn.execute(f"CREATE OR REPLACE VIEW fact_raw AS SELECT * FROM parquet_scan('{pattern_sql}', union_by_name=true, hive_partitioning=true);")
+        # Test if it actually works (the BinderException happens on the first scan)
+        conn.execute("SELECT 1 FROM fact_raw LIMIT 1").fetchall()
+    except Exception as exc:
+        logger.warning("duckdb.hive_partitioning_failed", extra={"path": pattern, "error": str(exc)})
+        conn.execute(f"CREATE OR REPLACE VIEW fact_raw AS SELECT * FROM parquet_scan('{pattern_sql}', union_by_name=true, hive_partitioning=false);")
     # Build packs-only canonical view to align with SQL Server logic.
     cols = {row[1] for row in conn.execute("PRAGMA table_info('fact_raw')").fetchall()}
     lower_map = {str(c).lower(): c for c in cols}

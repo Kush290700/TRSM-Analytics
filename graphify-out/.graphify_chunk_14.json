@@ -1,0 +1,424 @@
+{
+  "nodes": [
+    {
+      "id": "test_regions_drilldown_fix",
+      "label": "Regions Drilldown Fix Tests",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_fix.py"
+    },
+    {
+      "id": "test_assistant_quality",
+      "label": "Assistant Quality Tests",
+      "file_type": "code",
+      "source_file": "tests/test_assistant_quality.py"
+    },
+    {
+      "id": "test_sticky_filters",
+      "label": "Sticky Filters Tests",
+      "file_type": "code",
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "id": "test_filters_global",
+      "label": "Global Filters Logic Tests",
+      "file_type": "code",
+      "source_file": "tests/test_filters_global.py"
+    },
+    {
+      "id": "test_customers_kpis_v3",
+      "label": "Customers KPIs V3 Tests",
+      "file_type": "code",
+      "source_file": "tests/test_customers_kpis_v3.py"
+    },
+    {
+      "id": "test_admin_permissions_v2",
+      "label": "Admin Permissions V2 Tests",
+      "file_type": "code",
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "id": "test_loader_helpers",
+      "label": "Loader Helpers Tests",
+      "file_type": "code",
+      "source_file": "tests/test_loader_helpers.py"
+    },
+    {
+      "id": "test_incremental_refresh_pipeline",
+      "label": "Incremental Refresh Pipeline Tests",
+      "file_type": "code",
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "id": "test_live_refresh",
+      "label": "Live Refresh Tests",
+      "file_type": "code",
+      "source_file": "tests/test_live_refresh.py"
+    },
+    {
+      "id": "labor_helpers",
+      "label": "Labor Test Helpers",
+      "file_type": "code",
+      "source_file": "tests/labor_helpers.py"
+    },
+    {
+      "id": "test_partition_writer_upsert_idempotent",
+      "label": "Partition Writer Idempotency Tests",
+      "file_type": "code",
+      "source_file": "tests/test_partition_writer_upsert_idempotent.py"
+    },
+    {
+      "id": "test_products_drilldown",
+      "label": "Products Drilldown Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_products_drilldown.py"
+    },
+    {
+      "id": "test_overview_api",
+      "label": "Overview API Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_overview_api.py"
+    },
+    {
+      "id": "test_filters_ui_smoke",
+      "label": "Filters UI Smoke Tests",
+      "file_type": "code",
+      "source_file": "tests/test_filters_ui_smoke.py"
+    },
+    {
+      "id": "test_data_scoping",
+      "label": "Data Scoping Tests",
+      "file_type": "code",
+      "source_file": "tests/test_data_scoping.py"
+    },
+    {
+      "id": "test_saved_views_hardening",
+      "label": "Saved Views Hardening Tests",
+      "file_type": "code",
+      "source_file": "tests/test_saved_views_hardening.py"
+    },
+    {
+      "id": "test_product_drilldown_v2",
+      "label": "Product Drilldown V2 Workspace Tests",
+      "file_type": "code",
+      "source_file": "tests/test_product_drilldown_v2.py"
+    },
+    {
+      "id": "test_synerion_client",
+      "label": "Synerion Client Tests",
+      "file_type": "code",
+      "source_file": "tests/test_synerion_client.py"
+    },
+    {
+      "id": "test_salesreps_bundle",
+      "label": "Sales Reps Bundle Tests",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_bundle.py"
+    },
+    {
+      "id": "test_filters_options_endpoint",
+      "label": "Filters Options Endpoint Tests",
+      "file_type": "code",
+      "source_file": "tests/test_filters_options_endpoint.py"
+    },
+    {
+      "id": "test_runtime_refresh_guard",
+      "label": "Runtime Refresh Guard Tests",
+      "file_type": "code",
+      "source_file": "tests/test_runtime_refresh_guard.py"
+    },
+    {
+      "id": "test_salesreps_exports",
+      "label": "Sales Reps Exports Tests",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_exports.py"
+    }
+  ],
+  "edges": [
+    {
+      "source": "test_regions_drilldown_fix",
+      "target": "app_blueprints_regions",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_regions_drilldown_fix.py"
+    },
+    {
+      "source": "test_assistant_quality",
+      "target": "app_assistant_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_assistant_quality.py"
+    },
+    {
+      "source": "test_sticky_filters",
+      "target": "app_services_filters_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "source": "test_filters_global",
+      "target": "app_services_filters",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_global.py"
+    },
+    {
+      "source": "test_customers_kpis_v3",
+      "target": "app_services_fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_kpis_v3.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "app_auth_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "app_core_rbac",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_loader_helpers",
+      "target": "data_loader",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_loader_helpers.py"
+    },
+    {
+      "source": "test_incremental_refresh_pipeline",
+      "target": "etl_incremental_refresh",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "source": "test_live_refresh",
+      "target": "app_services_event_bus",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_live_refresh.py"
+    },
+    {
+      "source": "labor_helpers",
+      "target": "app_services_labor_etl",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/labor_helpers.py"
+    },
+    {
+      "source": "test_partition_writer_upsert_idempotent",
+      "target": "etl_partition_writer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_partition_writer_upsert_idempotent.py"
+    },
+    {
+      "source": "test_products_drilldown",
+      "target": "app_services_fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_drilldown.py"
+    },
+    {
+      "source": "test_overview_api",
+      "target": "app_blueprints_overview",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_api.py"
+    },
+    {
+      "source": "test_filters_ui_smoke",
+      "target": "app_blueprints_dashboard",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_ui_smoke.py"
+    },
+    {
+      "source": "test_data_scoping",
+      "target": "data_loader",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_data_scoping.py"
+    },
+    {
+      "source": "test_saved_views_hardening",
+      "target": "app_auth_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_saved_views_hardening.py"
+    },
+    {
+      "source": "test_product_drilldown_v2",
+      "target": "app_services_product_drilldown_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_product_drilldown_v2.py"
+    },
+    {
+      "source": "test_synerion_client",
+      "target": "app_services_synerion_client",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_synerion_client.py"
+    },
+    {
+      "source": "test_salesreps_bundle",
+      "target": "app_services_salesreps_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_bundle.py"
+    },
+    {
+      "source": "test_filters_options_endpoint",
+      "target": "app_services_filters_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_filters_options_endpoint.py"
+    },
+    {
+      "source": "test_runtime_refresh_guard",
+      "target": "app_core_runtime",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_runtime_refresh_guard.py"
+    },
+    {
+      "source": "test_salesreps_exports",
+      "target": "app_services_salesreps_bundle",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_exports.py"
+    },
+    {
+      "source": "test_regions_drilldown_fix",
+      "target": "regions_drilldown_growth_logic",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tests/test_regions_drilldown_fix.py"
+    },
+    {
+      "source": "test_assistant_quality",
+      "target": "assistant_compatibility_layer",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_assistant_quality.py"
+    },
+    {
+      "source": "test_sticky_filters",
+      "target": "filter_persistence_mechanism",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_sticky_filters.py"
+    },
+    {
+      "source": "test_admin_permissions_v2",
+      "target": "admin_rbac_v2_architecture",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/test_admin_permissions_v2.py"
+    },
+    {
+      "source": "test_incremental_refresh_pipeline",
+      "target": "etl_locking_mechanism",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tests/test_incremental_refresh_pipeline.py"
+    },
+    {
+      "source": "test_saved_views_hardening",
+      "target": "saved_views_ownership_security",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_saved_views_hardening.py"
+    },
+    {
+      "source": "test_salesreps_bundle",
+      "target": "salesrep_attribution_logic",
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_salesreps_bundle.py"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "global_filters_testing_group",
+      "label": "Global Filters System Tests",
+      "nodes": [
+        "test_sticky_filters",
+        "test_filters_global",
+        "test_filters_ui_smoke",
+        "test_filters_options_endpoint"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/"
+    },
+    {
+      "id": "rbac_scoping_testing_group",
+      "label": "RBAC and Data Scoping Tests",
+      "nodes": [
+        "test_customers_kpis_v3",
+        "test_admin_permissions_v2",
+        "test_data_scoping",
+        "test_salesreps_exports"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/"
+    },
+    {
+      "id": "etl_refresh_testing_group",
+      "label": "ETL and Data Refresh Tests",
+      "nodes": [
+        "test_incremental_refresh_pipeline",
+        "test_live_refresh",
+        "test_partition_writer_upsert_idempotent",
+        "test_runtime_refresh_guard"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

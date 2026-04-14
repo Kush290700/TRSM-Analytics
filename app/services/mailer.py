@@ -120,6 +120,18 @@ def send_email(
         message.add_alternative(html_body, subtype="html")
     attachment_count = _add_attachments(message, attachments)
 
+    if bool(current_app.config.get("MAIL_SUPPRESS_SEND", False)):
+        _LOG.info(
+            "mailer.send_skip",
+            extra={
+                "reason": "suppressed",
+                "to_email": message["To"],
+                "subject": message["Subject"],
+                "attachment_count": attachment_count,
+            },
+        )
+        return True
+
     try:
         _send_message(message)
         _LOG.info(

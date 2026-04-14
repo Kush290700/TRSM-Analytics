@@ -235,6 +235,8 @@ def _receiving_item_updates_from_form() -> list[dict[str, object]]:
                 "follow_up_action": request.form.get(f"item_follow_up_action_{item_id}"),
                 "supplier_credit": request.form.get(f"item_supplier_credit_{item_id}"),
                 "receiving_notes": request.form.get(f"item_receiving_notes_{item_id}"),
+                "warehouse_outcome": request.form.get(f"item_warehouse_outcome_{item_id}"),
+                "received_weight_lb": request.form.get(f"item_received_weight_lb_{item_id}"),
             }
         )
     return updates
@@ -435,6 +437,7 @@ def _order_payload_from_form(existing_order: dict[str, object] | None = None) ->
         "order_date": (request.form.get("order_date") or order.get("order_date") or "").strip(),
         "date_shipped": (request.form.get("date_shipped") or order.get("date_shipped") or order.get("order_date") or "").strip(),
         "return_type": (request.form.get("return_type") or "").strip(),
+        "company": (request.form.get("company") or order.get("company") or "").strip(),
         "advised_customer": _as_bool(request.form.get("advised_customer")),
         "advised_customer_provided": request.form.get("advised_customer") is not None,
         "advised_customer_note": (request.form.get("advised_customer_note") or "").strip(),
@@ -766,6 +769,8 @@ def index():
     rep_filter = (request.args.get("rep") or "").strip() or None
     category_filter = (request.args.get("category") or "").strip() or None
     reason_filter = (request.args.get("reason") or "").strip() or None
+    company_filter = (request.args.get("company") or "").strip() or None
+    approver_filter = (request.args.get("approver") or "").strip() or None
     order_filter = (request.args.get("order_id") or "").strip() or None
     customer_search = (request.args.get("customer") or "").strip() or None
     from_date = (request.args.get("from") or "").strip() or None
@@ -779,6 +784,8 @@ def index():
             rep=rep_filter,
             category=category_filter,
             reason=reason_filter,
+            company=company_filter,
+            approval_target=approver_filter,
             order_id=order_filter,
             from_date=from_date,
             to_date=to_date,
@@ -790,6 +797,8 @@ def index():
         rep=rep_filter,
         category=category_filter,
         reason=reason_filter,
+        company=company_filter,
+        approval_target=approver_filter,
         order_id=order_filter,
         from_date=from_date,
         to_date=to_date,
@@ -804,6 +813,8 @@ def index():
             "rep": rep_filter or "",
             "category": category_filter or "",
             "reason": reason_filter or "",
+            "company": company_filter or "",
+            "approver": approver_filter or "",
             "order_id": order_filter or "",
             "customer": customer_search or "",
             "from": from_date or "",
@@ -897,18 +908,24 @@ def create():
                 default_date_submitted=default_date_submitted,
             )
         if lookup_error and order_id:
-            flash(lookup_error, "danger")
-            return _render_create_form(
-                order=order,
-                order_id=order_id,
-                order_items_json=submitted_items_json or order_items_json,
-                initial_item_rows=initial_item_rows,
-                lookup_payload=lookup_payload,
-                lookup_error=lookup_error,
-                reason_codes=reason_codes,
-                returns_settings=returns_settings,
-                default_date_submitted=default_date_submitted,
-            )
+            # For enterprise/manual mode, allow proceeding even if order lookup failed with "not found"
+            is_not_found = "not found" in lookup_error.lower()
+            if not is_not_found:
+                flash(lookup_error, "danger")
+                return _render_create_form(
+                    order=order,
+                    order_id=order_id,
+                    order_items_json=submitted_items_json or order_items_json,
+                    initial_item_rows=initial_item_rows,
+                    lookup_payload=lookup_payload,
+                    lookup_error=lookup_error,
+                    reason_codes=reason_codes,
+                    returns_settings=returns_settings,
+                    default_date_submitted=default_date_submitted,
+                )
+            else:
+                flash(lookup_error, "warning")
+        
         items = _parse_order_items_from_form()
         if not items:
             flash("Select at least one return item.", "danger")
@@ -1140,6 +1157,7 @@ def approve_wh(rma_id: int):
 @any_permission_required(*OPS_APPROVE_PERMISSIONS)
 def approve_mgr(rma_id: int):
     _returns_on()
+    current_app.logger.info("returns.approve_manager_start", extra={"rma_id": rma_id})
     try:
         payload = service.approve_manager(
             rma_id,
@@ -1172,6 +1190,70 @@ def reject(rma_id: int):
     except service.ReturnsError as exc:
         flash(str(exc), "danger")
     return _post_action_redirect(rma_id)
+
+
+@portal_bp.get("/returns/<int:rma_id>/export/sage.csv")
+@login_required
+@any_permission_required(*PORTAL_VIEW_PERMISSIONS)
+def export_sage_csv(rma_id: int):
+    _returns_on()
+    try:
+        csv_bytes = service.export_sage_csv([rma_id], actor_user=current_user)
+    except service.ReturnsError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("returns_portal.detail", rma_id=rma_id))
+    
+    return Response(
+        csv_bytes,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment;filename=return-sage-{rma_id}.csv"},
+    )
+
+
+@portal_bp.get("/returns/export/sage-batch.csv")
+@login_required
+@any_permission_required(*PORTAL_VIEW_PERMISSIONS)
+def export_sage_csv_batch():
+    _returns_on()
+    ids_raw = request.args.get("ids", "")
+    try:
+        rma_ids = [int(s.strip()) for s in ids_raw.split(",") if s.strip().isdigit()]
+        if not rma_ids:
+            flash("No returns selected for batch export.", "warning")
+            return redirect(url_for("returns_portal.index"))
+        
+        csv_bytes = service.export_sage_csv(rma_ids, actor_user=current_user)
+        filename = f"batch-sage-export-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
+        return Response(
+            csv_bytes,
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment;filename={filename}"},
+        )
+    except Exception as exc:
+        flash(f"Batch export failed: {exc}", "danger")
+        return redirect(url_for("returns_portal.index"))
+
+
+@portal_bp.post("/returns/batch-complete")
+@login_required
+@any_permission_required(*OPS_APPROVE_PERMISSIONS)
+def batch_complete():
+    _returns_on()
+    ids = request.form.getlist("ids")
+    success_count = 0
+    errors = []
+    for rma_id in ids:
+        try:
+            service.complete_rma(int(rma_id), actor_user=current_user)
+            success_count += 1
+        except Exception as exc:
+            errors.append(f"RMA #{rma_id}: {exc}")
+    
+    if errors:
+        flash(f"Batch complete finished with {success_count} successes and {len(errors)} errors.", "warning")
+    else:
+        flash(f"Successfully closed {success_count} returns.", "success")
+    return jsonify({"ok": True, "success_count": success_count, "error_count": len(errors)}), 200
 
 
 @portal_bp.get("/returns/<int:rma_id>/pdf")
@@ -1232,6 +1314,22 @@ def detail(rma_id: int):
             except service.ReturnsError as exc:
                 flash(str(exc), "danger")
                 return render_template("returns/detail.html", rma=_load_rma_or_404(rma_id)), 400
+        if form_action == "schedule_pickup":
+            try:
+                service.schedule_pickup(rma_id, actor_user=current_user)
+                flash("Pickup scheduled.", "success")
+                return redirect(url_for("returns_portal.detail", rma_id=rma_id))
+            except service.ReturnsError as exc:
+                flash(str(exc), "danger")
+                return render_template("returns/detail.html", rma=_load_rma_or_404(rma_id)), 400
+        if form_action == "mark_picked_up":
+            try:
+                service.mark_picked_up(rma_id, actor_user=current_user)
+                flash("Return marked as picked up.", "info")
+                return redirect(url_for("returns_portal.detail", rma_id=rma_id))
+            except service.ReturnsError as exc:
+                flash(str(exc), "danger")
+                return render_template("returns/detail.html", rma=_load_rma_or_404(rma_id)), 400
         if form_action == "complete":
             try:
                 _require_any_permission(*OPS_APPROVE_PERMISSIONS)
@@ -1282,7 +1380,18 @@ def detail(rma_id: int):
                 flash(str(exc), "danger")
                 return render_template("returns/detail.html", rma=_load_rma_or_404(rma_id)), 400
     payload = _load_rma_or_404(rma_id)
-    return render_template("returns/detail.html", rma=payload)
+    
+    # Calculate permissions explicitly for the template
+    from app.core.rbac import has_permission
+    perms = {
+        "can_ops": has_permission("returns.ops.queue.view") or has_permission("admin.returns.manage"),
+        "can_wh_approve": has_permission("returns.approve.wh") or has_permission("returns.warehouse.receive") or has_permission("admin.returns.manage"),
+        "can_mgr_approve": has_permission("returns.approve.mgr") or has_permission("returns.ops.approve") or has_permission("admin.returns.manage"),
+        "can_finance": has_permission("returns.finance.close") or has_permission("admin.returns.manage"),
+        "can_reject": has_permission("returns.reject") or has_permission("admin.returns.manage"),
+    }
+    
+    return render_template("returns/detail.html", rma=payload, **perms)
 
 
 @ops_bp.get("/queue")
@@ -1527,6 +1636,11 @@ def settings():
             "defaults": {
                 "return_type": (request.form.get("default_return_type") or "").strip() or "Sales Return",
                 "follow_up_action": (request.form.get("default_follow_up_action") or "").strip() or "Credit",
+            },
+            "workflow_options": {
+                "follow_up_actions": [s.strip() for s in (request.form.get("follow_up_actions") or "").split(",") if s.strip()],
+                "warehouse_outcomes": [s.strip() for s in (request.form.get("warehouse_outcomes") or "").split(",") if s.strip()],
+                "companies": [s.strip() for s in (request.form.get("companies") or "").split(",") if s.strip()],
             },
             "email_templates": {
                 "new_return_subject": (request.form.get("new_return_subject") or "").strip(),

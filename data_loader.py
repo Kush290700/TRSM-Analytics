@@ -3120,15 +3120,17 @@ def refresh_parquet(
     start_date: Optional[str] = None,
 ) -> str:
     """No-op in direct-sql mode; still supported if you flip DIRECT_SQL_ONLY=false."""
+    from app.services import watermark_store
+    from etl.partition_writer import upsert_dataset
+
     if get_config().direct_sql_only:
         log.info("DIRECT_SQL_ONLY=True → refresh_parquet skipped")
         return ""
+    
+    # Resolve the partitioned dataset path
+    ds_path = watermark_store.resolve_dataset_path()
     p = Path(parquet_path if parquet_path else get_config().parquet_path)
-    # Historically callers expected _read_existing_parquet to accept only a path
-    # (tests monkeypatch it with a single-argument function). For compatibility
-    # read the small snapshot without passing columns to avoid breaking those
-    # monkeypatches. _read_existing_parquet itself will optimize columns when
-    # available.
+    
     existing_small = _read_existing_parquet(p)
     full_refresh_env = _get_bool("FULL_REFRESH", False)
     default_window = int(os.getenv("INCREMENTAL_WINDOW_DAYS", "7"))
@@ -3137,84 +3139,54 @@ def refresh_parquet(
 
     if full_refresh_env or force_full or existing_small.empty:
         df = get_dataframe(start=start_arg, end=None, **loader_kwargs)
-        written = write_parquet_atomic(df, str(p))
-        _write_manifest(df, str(p))
-        return written
+        # Migrate to partitioned dataset
+        manifest = upsert_dataset(
+            df, 
+            dataset_path=ds_path, 
+            pk_col="OrderLineId", 
+            date_col="DateExpected"
+        )
+        return str(ds_path)
 
-    manifest = read_manifest(str(p))
+    manifest = watermark_store.read_manifest(ds_path)
     date_max = manifest.get("date_max")
     if not date_max:
+        # Fallback to checking the monolithic file signature if partitioned manifest is missing
+        old_sig_path = p.parent / "persisted_signature.json"
+        if old_sig_path.exists():
+            try:
+                old_sig = json.loads(old_sig_path.read_text())
+                date_max = old_sig.get("date_max")
+            except Exception:
+                pass
+    
+    if not date_max:
         df = get_dataframe(start=start_arg, end=None, **loader_kwargs)
-        written = write_parquet_atomic(df, str(p))
-        _write_manifest(df, str(p))
-        return written
+        upsert_dataset(df, dataset_path=ds_path, pk_col="OrderLineId", date_col="DateExpected")
+        return str(ds_path)
 
     last_ts = pd.to_datetime(date_max, errors="coerce")
     if pd.isna(last_ts):
         df = get_dataframe(start=start_arg, end=None, **loader_kwargs)
-        written = write_parquet_atomic(df, str(p))
-        _write_manifest(df, str(p))
-        return written
+        upsert_dataset(df, dataset_path=ds_path, pk_col="OrderLineId", date_col="DateExpected")
+        return str(ds_path)
 
     start_dt = (last_ts - pd.Timedelta(days=default_window)).date().isoformat()
-    # Pass window_days to allow callers/tests to observe incremental window usage
     incr = get_dataframe(start=start_dt, end=None, statuses=None, window_days=default_window, **loader_kwargs)
 
     if incr.empty:
         log.info(f"Heartbeat: found {len(incr)} new/updated records in incremental window.")
-        combined = _read_existing_parquet(p)
-    else:
-        log.info(f"Heartbeat: found {len(incr)} new/updated records in incremental window.")
-        key = "OrderLineId"
-        if key in existing_small.columns and key in incr.columns:
-            # Prefer the incremental rows for duplicate keys (keep='last') to
-            # ensure updates from the incremental frame overwrite existing rows.
-            existing = _read_existing_parquet(p)
-            # Simple concat is sufficient here and avoids _concat_frames edge-cases
-            # Build combined frame by using dict merge keyed by 'key' and prefer
-            # incremental rows (keep last). This avoids pandas boolean-mask
-            # internals that are failing in this environment.
-            combined_map: Dict[str, Dict[str, object]] = {}
-            if not existing.empty:
-                for _, row in existing.iterrows():
-                    val = row.get(key)
-                    k = None if pd.isna(val) else str(val)
-                    combined_map[k] = dict(row)
-            if not incr.empty:
-                for _, row in incr.iterrows():
-                    val = row.get(key)
-                    k = None if pd.isna(val) else str(val)
-                    combined_map[k] = dict(row)
-            combined = pd.DataFrame(list(combined_map.values()))
-        else:
-            existing = _read_existing_parquet(p)
-            # Build combined frame without relying on pandas.drop_duplicates.
-            combined_map: Dict[str, Dict[str, object]] = {}
-            if not existing.empty:
-                for _, row in existing.iterrows():
-                    # Use first column as a fallback key for deduping
-                    if row.shape[0] > 0:
-                        first_col = existing.columns[0]
-                        val = row.get(first_col)
-                        k = None if pd.isna(val) else str(val)
-                    else:
-                        k = None
-                    combined_map[k] = dict(row)
-            if not incr.empty:
-                for _, row in incr.iterrows():
-                    if row.shape[0] > 0:
-                        first_col = incr.columns[0]
-                        val = row.get(first_col)
-                        k = None if pd.isna(val) else str(val)
-                    else:
-                        k = None
-                    if k not in combined_map:
-                        combined_map[k] = dict(row)
-            combined = pd.DataFrame(list(combined_map.values()))
-
-    written_path = write_parquet_atomic(combined, str(p))
-    _write_manifest(combined, str(p))
-    return written_path
+        return str(ds_path)
+    
+    log.info(f"Heartbeat: found {len(incr)} new/updated records in incremental window.")
+    upsert_dataset(
+        incr, 
+        dataset_path=ds_path, 
+        pk_col="OrderLineId", 
+        date_col="DateExpected",
+        existing_manifest=manifest
+    )
+    return str(ds_path)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Background refresher (kept for compatibility; off in direct mode)

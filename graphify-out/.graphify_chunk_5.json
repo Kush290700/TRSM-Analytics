@@ -1,0 +1,443 @@
+{
+  "nodes": [
+    {
+      "id": "products_kpi_payload",
+      "label": "Products KPI Payload",
+      "file_type": "code",
+      "source_file": "tests/test_products_kpi_payload.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_protein",
+      "label": "Protein Filter Processing",
+      "file_type": "code",
+      "source_file": "tests/test_filters_protein.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_filters",
+      "label": "Products Filter Integration",
+      "file_type": "code",
+      "source_file": "tests/test_products_filters.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesrep_drilldown_frontend",
+      "label": "SalesRep Drilldown JS Contract",
+      "file_type": "code",
+      "source_file": "tests/test_salesrep_drilldown_frontend_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_static_assets",
+      "label": "Products Static Assets",
+      "file_type": "code",
+      "source_file": "tests/test_products_static_assets.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bundle_endpoints",
+      "label": "Bundle API Endpoints",
+      "file_type": "code",
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_metric_contract",
+      "label": "Overview Metric Window Contract",
+      "file_type": "code",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_insights",
+      "label": "Overview Insights Service",
+      "file_type": "code",
+      "source_file": "tests/test_overview_insights.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_loader_incremental",
+      "label": "Incremental Data Loading",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_incremental.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_module",
+      "label": "Sales Reps Metric Logic",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_module.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "json_safety",
+      "label": "JSON Payload Sanitization",
+      "file_type": "code",
+      "source_file": "tests/test_json_safety.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_packs_only",
+      "label": "Packs-Only Fact Processing",
+      "file_type": "code",
+      "source_file": "tests/test_fact_packs_only.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "schema",
+      "label": "Fact Schema Definition",
+      "file_type": "code",
+      "source_file": "tests/test_schema.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "user_invite_flow",
+      "label": "User Invite and Password Flow",
+      "file_type": "code",
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rbac_access",
+      "label": "RBAC and Access Scoping",
+      "file_type": "code",
+      "source_file": "tests/test_rbac_access.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_rfm_v2",
+      "label": "Customers RFM v2 Analysis",
+      "file_type": "code",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "margin_rules",
+      "label": "Margin Rule Evaluation",
+      "file_type": "code",
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_store",
+      "label": "Labor Data Store",
+      "file_type": "code",
+      "source_file": "tests/test_labor_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_forecast",
+      "label": "Overview Forecasting Engine",
+      "file_type": "code",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_drilldown_bundle",
+      "label": "SalesRep Drilldown Bundle Service",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_loader",
+      "label": "Labor Data ETL",
+      "file_type": "code",
+      "source_file": "tests/test_labor_loader.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_store",
+      "label": "Fact Store Service",
+      "file_type": "code",
+      "source_file": "app/services/fact_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_v2",
+      "label": "Overview v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/overview_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "nowcasting",
+      "label": "Nowcasting Logic",
+      "file_type": "document",
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "test_current_month_nowcast_falls_back_to_monthly_progress_when_daily_path_is_unavailable",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rfm_analysis",
+      "label": "RFM Segmentation",
+      "file_type": "document",
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": "test_customers_rfm_v2_segment_assignment_deterministic",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "price_volume_mix",
+      "label": "Price-Volume-Mix Decomposition",
+      "file_type": "document",
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": "test_decomposition_effects_sum_to_total",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "products_filters",
+      "target": "filters",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_filters.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_forecast",
+      "target": "overview_v2",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": "test_monthly_series_computes_profit_and_asp",
+      "weight": 1.0
+    },
+    {
+      "source": "overview_forecast",
+      "target": "nowcasting",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_overview_forecast.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_rfm_v2",
+      "target": "rfm_analysis",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_rfm_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_metric_contract",
+      "target": "price_volume_mix",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_metric_contract.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_drilldown_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_salesreps_drilldown_bundle.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "user_invite_flow",
+      "target": "mailer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_user_invite_flow.py",
+      "source_location": "test_admin_create_user_sends_invite_and_stores_token",
+      "weight": 1.0
+    },
+    {
+      "source": "labor_loader",
+      "target": "partition_writer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_labor_loader.py",
+      "source_location": "test_labor_dataset_upsert_is_idempotent_and_window_repair_is_deterministic",
+      "weight": 1.0
+    },
+    {
+      "source": "labor_loader",
+      "target": "labor_store",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_labor_loader.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bundle_endpoints",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_bundle_endpoints.py",
+      "source_location": "_pick_entity_id",
+      "weight": 1.0
+    },
+    {
+      "source": "json_safety",
+      "target": "json_sanitizer",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_json_safety.py",
+      "source_location": "test_sanitize_for_json_strips_nan_and_inf",
+      "weight": 1.0
+    },
+    {
+      "source": "margin_rules",
+      "target": "products",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "tests/test_margin_rules.py",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "bundle_drilldown_pattern",
+      "label": "Bundle and Drilldown API Pattern",
+      "nodes": [
+        "bundle_endpoints",
+        "salesreps_drilldown_bundle",
+        "salesrep_drilldown_frontend"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tests/test_bundle_endpoints.py"
+    },
+    {
+      "id": "overview_analytics_core",
+      "label": "Overview Analytics Core Services",
+      "nodes": [
+        "overview_v2",
+        "overview_metrics",
+        "overview_insights",
+        "overview_forecast"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/test_overview_metric_contract.py"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

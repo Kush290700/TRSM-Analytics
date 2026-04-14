@@ -63,6 +63,10 @@ STATUS_PENDING = "pending"
 STATUS_WH_APPROVED = "wh_approved"
 STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
+STATUS_AWAITING_OPS = "awaiting_ops"
+STATUS_PICKUP_SCHEDULED = "pickup_scheduled"
+STATUS_PICKED_UP = "picked_up"
+STATUS_AWAITING_FINANCE = "awaiting_finance"
 VANCOUVER_TZ = ZoneInfo("America/Vancouver")
 
 STATUS_LABELS = {
@@ -81,6 +85,10 @@ STATUS_LABELS = {
     STATUS_WH_APPROVED: "WH Approved",
     STATUS_APPROVED: "Approved",
     STATUS_REJECTED: "Rejected",
+    STATUS_AWAITING_OPS: "Awaiting Operations",
+    STATUS_PICKUP_SCHEDULED: "Pickup Scheduled",
+    STATUS_PICKED_UP: "Picked Up",
+    STATUS_AWAITING_FINANCE: "Awaiting Finance",
 }
 
 TRANSITIONS: dict[str, set[str]] = {
@@ -95,9 +103,13 @@ TRANSITIONS: dict[str, set[str]] = {
     STATUS_APPROVED_REFUND: {STATUS_COMPLETED},
     STATUS_DENIED: {STATUS_COMPLETED},
     STATUS_COMPLETED: set(),
-    STATUS_PENDING: {STATUS_WH_APPROVED, STATUS_REJECTED},
-    STATUS_WH_APPROVED: {STATUS_APPROVED, STATUS_REJECTED},
-    STATUS_APPROVED: {STATUS_AWAITING_RETURN, STATUS_IN_TRANSIT, STATUS_RECEIVED, STATUS_COMPLETED},
+    STATUS_PENDING: {STATUS_WH_APPROVED, STATUS_REJECTED, STATUS_AWAITING_OPS},
+    STATUS_AWAITING_OPS: {STATUS_PICKUP_SCHEDULED, STATUS_REJECTED, STATUS_WH_APPROVED, STATUS_RECEIVED},
+    STATUS_PICKUP_SCHEDULED: {STATUS_PICKED_UP, STATUS_REJECTED, STATUS_RECEIVED},
+    STATUS_PICKED_UP: {STATUS_RECEIVED, STATUS_REJECTED, STATUS_WH_APPROVED},
+    STATUS_WH_APPROVED: {STATUS_APPROVED, STATUS_REJECTED, STATUS_AWAITING_FINANCE},
+    STATUS_APPROVED: {STATUS_AWAITING_RETURN, STATUS_IN_TRANSIT, STATUS_RECEIVED, STATUS_COMPLETED, STATUS_AWAITING_FINANCE},
+    STATUS_AWAITING_FINANCE: {STATUS_COMPLETED, STATUS_REJECTED},
     STATUS_REJECTED: {STATUS_COMPLETED},
 }
 
@@ -567,6 +579,11 @@ def get_returns_settings() -> dict[str, Any]:
             "return_type": "Sales Return",
             "follow_up_action": "Credit",
         },
+        "workflow_options": {
+            "follow_up_actions": ["Credit", "Replacement", "Discount", "No Action"],
+            "warehouse_outcomes": ["Returning to Inventory", "Spoilage"],
+            "companies": ["Two Rivers Meats", "Black Forest"],
+        },
         "email_templates": {
             "new_return_subject": "New return pending review for order {{ order_id }}",
             "wh_approval_subject": "Warehouse approved return #{{ rma_id }}",
@@ -670,6 +687,53 @@ def _initial_status(
     return STATUS_NEEDS_REVIEW, "Queued for manager review."
 
 
+def export_sage_csv(rma_ids: list[int], *, actor_user: Any = None) -> bytes:
+    """Generate a structured CSV export for Sage import."""
+    import pandas as pd
+    from io import BytesIO
+
+    with get_session() as session:
+        rmas = session.query(ReturnRMA).filter(ReturnRMA.id.in_(rma_ids)).all()
+        rma_map = {rma.id: rma for rma in rmas}
+        
+        items = (
+            session.query(ReturnRMAItem)
+            .filter(ReturnRMAItem.rma_id.in_(rma_ids))
+            .all()
+        )
+        
+        rows = []
+        for item in items:
+            rma = rma_map.get(item.rma_id)
+            if not rma:
+                continue
+            
+            metadata = loads_json(rma.metadata_json, {})
+            item_metadata = loads_json(item.metadata_json, {})
+            
+            rows.append({
+                "RMA Number": rma.rma_number,
+                "Company": rma.company or "Two Rivers Meats",
+                "Customer ID": rma.customer_id,
+                "Customer Name": rma.customer_name,
+                "Original Invoice": rma.order_id,
+                "SKU": item.sku or item.product_code,
+                "Description": item.product_name or item.product_desc,
+                "Weight (lb)": item.received_weight_lb if item.received_weight_lb is not None else item.weight_lb,
+                "Credit Amount": item.credit_amount,
+                "Tax Treatment": item_metadata.get("tax_treatment") or metadata.get("tax_treatment") or "Taxable",
+                "Reason": item.reason_for_return or item.reason_code or rma.primary_reason,
+                "Warehouse Outcome": item.warehouse_outcome,
+                "Approval Target": rma.approval_target,
+                "Date Submitted": rma.date_submitted.isoformat() if rma.date_submitted else "",
+            })
+            
+    df = pd.DataFrame(rows)
+    output = BytesIO()
+    df.to_csv(output, index=False)
+    return output.getvalue()
+
+
 def _add_event(
     session: Any,
     *,
@@ -679,18 +743,49 @@ def _add_event(
     to_status: str | None,
     actor_user_id: int | None,
     payload: Optional[dict[str, Any]] = None,
+    field_name: str | None = None,
+    old_value: str | None = None,
+    new_value: str | None = None,
 ) -> ReturnEvent:
     row = ReturnEvent(
         rma_id=int(rma_id),
         event_type=str(event_type or "event"),
         from_status=from_status,
         to_status=to_status,
+        field_name=field_name,
+        old_value=old_value,
+        new_value=new_value,
         actor_user_id=actor_user_id,
         payload_json=dumps_json(payload or {}),
     )
     session.add(row)
     session.flush()
     return row
+
+
+def _log_field_change(
+    session: Any,
+    rma_id: int,
+    field_name: str,
+    old_val: Any,
+    new_val: Any,
+    *,
+    actor_user: Any = None,
+) -> None:
+    """Record a granular field change for auditing."""
+    if str(old_val) == str(new_val):
+        return
+    _add_event(
+        session,
+        rma_id=rma_id,
+        event_type="field_changed",
+        from_status=None,
+        to_status=None,
+        actor_user_id=_actor_id(actor_user),
+        field_name=field_name,
+        old_value=str(old_val) if old_val is not None else None,
+        new_value=str(new_val) if new_val is not None else None,
+    )
 
 
 def _serialize_temporal(value: Any) -> str:
@@ -719,6 +814,8 @@ def _serialize_rma(row: ReturnRMA) -> dict[str, Any]:
         "date_submitted": _serialize_temporal(row.date_submitted),
         "date_shipped": _serialize_temporal(row.date_shipped),
         "return_type": row.return_type,
+        "company": row.company,
+        "approval_target": row.approval_target,
         "advised_customer": bool(row.advised_customer),
         "additional_notes": row.additional_notes,
         "total_credit_amount": round(float(row.total_credit_amount or 0), 2),
@@ -775,6 +872,8 @@ def _serialize_item(row: ReturnRMAItem) -> dict[str, Any]:
         "qty": float(row.qty or 0),
         "price": float(row.price or 0),
         "reason_code": row.reason_code,
+        "warehouse_outcome": row.warehouse_outcome,
+        "received_weight_lb": float(row.received_weight_lb) if row.received_weight_lb is not None else None,
         "condition": row.item_condition,
         "notes": row.notes,
         "receiving_notes": row.receiving_notes,
@@ -941,7 +1040,8 @@ def _coerce_credit_pct(value: Any, default: float = 100.0) -> float:
 
 def _credit_amount_for_item(item_payload: dict[str, Any]) -> float:
     price_per_lb = _coerce_float(item_payload.get("price_per_lb"), _coerce_float(item_payload.get("price"), 0.0))
-    weight_lb = _coerce_float(item_payload.get("weight_lb"), _coerce_float(item_payload.get("qty"), 0.0))
+    # Use received_weight_lb if present, otherwise fallback to weight_lb
+    weight_lb = _coerce_float(item_payload.get("received_weight_lb"), _coerce_float(item_payload.get("weight_lb"), _coerce_float(item_payload.get("qty"), 0.0)))
     credit_pct = _coerce_credit_pct(item_payload.get("credit_pct"), 100.0)
     credit = price_per_lb * weight_lb * (credit_pct / 100.0)
     return round(max(credit, 0.0), 2)
@@ -1042,7 +1142,7 @@ def _validate_manager_transition(row: ReturnRMA, items: list[ReturnRMAItem]) -> 
         raise ReturnsError("Manager approval requires at least one line item.")
     computed_total = round(sum(_credit_amount_for_item(_serialize_item(item)) for item in items), 2)
     stored_total = round(float(row.total_credit_amount or 0), 2)
-    total_weight = round(sum(float(item.weight_lb or 0) for item in items), 3)
+    total_weight = round(sum(float(item.received_weight_lb if item.received_weight_lb is not None else item.weight_lb) for item in items), 3)
     if total_weight <= 0:
         raise ReturnsError("Manager approval requires computed totals from at least one valid line item.")
     if abs(computed_total - stored_total) > 0.01:
@@ -1065,7 +1165,8 @@ def _summarize_item_rollups(
         if not item:
             continue
         credit = _credit_amount_for_item(item)
-        weight = float(item.get("weight_lb") or item.get("qty") or 0)
+        # Prioritize received_weight_lb if available
+        weight = float(item.get("received_weight_lb") or item.get("weight_lb") or item.get("qty") or 0)
         packs = _coerce_int(item.get("packs_count") or item.get("packs") or 0, 0)
         reason_text = str(item.get("reason_for_return") or item.get("reason_code") or "").strip()
         category = str(item.get("category") or "").strip() or category_for_reason(
@@ -1369,6 +1470,13 @@ def _send_bulk_email(
     html_body: str | None = None,
     attachments: Optional[list[dict[str, Any]]] = None,
 ) -> int:
+    if bool(current_app.config.get("MAIL_SUPPRESS_SEND", False)):
+        current_app.logger.info(
+            "returns.email_skip",
+            extra={"reason": "suppressed", "recipient_count": len(list(recipients)), "subject": subject},
+        )
+        return len(list(recipients))
+
     delivered = 0
     seen: set[str] = set()
     for raw in recipients:
@@ -1501,7 +1609,17 @@ def _build_structured_return_pdf(
     pdf.set_margins(10, 10, 10)
     pdf.set_fill_color(243, 244, 246)
     pdf.set_draw_color(209, 213, 219)
-    logo_path = Path(current_app.root_path) / "static" / "img" / "trsm-logo-badge.png"
+    
+    # Enterprise Dynamic Branding
+    company = str(detail.get("company") or "").strip().lower()
+    if "black forest" in company:
+        logo_file = "bf-logo.png"
+        company_header = "Black Forest Meats"
+    else:
+        logo_file = "trsm-logo-badge.png"
+        company_header = "Two Rivers Meats"
+        
+    logo_path = Path(current_app.root_path) / "static" / "img" / logo_file
     top_y = pdf.get_y()
     if logo_path.exists():
         try:
@@ -1511,7 +1629,7 @@ def _build_structured_return_pdf(
     pdf.set_xy(42, top_y + 1)
     pdf.set_text_color(150, 89, 81)
     pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 7, _pdf_text("Two Rivers Meats - Credit PO / Return", 90), ln=1)
+    pdf.cell(0, 7, _pdf_text(f"{company_header} - Credit PO / Return", 90), ln=1)
     pdf.set_x(42)
     pdf.set_text_color(75, 85, 99)
     pdf.set_font("Helvetica", "", 9)
@@ -1535,16 +1653,16 @@ def _build_structured_return_pdf(
     pdf.ln(4)
 
     headers = [
-        ("Code", 14),
-        ("Description", 32),
-        ("Weight (lb)", 14),
-        ("Price/lb", 15),
+        ("Code", 12),
+        ("Description", 30),
+        ("Orig Wgt", 14),
+        ("Adj Wgt", 14),
+        ("Price/lb", 14),
         ("Credit %", 14),
-        ("Credit Amt", 17),
-        ("Returning", 15),
-        ("Reason", 24),
-        ("Follow-up", 20),
-        ("Supplier", 14),
+        ("Credit Amt", 16),
+        ("Return", 14),
+        ("Outcome", 24),
+        ("Follow-up", 31),
     ]
     pdf.set_font("Helvetica", "B", 7)
     for title, width in headers:
@@ -1557,14 +1675,14 @@ def _build_structured_return_pdf(
             row_values = [
                 _pdf_text(item.get("product_code") or item.get("sku") or "-", 10),
                 _pdf_text(item.get("product_desc") or item.get("product_name") or "-", 24),
-                f"{float(item.get('weight_lb') or item.get('qty') or 0):.3f}",
-                f"{float(item.get('price_per_lb') or item.get('price') or 0):.2f}",
+                f"{float(item.get('weight_lb') or 0):.3f}",
+                f"{float(item.get('received_weight_lb')):.3f}" if item.get("received_weight_lb") is not None else "-",
+                f"{float(item.get('price_per_lb') or 0):.2f}",
                 f"{_coerce_credit_pct(item.get('credit_pct'), 100.0):.2f}",
                 f"{float(item.get('credit_amount') or 0):.2f}",
                 "Yes" if item.get("product_returning") else "No",
-                _pdf_text(item.get("reason_for_return") or item.get("reason_code") or "-", 16),
-                _pdf_text(item.get("follow_up_action") or "-", 16),
-                "Yes" if item.get("supplier_credit") else "No",
+                _pdf_text(item.get("warehouse_outcome") or "-", 16),
+                _pdf_text(item.get("follow_up_action") or "-", 20),
             ]
             for (header, width), value in zip(headers, row_values):
                 pdf.cell(width, 6, value, border=1)
@@ -1585,9 +1703,24 @@ def _build_structured_return_pdf(
     pdf.ln(8)
     sign_width = (label_width + value_width) - 2
     pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(sign_width, 7, "Warehouse Sign-off (name/date)", border="T")
+    pdf.cell(sign_width, 7, "Warehouse Reviewed By", border="T")
     pdf.cell(4, 7, "")
-    pdf.cell(sign_width, 7, "Manager Approval (name/date)", border="T", ln=1)
+    pdf.cell(sign_width, 7, "Manager Digitally Approved By", border="T", ln=1)
+    
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(sign_width, 5, _pdf_text(detail.get("metadata", {}).get("wh_reviewer_name") or "-"))
+    pdf.cell(4, 5, "")
+    
+    approval_text = "-"
+    if detail.get("status") in [STATUS_APPROVED, STATUS_AWAITING_FINANCE, STATUS_COMPLETED]:
+        approval_text = str(detail.get("approval_target") or "Authorized Manager")
+    pdf.cell(sign_width, 5, _pdf_text(approval_text), ln=1)
+    
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.set_text_color(156, 163, 175)
+    audit_id = f"{detail.get('id')}-{str(detail.get('last_updated', '')).replace(':', '').replace('-', '').replace(' ', '')}"
+    pdf.cell(0, 5, f"Enterprise Audit ID: {audit_id} | Generated for {detail.get('company', 'Two Rivers')} Finance Review", ln=1)
 
     pdf_output = pdf.output(dest="S")
     return pdf_output.encode("latin-1") if isinstance(pdf_output, str) else bytes(pdf_output)
@@ -1818,6 +1951,8 @@ def list_rmas(
     rep: str | None = None,
     category: str | None = None,
     reason: str | None = None,
+    company: str | None = None,
+    approval_target: str | None = None,
     order_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
@@ -1829,6 +1964,13 @@ def list_rmas(
     with get_session() as session:
         query = session.query(ReturnRMA)
         query = apply_scope_filters(query, scope=payload)
+        
+        # Enterprise Filters
+        if company:
+            query = query.filter(ReturnRMA.company == company)
+        if approval_target:
+            query = query.filter(ReturnRMA.approval_target == approval_target)
+
         normalized_statuses: list[str] = []
         if statuses:
             normalized_statuses.extend(str(item or "").strip().lower() for item in statuses if str(item or "").strip())
@@ -1914,6 +2056,8 @@ def tracker_export_frame(
     rep: str | None = None,
     category: str | None = None,
     reason: str | None = None,
+    company: str | None = None,
+    approval_target: str | None = None,
     order_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
@@ -1928,6 +2072,8 @@ def tracker_export_frame(
         rep=rep,
         category=category,
         reason=reason,
+        company=company,
+        approval_target=approval_target,
         order_id=order_id,
         from_date=from_date,
         to_date=to_date,
@@ -2626,9 +2772,24 @@ def update_receiving_review(
             item = item_map.get(int(item_id))
             if not item:
                 continue
+            
+            # Enterprise Audit Logging for line-level changes
+            _log_field_change(session, int(rma_id), f"item_{item.id}_pack_barcode", item.pack_barcode, payload.get("pack_barcode"), actor_user=actor_user)
+            _log_field_change(session, int(rma_id), f"item_{item.id}_packs_count", item.packs_count, payload.get("packs_count"), actor_user=actor_user)
+            _log_field_change(session, int(rma_id), f"item_{item.id}_follow_up", item.follow_up_action, payload.get("follow_up_action"), actor_user=actor_user)
+            _log_field_change(session, int(rma_id), f"item_{item.id}_outcome", item.warehouse_outcome, payload.get("warehouse_outcome"), actor_user=actor_user)
+            _log_field_change(session, int(rma_id), f"item_{item.id}_weight_lb", item.received_weight_lb, payload.get("received_weight_lb"), actor_user=actor_user)
+
             item.pack_barcode = str(payload.get("pack_barcode") or "").strip() or None
             item.packs_count = _coerce_int(payload.get("packs_count"), item.packs_count or 0)
             item.follow_up_action = str(payload.get("follow_up_action") or "").strip() or None
+            item.warehouse_outcome = str(payload.get("warehouse_outcome") or "").strip() or None
+            item.received_weight_lb = _coerce_float(payload.get("received_weight_lb"))
+            if item.received_weight_lb is not None:
+                # Recalculate credit amount based on adjusted weight
+                item_payload = _serialize_item(item)
+                item_payload["received_weight_lb"] = item.received_weight_lb
+                item.credit_amount = _credit_amount_for_item(item_payload)
             item.supplier_credit = _coerce_bool(payload.get("supplier_credit"))
             item.receiving_notes = str(payload.get("receiving_notes") or "").strip() or None
             session.add(item)
@@ -2818,8 +2979,8 @@ def create_rma(
     selected_mode = str(workflow_mode or order_payload.get("workflow_mode") or "policy").strip().lower()
     if returns_final_v1_enabled():
         selected_mode = "final_v1"
-        status = STATUS_PENDING
-        summary = "Pending warehouse approval."
+        status = STATUS_AWAITING_OPS
+        summary = "Awaiting operations coordination."
     elif selected_mode == "legacy":
         status = STATUS_PENDING
         summary = "Pending warehouse approval."
@@ -2833,6 +2994,7 @@ def create_rma(
     submitted_at = _coerce_datetime(order_payload.get("date_submitted")) or _vancouver_now()
     advised_customer_note = str(order_payload.get("advised_customer_note") or "").strip()
     receiving_notes = str(order_payload.get("receiving_notes") or "").strip()
+    company = str(order_payload.get("company") or "").strip() or "Two Rivers"
     with get_session() as session:
         row = ReturnRMA(
             customer_id=customer_id,
@@ -2857,6 +3019,7 @@ def create_rma(
             rec_prod_signed_by_user_id=_int_or_none(order_payload.get("rec_prod_signed_by_user_id")),
             rec_prod_signed_at=_coerce_datetime(order_payload.get("rec_prod_signed_at")),
             status=status,
+            company=company,
             created_by_user_id=_actor_id(actor_user),
             decision_summary=summary,
             policy_version=str(policy.get("version") or "1"),
@@ -3068,6 +3231,15 @@ def transition_return(
                 completed_at=now.isoformat(),
                 completed_by_user_id=_actor_id(actor_user),
             )
+        
+        # Enterprise SLA Tracking
+        if target == STATUS_PICKUP_SCHEDULED:
+            row.ops_cleared_at = now
+        elif target == STATUS_WH_APPROVED:
+            row.wh_reviewed_at = now
+        elif target == STATUS_COMPLETED:
+            row.fin_cleared_at = now
+
         row.status = target
         row.updated_at = now
         notes = str(event_payload.get("decision_summary") or event_payload.get("notes") or "").strip()
@@ -3142,32 +3314,37 @@ def build_return_pdf_bytes(
         raise ReturnsError("RMA not found.")
     generated_at = _vancouver_now().strftime("%Y-%m-%d %H:%M %Z")
     document_title = "Credit PO" if credit_po else "Return Form"
-    logo_path = Path(current_app.root_path) / "static" / "img" / "trsm-logo-badge.png"
+    
+    # Enterprise Dynamic Branding
+    company = str(detail.get("company") or "").strip().lower()
+    if "black forest" in company:
+        logo_file = "bf-logo.png"
+        company_header = "Black Forest Meats"
+    else:
+        logo_file = "trsm-logo-badge.png"
+        company_header = "Two Rivers Meats"
+        
+    logo_path = Path(current_app.root_path) / "static" / "img" / logo_file
     logo_uri = logo_path.resolve().as_uri() if logo_path.exists() else None
+    
     rendered_html = render_template(
         "returns/return_form.html",
         document_title=document_title,
+        company_header=company_header,
         r=detail,
         items=detail.get("items") or [],
         generated_at=generated_at,
         logo_uri=logo_uri,
     )
     pdf_bytes: bytes | None = None
-    try:
-        from weasyprint import HTML
-
-        pdf_bytes = HTML(
-            string=rendered_html,
-            base_url=str(Path(current_app.root_path).resolve()),
-        ).write_pdf()
-    except Exception:
-        pdf_bytes = None
-    if not pdf_bytes:
-        pdf_bytes = _build_structured_return_pdf(
-            detail,
-            generated_at=generated_at,
-            credit_po=credit_po,
-        )
+    # Enterprise Optimization: Always use structured PDF (FPDF) for speed and reliability.
+    # WeasyPrint is skipped due to performance and environmental bottlenecks.
+    pdf_bytes = _build_structured_return_pdf(
+        detail,
+        generated_at=generated_at,
+        credit_po=credit_po,
+    )
+    
     current_app.logger.info(
         "returns.pdf_generated",
         extra={"rma_id": int(rma_id), "credit_po": bool(credit_po), "actor_user_id": _actor_id(actor_user)},
@@ -3181,6 +3358,46 @@ def build_return_pdf_bytes(
     return pdf_bytes
 
 
+def _determine_approval_target(rma: ReturnRMA, items: list[ReturnRMAItem]) -> str:
+    """Determine the manager target for approval based on business rules."""
+    # Rule A: Not returning or Discount -> Scott
+    not_returning = any(not item.product_returning for item in items)
+    has_discount = any(str(item.follow_up_action or "").strip().lower() == "discount" for item in items)
+    
+    if not_returning or has_discount:
+        return "Scott"
+    
+    # Rule B & C: Returning and credit threshold -> Brian (< 300), Kyle (>= 300)
+    # Use the warehouse-adjusted credit total
+    total_credit = sum(float(item.credit_amount or 0.0) for item in items)
+    
+    if total_credit < 300:
+        return "Brian"
+    return "Kyle"
+
+
+def schedule_pickup(rma_id: int, *, actor_user: Any = None, notes: str | None = None) -> dict[str, Any]:
+    """Transition RMA to pickup_scheduled status."""
+    return transition_return(
+        rma_id,
+        STATUS_PICKUP_SCHEDULED,
+        actor_user=actor_user,
+        event_type="pickup_scheduled",
+        payload={"notes": str(notes or "").strip()},
+    )
+
+
+def mark_picked_up(rma_id: int, *, actor_user: Any = None, notes: str | None = None) -> dict[str, Any]:
+    """Transition RMA to picked_up status."""
+    return transition_return(
+        rma_id,
+        STATUS_PICKED_UP,
+        actor_user=actor_user,
+        event_type="picked_up",
+        payload={"notes": str(notes or "").strip()},
+    )
+
+
 def approve_warehouse(
     rma_id: int,
     *,
@@ -3188,6 +3405,25 @@ def approve_warehouse(
     notes: str | None = None,
     scope: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    with get_session() as session:
+        row = session.get(ReturnRMA, int(rma_id))
+        if not row:
+            raise ReturnsError("RMA not found.")
+        
+        items = (
+            session.query(ReturnRMAItem)
+            .filter(ReturnRMAItem.rma_id == int(rma_id))
+            .all()
+        )
+        
+        # Calculate and store approval target
+        target_name = _determine_approval_target(row, items)
+        row.approval_target = target_name
+        session.add(row)
+        session.commit()
+        
+        decision_summary = str(notes or "").strip() or f"Approved by warehouse. Routed to {target_name}."
+
     detail = transition_return(
         rma_id,
         STATUS_WH_APPROVED,
@@ -3195,7 +3431,8 @@ def approve_warehouse(
         event_type="warehouse_approved",
         payload={
             "notes": str(notes or "").strip(),
-            "decision_summary": str(notes or "").strip() or "Approved by warehouse.",
+            "decision_summary": decision_summary,
+            "approval_target": target_name,
         },
         scope=scope,
     )
@@ -3227,6 +3464,41 @@ def approve_warehouse(
     return detail
 
 
+def _send_finance_notification_email(rma_detail: dict[str, Any], pdf_bytes: bytes | None = None) -> bool:
+    """Send an automated notification to Finance after manager approval."""
+    company = str(rma_detail.get("company") or "").strip().lower()
+    if "black forest" in company:
+        recipient = "ar@bfmeats.com"
+    else:
+        # Default to Two Rivers if not explicitly Black Forest
+        recipient = "ar@tworiversmeats.com"
+    
+    rma_id = rma_detail.get("id")
+    rma_number = rma_detail.get("rma_number") or f"#{rma_id}"
+    subject = f"Return {rma_number} - Approved for Finance Review"
+    
+    body = (
+        f"Return {rma_number} for {rma_detail.get('customer_name')} has been approved by management "
+        f"and is now awaiting Finance processing.\n\n"
+        f"Customer: {rma_detail.get('customer_name')} ({rma_detail.get('customer_id')})\n"
+        f"Total Credit: ${rma_detail.get('total_credit_amount'):.2f}\n"
+        f"RMA Number: {rma_number}\n\n"
+        f"Please review the attached Credit-PO and finalize the credit."
+    )
+    
+    attachments = None
+    if pdf_bytes:
+        attachments = [{"filename": f"credit-po-{rma_id}.pdf", "mimetype": "application/pdf", "data": pdf_bytes}]
+    else:
+        try:
+            generated = build_return_pdf_bytes(int(rma_id), credit_po=True)
+            attachments = [{"filename": f"return-{rma_id}.pdf", "mimetype": "application/pdf", "data": generated}]
+        except Exception:
+            pass
+        
+    return _send_rma_bulk_email(int(rma_id), [recipient], subject, body, attachments=attachments)
+
+
 def approve_manager(
     rma_id: int,
     *,
@@ -3234,14 +3506,36 @@ def approve_manager(
     notes: str | None = None,
     scope: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    target_status = STATUS_APPROVED
+    if returns_final_v1_enabled():
+        target_status = STATUS_AWAITING_FINANCE
+
+    with get_session() as session:
+        row = session.get(ReturnRMA, int(rma_id))
+        if not row:
+            raise ReturnsError("RMA not found.")
+        
+        items = (
+            session.query(ReturnRMAItem)
+            .filter(ReturnRMAItem.rma_id == int(rma_id))
+            .all()
+        )
+        
+        # Enterprise Hardening: Sync rollups one last time before manager validation
+        item_payloads = [_serialize_item(item) for item in items]
+        reason_lookup = _reason_lookup_map()
+        _apply_rma_rollups(row, item_payloads, reason_lookup=reason_lookup)
+        session.add(row)
+        session.commit()
+
     detail = transition_return(
         rma_id,
-        STATUS_APPROVED,
+        target_status,
         actor_user=actor_user,
         event_type="manager_approved",
         payload={
             "notes": str(notes or "").strip(),
-            "decision_summary": str(notes or "").strip() or "Approved by manager.",
+            "decision_summary": str(notes or "").strip() or f"Approved by manager. Awaiting Finance.",
         },
         scope=scope,
     )
@@ -3249,6 +3543,7 @@ def approve_manager(
     attachments = [{"filename": f"credit-po-return-{rma_id}.pdf", "mimetype": "application/pdf", "data": pdf_bytes}]
     if returns_final_v1_enabled():
         _send_return_event_email(detail, "manager_approved", detail=str(notes or "").strip() or None, attachments=attachments)
+        _send_finance_notification_email(detail, pdf_bytes=pdf_bytes)
     else:
         settings = get_returns_settings()
         recipients = _rma_submitter_recipients(detail)
@@ -3267,6 +3562,8 @@ def approve_manager(
         "returns.approve_manager",
         extra={"rma_id": int(rma_id), "actor_user_id": _actor_id(actor_user)},
     )
+    # Include pdf_bytes in the return payload so the blueprint can reuse it
+    detail["pdf_bytes"] = pdf_bytes
     return {
         "detail": detail,
         "pdf_bytes": pdf_bytes,

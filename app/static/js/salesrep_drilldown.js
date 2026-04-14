@@ -2846,36 +2846,68 @@
       return;
     }
 
-    const repId = document.getElementById("SalesRepDrilldownMeta")?.dataset?.entityId || "";
+    // Sort by priority_score
+    const sorted = [...lost].sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0));
 
     let html = `<div class="table-responsive"><table class="table table-sm align-middle mb-0">
       <thead><tr>
-        <th>Customer</th>
-        <th class="text-end">Last Revenue (Prior 30d)</th>
+        <th>Customer / Opportunity</th>
+        <th class="text-center">Priority</th>
+        <th class="text-end">Prior 30d Rev</th>
         <th class="text-end">Last Order Date</th>
         <th class="text-end">Days Silent</th>
         <th>Action</th>
       </tr></thead><tbody>`;
 
-    lost.forEach((row) => {
+    sorted.forEach((row) => {
       const name = escapeHtml(row.customer_name || row.customer_id || NA);
       const rev = formatCurrency(row.revenue_prev_30);
       const date = escapeHtml(row.last_order_date || NA);
       const days = row.days_since_order != null ? formatInt(row.days_since_order) : NA;
-      const mailtoSubject = encodeURIComponent(`Follow-up: ${row.customer_name || row.customer_id} — Re-engagement Opportunity`);
-      const mailtoBody = encodeURIComponent(`Hi,\n\nI wanted to follow up on ${row.customer_name || row.customer_id} who last ordered ${row.days_since_order ?? "?"} days ago.`);
+      const score = row.priority_score ?? 0;
+      const urgency = row.urgency_label || "Medium";
+      const reason = escapeHtml(row.opportunity_reason || "");
+      
+      const phone = row.customer_phone ? `<div class="small text-muted"><i class="bi bi-telephone"></i> ${escapeHtml(row.customer_phone)}</div>` : "";
+      const email = row.customer_email ? `<div class="small text-muted"><i class="bi bi-envelope"></i> ${escapeHtml(row.customer_email)}</div>` : "";
+
+      let urgencyClass = "bg-secondary";
+      if (urgency === "Critical") urgencyClass = "bg-danger";
+      else if (urgency === "High") urgencyClass = "bg-warning text-dark";
+
+      const mailtoSubject = encodeURIComponent(`RE: ${row.customer_name || row.customer_id} — Re-engagement Opportunity`);
+      const mailtoBody = encodeURIComponent(
+        `Hi,\n\nI am reaching out regarding ${row.customer_name || row.customer_id}.\n\n` +
+        `Signal: ${row.opportunity_reason}.\n` +
+        `Prior monthly revenue was ${rev}. Last order was on ${date} (${days} days ago).\n\n` +
+        `Please prioritize this follow-up today.\n\nThanks`
+      );
+
       html += `<tr>
-        <td><strong>${name}</strong></td>
+        <td>
+            <div class="fw-bold">${name}</div>
+            <div class="small text-muted">${reason}</div>
+            ${phone}
+            ${email}
+        </td>
+        <td class="text-center">
+            <span class="badge ${urgencyClass}" style="font-size:0.7rem">${urgency.toUpperCase()}</span>
+            <div class="small text-muted">Score: ${score}</div>
+        </td>
         <td class="text-end">${rev}</td>
         <td class="text-end">${date}</td>
         <td class="text-end"><span class="badge" style="background:#fd7e14;color:#fff;">${days}d</span></td>
-        <td><a href="mailto:?subject=${mailtoSubject}&body=${mailtoBody}" class="btn btn-sm btn-outline-secondary">
+        <td><a href="mailto:${row.customer_email || ""}?subject=${mailtoSubject}&body=${mailtoBody}" class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-envelope"></i> Follow Up
         </a></td>
       </tr>`;
     });
 
     html += "</tbody></table></div>";
+    html += `<p class="text-muted small mt-2 mb-0">
+        Priority queue ranks accounts by lost revenue and silence duration. 
+        Re-engage within the first 60 days for best recovery results.
+    </p>`;
     contentEl.innerHTML = html;
   };
 

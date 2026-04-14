@@ -314,6 +314,12 @@ def salesreps_bundle():
     return _bundle("salesreps")
 
 
+@bp.get("/stakeholder-report/bundle")
+@login_required
+def stakeholder_report_bundle():
+    return _bundle("stakeholder_report")
+
+
 @bp.get("/salesreps/efficiency")
 @login_required
 @requires_roles("admin", "owner", "gm", "manager", "sales")

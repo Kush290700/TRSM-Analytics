@@ -137,19 +137,19 @@ def _existing_partitions_for_pks(dataset_path: Path, pk_col: str, pk_values: Seq
     if not coerced:
         return []
 
-    partitions: set[Tuple[int, int]] = set()
+    partitions: set[Tuple[int, int, int]] = set()
     # Keep chunks modest; large IN lists can be expensive to compile.
     for chunk in _chunked(coerced, int(os.getenv("FACT_UPSERT_PK_CHUNK", "10000"))):
         try:
             filt = ds.field(pk_col).isin(chunk)
-            table = dataset.to_table(filter=filt, columns=["year", "month"])
+            table = dataset.to_table(filter=filt, columns=["year", "month", "day"])
             if table.num_rows <= 0:
                 continue
             df = table.to_pandas()
-            for y, m in zip(df.get("year", []), df.get("month", [])):
-                if pd.isna(y) or pd.isna(m):
+            for y, m, d in zip(df.get("year", []), df.get("month", []), df.get("day", [])):
+                if pd.isna(y) or pd.isna(m) or pd.isna(d):
                     continue
-                partitions.add((int(y), int(m)))
+                partitions.add((int(y), int(m), int(d)))
         except Exception:
             # Best effort: if pushdown fails, we fall back to rewriting only the
             # partitions touched by incoming rows (still idempotent per partition).
@@ -175,15 +175,17 @@ def _add_partitions(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
     ts = pd.to_datetime(work[date_col], errors="coerce")
     work["year"] = ts.dt.year.astype("Int64")
     work["month"] = ts.dt.month.astype("Int64")
+    work["day"] = ts.dt.day.astype("Int64")
     return work
 
 
-def _partition_keys(df: pd.DataFrame) -> List[Tuple[int, int]]:
+def _partition_keys(df: pd.DataFrame) -> List[Tuple[int, int, int]]:
     if df.empty:
         return []
     years = pd.to_numeric(df.get("year"), errors="coerce")
     months = pd.to_numeric(df.get("month"), errors="coerce")
-    pairs = {(int(y), int(m)) for y, m in zip(years, months) if pd.notna(y) and pd.notna(m)}
+    days = pd.to_numeric(df.get("day"), errors="coerce")
+    pairs = {(int(y), int(m), int(d)) for y, m, d in zip(years, months, days) if pd.notna(y) and pd.notna(m) and pd.notna(d)}
     return sorted(pairs)
 
 
@@ -200,17 +202,16 @@ def _to_date(raw: Optional[date | datetime | str]) -> Optional[date]:
     return ts.date()
 
 
-def _window_partition_keys(start: Optional[date | datetime | str], end: Optional[date | datetime | str]) -> List[Tuple[int, int]]:
+def _window_partition_keys(start: Optional[date | datetime | str], end: Optional[date | datetime | str]) -> List[Tuple[int, int, int]]:
     start_dt = _to_date(start)
     end_dt = _to_date(end)
     if start_dt is None or end_dt is None or start_dt > end_dt:
         return []
-    keys: List[Tuple[int, int]] = []
-    cursor = date(start_dt.year, start_dt.month, 1)
-    final = date(end_dt.year, end_dt.month, 1)
-    while cursor <= final:
-        keys.append((int(cursor.year), int(cursor.month)))
-        cursor = (pd.Timestamp(cursor) + pd.DateOffset(months=1)).date()
+    keys: List[Tuple[int, int, int]] = []
+    cursor = start_dt
+    while cursor <= end_dt:
+        keys.append((int(cursor.year), int(cursor.month), int(cursor.day)))
+        cursor = (pd.Timestamp(cursor) + pd.DateOffset(days=1)).date()
     return keys
 
 
@@ -236,24 +237,22 @@ def _drop_existing_rows_in_window(
     return filtered, removed
 
 
-def _read_partition(dataset_path: Path, year: int, month: int) -> pd.DataFrame:
+def _read_partition(dataset_path: Path, year: int, month: int, day: int) -> pd.DataFrame:
     if not dataset_path.exists():
         return pd.DataFrame()
-    part_dirs = list(
-        {
-            (dataset_path / f"year={int(year)}" / f"month={int(month)}").as_posix(): dataset_path
-            / f"year={int(year)}"
-            / f"month={int(month)}",
-            (dataset_path / f"year={int(year)}" / f"month={int(month):02d}").as_posix(): dataset_path
-            / f"year={int(year)}"
-            / f"month={int(month):02d}",
-        }.values()
-    )
+    
+    # Check both padded and non-padded directory names for backward compatibility
+    part_dirs = [
+        dataset_path / f"year={year}" / f"month={month}" / f"day={day}",
+        dataset_path / f"year={year}" / f"month={month:02d}" / f"day={day:02d}"
+    ]
+    
     parquet_files: List[Path] = []
     for part_dir in part_dirs:
         if not part_dir.exists():
             continue
         parquet_files.extend(sorted(part_dir.rglob("*.parquet")))
+        
     if not parquet_files:
         return pd.DataFrame()
     frames: List[pd.DataFrame] = []
@@ -265,7 +264,7 @@ def _read_partition(dataset_path: Path, year: int, month: int) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True, sort=False)
-    for col in ("year", "month"):
+    for col in ("year", "month", "day"):
         if col in df.columns:
             df.drop(columns=[col], inplace=True, errors="ignore")
     return df
@@ -285,7 +284,7 @@ def _upsert(existing: pd.DataFrame, incoming: pd.DataFrame, pk_col: str) -> pd.D
     return pd.concat([left, right], ignore_index=True, sort=False)
 
 
-def _write_partition(df: pd.DataFrame, partition_dir: Path, *, year: int, month: int) -> None:
+def _write_partition(df: pd.DataFrame, partition_dir: Path, *, year: int, month: int, day: int) -> None:
     if partition_dir.exists():
         shutil.rmtree(partition_dir, ignore_errors=True)
     partition_dir.mkdir(parents=True, exist_ok=True)
@@ -294,6 +293,8 @@ def _write_partition(df: pd.DataFrame, partition_dir: Path, *, year: int, month:
         work["year"] = year
     if "month" not in work.columns:
         work["month"] = month
+    if "day" not in work.columns:
+        work["day"] = day
     part_path = partition_dir / "part-0.parquet"
     tmp_path = partition_dir / f"part-0.{os.getpid()}.{int(time.time() * 1000)}.tmp.parquet"
     # pandas' parquet writer is materially more stable here than constructing an
@@ -478,13 +479,13 @@ def upsert_dataset(
     removed_total = 0
     removed_window_total = 0
 
-    for year, month in touched:
-        existing_df = _read_partition(dataset_path, year, month)
+    for year, month, day in touched:
+        existing_df = _read_partition(dataset_path, year, month, day)
         existing_len = int(len(existing_df)) if isinstance(existing_df, pd.DataFrame) else 0
-        if work.empty or "year" not in work.columns or "month" not in work.columns:
+        if work.empty or "year" not in work.columns or "month" not in work.columns or "day" not in work.columns:
             new_subset = pd.DataFrame()
         else:
-            new_subset = work.loc[(work["year"] == year) & (work["month"] == month)].copy()
+            new_subset = work.loc[(work["year"] == year) & (work["month"] == month) & (work["day"] == day)].copy()
         if existing_df is not None and not existing_df.empty:
             existing_df, removed_window = _drop_existing_rows_in_window(
                 existing_df,
@@ -506,7 +507,7 @@ def upsert_dataset(
             except Exception:
                 pass
 
-        incoming_part = new_subset.drop(columns=["year", "month"], errors="ignore")
+        incoming_part = new_subset.drop(columns=["year", "month", "day"], errors="ignore")
         # Align schemas for forward/backward compatibility.
         aligned_existing, aligned_incoming = _align_columns(existing_df, incoming_part)
         frames = [frame for frame in (aligned_existing, aligned_incoming) if frame is not None and not frame.empty]
@@ -516,13 +517,11 @@ def upsert_dataset(
             combined = aligned_existing.iloc[0:0].copy()
         existing_counts.append(existing_len)
         new_counts.append(int(len(combined)))
-        part_dir = tmp_dir / f"year={year}" / f"month={month}"
-        alt_part_dir = tmp_dir / f"year={year}" / f"month={month:02d}"
+        part_dir = tmp_dir / f"year={year}" / f"month={month}" / f"day={day}"
         if combined.empty:
             shutil.rmtree(part_dir, ignore_errors=True)
-            shutil.rmtree(alt_part_dir, ignore_errors=True)
             continue
-        _write_partition(combined, part_dir, year=year, month=month)
+        _write_partition(combined, part_dir, year=year, month=month, day=day)
 
     counted_total = _count_rows(tmp_dir)
     if counted_total is not None:

@@ -1,0 +1,497 @@
+{
+  "nodes": [
+    {
+      "id": "regions_drilldown_bundle",
+      "label": "Regions Drilldown Bundle Test",
+      "file_type": "code",
+      "source_file": "tests/test_regions_drilldown_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_parity",
+      "label": "Overview Parity Test",
+      "file_type": "code",
+      "source_file": "tests/test_overview_parity.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_kpis_v2",
+      "label": "Customers KPIs v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_customers_kpis_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_endpoints_smoke",
+      "label": "Products Endpoints Smoke Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_endpoints_smoke.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_playwright",
+      "label": "Products Playwright Smoke Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_playwright.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_v2",
+      "label": "SalesReps v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "notifications_feature",
+      "label": "Notifications Feature Test",
+      "file_type": "code",
+      "source_file": "tests/test_notifications_feature.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_loader_window_predicate",
+      "label": "Data Loader Window Predicate Test",
+      "file_type": "code",
+      "source_file": "tests/test_data_loader_window_predicate.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "suppliers_v2",
+      "label": "Suppliers v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_suppliers_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_segments_api",
+      "label": "Products Segments API Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_segments_api.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_etl",
+      "label": "Fact ETL Test",
+      "file_type": "code",
+      "source_file": "tests/test_fact_etl.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_health_score",
+      "label": "SalesReps Health Score Test",
+      "file_type": "code",
+      "source_file": "tests/test_salesreps_health_score.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "supplier_workbook",
+      "label": "Supplier Workbook Test",
+      "file_type": "code",
+      "source_file": "tests/test_supplier_workbook.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_gate",
+      "label": "Auth Gate Test",
+      "file_type": "code",
+      "source_file": "tests/test_auth_gate.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_exports",
+      "label": "Products Exports Test",
+      "file_type": "code",
+      "source_file": "tests/test_products_exports.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "data_access_consistency",
+      "label": "Data Access Consistency Test",
+      "file_type": "code",
+      "source_file": "tests/test_data_access_consistency.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_cohorts_v2",
+      "label": "Customers Cohorts v2 Test",
+      "file_type": "code",
+      "source_file": "tests/test_customers_cohorts_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "analytics_utils_supplier",
+      "label": "Analytics Utils Supplier Test",
+      "file_type": "code",
+      "source_file": "tests/test_analytics_utils_supplier.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "theme_audit_boot",
+      "label": "Theme Audit Boot Setup",
+      "file_type": "code",
+      "source_file": "tests/playwright/theme_audit_boot.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "admin_parity_spec",
+      "label": "Admin Parity Playwright Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/admin-parity.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "api_smoke_spec",
+      "label": "API Smoke Playwright Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/api-smoke.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "api_cost_health_spec",
+      "label": "API Cost Health Playwright Spec",
+      "file_type": "code",
+      "source_file": "tests/playwright/api-cost-health.spec.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_store",
+      "label": "Fact Store Service",
+      "file_type": "code",
+      "source_file": "app/services/fact_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "overview_query",
+      "label": "Overview Query Service",
+      "file_type": "code",
+      "source_file": "app/services/overview_query.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "notifications_service",
+      "label": "Notifications Service",
+      "file_type": "code",
+      "source_file": "app/services/notifications.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "cache_manager",
+      "label": "Cache Manager Service",
+      "file_type": "code",
+      "source_file": "app/services/cache_manager.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_bundle_service",
+      "label": "SalesReps Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/salesreps_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "customers_cohorts_v2_service",
+      "label": "Customers Cohorts v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "analytics_utils",
+      "label": "Analytics Utils",
+      "file_type": "code",
+      "source_file": "app/services/analytics_utils.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "regions_drilldown_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_regions_drilldown_bundle.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_parity",
+      "target": "overview_query",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_parity.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "overview_parity",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_overview_parity.py",
+      "source_location": "_fact_row_count",
+      "weight": 1.0
+    },
+    {
+      "source": "customers_kpis_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_kpis_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "products_endpoints_smoke",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_products_endpoints_smoke.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "notifications_feature",
+      "target": "notifications_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_notifications_feature.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "suppliers_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_suppliers_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "fact_etl",
+      "target": "cache_manager",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_fact_etl.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_health_score",
+      "target": "salesreps_bundle_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_salesreps_health_score.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "customers_cohorts_v2_service",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_cohorts_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_customers_cohorts_v2.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "analytics_utils_supplier",
+      "target": "analytics_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tests/test_analytics_utils_supplier.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "api_smoke_spec",
+      "target": "fact_store",
+      "relation": "verifies",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/playwright/api-smoke.spec.ts",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "analytics_v2_migration",
+      "label": "Analytics v2 Migration Features",
+      "nodes": [
+        "customers_kpis_v2",
+        "salesreps_v2",
+        "suppliers_v2",
+        "customers_cohorts_v2"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "tests/test_customers_kpis_v2.py"
+    },
+    {
+      "id": "playwright_audit_suite",
+      "label": "Playwright Audit and Smoke Suite",
+      "nodes": [
+        "theme_audit_boot",
+        "admin_parity_spec",
+        "api_smoke_spec",
+        "api_cost_health_spec"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "tests/playwright/theme_audit_boot.py"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

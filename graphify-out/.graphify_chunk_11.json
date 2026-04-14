@@ -1,0 +1,307 @@
+{
+  "nodes": [
+    {
+      "id": "app/static/js/live-updates.js",
+      "type": "file"
+    },
+    {
+      "id": "app/static/js/page-state-cache.js",
+      "type": "file"
+    },
+    {
+      "id": "app/static/js/regions.js",
+      "type": "file"
+    },
+    {
+      "id": "app/services/suppliers_bundle.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/bundle_builder.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/data_access.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_query.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/bundle_cache.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/user_invites.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_insights.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/watermark_store.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/cache.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/__init__.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/enhanced_analytics.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/etl_state.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/customers_bundle.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_metrics.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_summary.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_forecast.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/overview_v2.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/filters.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/products.py",
+      "type": "file"
+    },
+    {
+      "id": "app/services/filters.py:FilterParams",
+      "type": "class",
+      "properties": {
+        "description": "Canonical, immutable filter envelope used across endpoints."
+      }
+    },
+    {
+      "id": "app/services/bundle_builder.py:BundleContract",
+      "type": "class",
+      "properties": {
+        "description": "Simple contract describing required bundle payload keys."
+      }
+    },
+    {
+      "id": "app/services/overview_metrics.py:WindowContract",
+      "type": "class",
+      "properties": {
+        "description": "Dataclass representing a period window comparison contract."
+      }
+    },
+    {
+      "id": "app/services/data_access.py:FactContext",
+      "type": "class",
+      "properties": {
+        "description": "Metadata envelope for diagnostic fact loading."
+      }
+    },
+    {
+      "id": "app/services/filters.py:parse_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/filters.py:normalize_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/filters.py:apply_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/filters.py:resolve_filters",
+      "type": "function"
+    },
+    {
+      "id": "app/services/bundle_builder.py:validate_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/data_access.py:get_fact_context",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_v2.py:get_bundle_context",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_metrics.py:resolve_window_contract",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_forecast.py:monthly_series",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_forecast.py:generate_predictions",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_summary.py:build_summary_payload",
+      "type": "function"
+    },
+    {
+      "id": "app/services/overview_insights.py:build_insights_payload",
+      "type": "function"
+    },
+    {
+      "id": "app/services/watermark_store.py:get_watermark",
+      "type": "function"
+    },
+    {
+      "id": "app/services/etl_state.py:load_state",
+      "type": "function"
+    },
+    {
+      "id": "app/services/bundle_cache.py:cached_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/suppliers_bundle.py:get_suppliers_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/customers_bundle.py:get_customers_bundle",
+      "type": "function"
+    },
+    {
+      "id": "app/services/products.py:get_products_overview",
+      "type": "function"
+    },
+    {
+      "id": "app/static/js/live-updates.js:triggerRefresh",
+      "type": "function"
+    },
+    {
+      "id": "app/static/js/page-state-cache.js:saveSnapshot",
+      "type": "function"
+    }
+  ],
+  "edges": [
+    {
+      "source": "app/services/filters.py",
+      "target": "app/services/filters.py:FilterParams",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/bundle_builder.py",
+      "target": "app/services/bundle_builder.py:BundleContract",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/overview_metrics.py",
+      "target": "app/services/overview_metrics.py:WindowContract",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/data_access.py:FactContext",
+      "type": "defines"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/fact_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/filters.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/filters.py:apply_filters",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/data_access.py",
+      "target": "app/services/filters.py:parse_filters",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_v2.py",
+      "target": "app/services/overview_metrics.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/overview_v2.py",
+      "target": "app/services/overview_metrics.py:resolve_window_contract",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_query.py",
+      "target": "app/services/filters.py:apply_filters",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_forecast.py",
+      "target": "app/services/overview_v2.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/overview_forecast.py",
+      "target": "app/services/overview_v2.py:get_bundle_context",
+      "type": "calls"
+    },
+    {
+      "source": "app/services/overview_insights.py",
+      "target": "app/services/overview_v2.py",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/suppliers_bundle.py",
+      "target": "app/services/fact_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/suppliers_bundle.py",
+      "target": "app/services/margin_rules",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/customers_bundle.py",
+      "target": "app/services/fact_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/bundle_cache.py",
+      "target": "app/services/filters_service",
+      "type": "imports"
+    },
+    {
+      "source": "app/services/etl_state.py",
+      "target": "app/services/watermark_store",
+      "type": "imports"
+    },
+    {
+      "source": "app/static/js/regions.js",
+      "target": "/api/regions/bundle",
+      "type": "calls"
+    },
+    {
+      "source": "app/static/js/live-updates.js",
+      "target": "/api/events",
+      "type": "calls"
+    }
+  ]
+}

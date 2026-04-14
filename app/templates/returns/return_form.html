@@ -138,11 +138,11 @@
         <tr>
           <td style="width: 130px;">
             {% if logo_uri %}
-            <img src="{{ logo_uri }}" class="logo" alt="Two Rivers Meats">
+            <img src="{{ logo_uri }}" class="logo" alt="{{ company_header }}">
             {% endif %}
           </td>
           <td>
-            <div class="title">Two Rivers Meats - Credit PO / Return</div>
+            <div class="title">{{ company_header }} - Credit PO / Return</div>
             <div class="subtitle">{{ document_title }}</div>
           </td>
           <td style="width: 220px;">
@@ -190,14 +190,14 @@
         <tr>
           <th>Code</th>
           <th>Description</th>
-          <th class="num">Weight (lb)</th>
+          <th class="num">Orig Wgt</th>
+          <th class="num">Adj Wgt</th>
           <th class="num">Unit Price</th>
           <th class="num">Credit %</th>
           <th class="num">Credit Amount</th>
           <th class="center">Returning?</th>
-          <th>Reason</th>
+          <th>Outcome</th>
           <th>Follow-up</th>
-          <th class="center">Supplier Credit</th>
         </tr>
       </thead>
       <tbody>
@@ -205,14 +205,14 @@
         <tr>
           <td>{{ item.product_code or item.sku or '-' }}</td>
           <td>{{ item.product_desc or item.product_name or '-' }}</td>
-          <td class="num">{{ '%.3f'|format(item.weight_lb or item.qty or 0) }}</td>
-          <td class="num">{{ '%.2f'|format(item.price_per_lb or item.price or 0) }}</td>
+          <td class="num">{{ '%.3f'|format(item.weight_lb or 0) }}</td>
+          <td class="num">{{ '%.3f'|format(item.received_weight_lb) if item.received_weight_lb is not none else '-' }}</td>
+          <td class="num">{{ '%.2f'|format(item.price_per_lb or 0) }}</td>
           <td class="num">{{ '%.2f'|format(item.credit_pct or 100) }}</td>
           <td class="num">{{ '%.2f'|format(item.credit_amount or 0) }}</td>
           <td class="center">{{ 'Yes' if item.product_returning else 'No' }}</td>
-          <td>{{ item.reason_for_return or item.reason_code or '-' }}</td>
+          <td><span class="small">{{ item.warehouse_outcome or '-' }}</span></td>
           <td>{{ item.follow_up_action or '-' }}</td>
-          <td class="center">{{ 'Yes' if item.supplier_credit else 'No' }}</td>
         </tr>
         {% else %}
         <tr>
@@ -227,19 +227,33 @@
         <td class="label">Total Weight</td>
         <td class="value">{{ '%.3f'|format(r.total_weight_lb or 0) }} lb</td>
         <td class="label">Total Credit</td>
-        <td class="value">{{ '%.2f'|format(r.total_credit_amount or 0) }}</td>
+        <td class="value">${{ '%.2f'|format(r.total_credit_amount or 0) }}</td>
       </tr>
     </table>
 
     <table class="signatures">
       <tr>
         <td>
-          <span class="sign-label">Warehouse Sign-off (name/date)</span>
+          <span class="sign-label">Warehouse Reviewed By</span>
+          <div style="margin-top: 5px;">{{ r.metadata.wh_reviewer_name or '-' }}</div>
         </td>
         <td>
-          <span class="sign-label">Manager Approval (name/date)</span>
+          <span class="sign-label">Manager Digitally Approved By</span>
+          <div style="margin-top: 5px;">
+            {% if r.status in ['approved', 'awaiting_finance', 'completed'] %}
+              <strong>{{ r.approval_target or 'Authorized Manager' }}</strong>
+              <div class="muted" style="font-size: 9px;">Approved via TRSM Analytics Dashboard</div>
+            {% else %}
+              -
+            {% endif %}
+          </div>
         </td>
       </tr>
     </table>
+    
+    <div style="margin-top: 20px; font-size: 9px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 10px;">
+      Enterprise Audit ID: {{ r.id }}-{{ r.last_updated|replace(':', '')|replace('-', '')|replace(' ', '') }} | 
+      Generated for {{ r.company or 'Two Rivers' }} Finance Review
+    </div>
   </body>
 </html>

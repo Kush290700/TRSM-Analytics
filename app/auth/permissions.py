@@ -816,7 +816,7 @@ _SENSITIVE_FULL_ACCESS: Set[str] = set(SENSITIVE_DATA_PERMISSION_KEYS)
 
 
 DEFAULT_ROLE_PERMISSION_KEYS: Dict[str, Set[str]] = {
-    "admin": set(_ADMIN_BASE),
+    "admin": {"*"},
     "owner": _merge_permissions(
         _OWNER_GM_ADMIN_BASE,
         _OVERVIEW_ACCESS,
@@ -953,6 +953,7 @@ DEFAULT_ROLE_PERMISSION_KEYS: Dict[str, Set[str]] = {
 # existing rows never fall out of compliance.
 ROLE_PERMISSION_SYNC_KEYS: Mapping[str, Set[str]] = {
     **DEFAULT_ROLE_PERMISSION_KEYS,
+    "admin": {"*"},
     "manager": set(DEFAULT_ROLE_PERMISSION_KEYS["sales_manager"]),
 }
 

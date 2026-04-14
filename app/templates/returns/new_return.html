@@ -1,7 +1,8 @@
 {% extends "returns/base.html" %}
 {% set _settings_defaults = returns_settings.get('defaults', {}) if returns_settings else {} %}
 {% set _return_type_options = returns_settings.get('return_type_options', ['Sales Return', 'Vendor Return', 'Production Return']) if returns_settings else ['Sales Return', 'Vendor Return', 'Production Return'] %}
-{% set _follow_up_options = returns_settings.get('follow_up_options', ['Credit', 'Restock', 'Repack', 'Scrap', 'Vendor Return']) if returns_settings else ['Credit', 'Restock', 'Repack', 'Scrap', 'Vendor Return'] %}
+{% set _follow_up_options = (returns_settings.get('workflow_options', {}).get('follow_up_actions') or ['Credit', 'Replacement', 'Discount', 'No Action']) if returns_settings else ['Credit', 'Replacement', 'Discount', 'No Action'] %}
+{% set _company_options = (returns_settings.get('workflow_options', {}).get('companies') or ['Two Rivers Meats', 'Black Forest']) if returns_settings else ['Two Rivers Meats', 'Black Forest'] %}
 {% block returns_title %}Submit New Return{% endblock %}
 {% block breadcrumbs %}
 <nav aria-label="breadcrumb" class="py-3">
@@ -74,6 +75,15 @@
               {% set _selected_return_type = request.form.get('return_type', _settings_defaults.get('return_type', 'Sales Return')) %}
               {% for option in _return_type_options %}
               <option value="{{ option }}" {% if _selected_return_type == option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-bold" for="company">Company *</label>
+            <select class="form-select" id="company" name="company" required>
+              <option value="" disabled selected>Select Company...</option>
+              {% for option in _company_options %}
+              <option value="{{ option }}" {% if request.form.get('company') == option %}selected{% endif %}>{{ option }}</option>
               {% endfor %}
             </select>
           </div>

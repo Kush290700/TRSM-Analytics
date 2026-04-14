@@ -21,6 +21,7 @@ from app.services import products_bundle
 from app.services import regions_bundle
 from app.services import suppliers_bundle
 from app.services import salesreps_bundle
+from app.services import stakeholder_report_bundle
 from app.core import access_policy
 
 
@@ -605,6 +606,8 @@ def _build_bundle(page: str, filters: Any, scope: Dict[str, Any], args: Any) -> 
         return suppliers_bundle.build_suppliers_bundle(filters, scope, args)
     if page == "salesreps":
         return salesreps_bundle.build_salesreps_bundle(filters, scope, args)
+    if page == "stakeholder_report":
+        return stakeholder_report_bundle.build_bundle(filters, scope, args)
     started = time.perf_counter()
     cols = fact_store.list_columns()
     date_col = _safe_col(cols, fs.CANON.date, "Date")

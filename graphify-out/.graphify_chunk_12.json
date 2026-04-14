@@ -1,0 +1,426 @@
+{
+  "nodes": [
+    {
+      "id": "customers_cohorts_v2",
+      "label": "Customers Cohorts v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "cohort_controls",
+      "label": "Cohort Analysis Controls",
+      "file_type": "code",
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": "CohortControls",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_bundle",
+      "label": "Regions Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/regions_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_bundle",
+      "label": "Labor Intelligence Bundle",
+      "file_type": "code",
+      "source_file": "app/services/labor_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bundle_service",
+      "label": "Universal Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/bundle_service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "labor_store",
+      "label": "Labor Data Store (DuckDB)",
+      "file_type": "code",
+      "source_file": "app/services/labor_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "filters_service",
+      "label": "Global Filters Service",
+      "file_type": "code",
+      "source_file": "app/services/filters_service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "product_drilldown_service",
+      "label": "Product Drilldown v2 Service",
+      "file_type": "code",
+      "source_file": "app/services/product_drilldown_service.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "exports_service",
+      "label": "Data Export Service",
+      "file_type": "code",
+      "source_file": "app/services/exports.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "salesreps_bundle",
+      "label": "Sales Reps Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/salesreps_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "products_bundle",
+      "label": "Products Bundle Service",
+      "file_type": "code",
+      "source_file": "app/services/products_bundle.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "fact_store",
+      "label": "Sales Fact Store (DuckDB)",
+      "file_type": "code",
+      "source_file": "app/services/fact_store.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "core_exports",
+      "label": "Core Export Engine (XLSX)",
+      "file_type": "code",
+      "source_file": "app/core/exports.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sensitive_data",
+      "label": "Sensitive Data Masking",
+      "file_type": "code",
+      "source_file": "app/core/sensitive_data.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "rbac",
+      "label": "Role-Based Access Control",
+      "file_type": "code",
+      "source_file": "app/core/rbac.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "access_policy",
+      "label": "Access Scoping Policy",
+      "file_type": "code",
+      "source_file": "app/core/access_policy.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "core_filters",
+      "label": "Template Filter Helpers",
+      "file_type": "code",
+      "source_file": "app/core/filters.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "branding",
+      "label": "Application Branding",
+      "file_type": "code",
+      "source_file": "app/core/branding.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_permissions",
+      "label": "Permissions Catalog",
+      "file_type": "code",
+      "source_file": "app/auth/permissions.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "auth_models",
+      "label": "Authentication SQLite Models",
+      "file_type": "code",
+      "source_file": "app/auth/models.py",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "user_model",
+      "label": "User Model",
+      "file_type": "code",
+      "source_file": "app/auth/models.py",
+      "source_location": "User",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "role_model",
+      "label": "Role Model",
+      "file_type": "code",
+      "source_file": "app/auth/models.py",
+      "source_location": "Role",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "customers_cohorts_v2",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": "build_cohorts_payload",
+      "weight": 1.0
+    },
+    {
+      "source": "customers_cohorts_v2",
+      "target": "cohort_controls",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/customers_cohorts_v2.py",
+      "source_location": "CohortResolvedState",
+      "weight": 1.0
+    },
+    {
+      "source": "regions_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/regions_bundle.py",
+      "source_location": "_regions_overview_context",
+      "weight": 1.0
+    },
+    {
+      "source": "labor_bundle",
+      "target": "labor_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/labor_bundle.py",
+      "source_location": "_li_build_analysis",
+      "weight": 1.0
+    },
+    {
+      "source": "bundle_service",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/bundle_service.py",
+      "source_location": "_build_bundle",
+      "weight": 1.0
+    },
+    {
+      "source": "bundle_service",
+      "target": "access_policy",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/bundle_service.py",
+      "source_location": "drilldown",
+      "weight": 1.0
+    },
+    {
+      "source": "product_drilldown_service",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/product_drilldown_service.py",
+      "source_location": "_product_row_query",
+      "weight": 1.0
+    },
+    {
+      "source": "salesreps_bundle",
+      "target": "fact_store",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/services/salesreps_bundle.py",
+      "source_location": "_fact_rep_directory",
+      "weight": 1.0
+    },
+    {
+      "source": "core_exports",
+      "target": "sensitive_data",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/exports.py",
+      "source_location": "dataframes_to_xlsx_bytes",
+      "weight": 1.0
+    },
+    {
+      "source": "sensitive_data",
+      "target": "rbac",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/sensitive_data.py",
+      "source_location": "sensitive_access_flags",
+      "weight": 1.0
+    },
+    {
+      "source": "rbac",
+      "target": "auth_permissions",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/rbac.py",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "access_policy",
+      "target": "auth_models",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/core/access_policy.py",
+      "source_location": "scope_for_user",
+      "weight": 1.0
+    },
+    {
+      "source": "user_model",
+      "target": "role_model",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "app/auth/models.py",
+      "source_location": "UserRole",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "bundle_infrastructure",
+      "label": "Analytics Bundle Infrastructure",
+      "nodes": [
+        "bundle_service",
+        "customers_bundle",
+        "products_bundle",
+        "regions_bundle",
+        "suppliers_bundle",
+        "salesreps_bundle"
+      ],
+      "relation": "orchestrates",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "app/services/bundle_service.py"
+    },
+    {
+      "id": "security_framework",
+      "label": "Security and RBAC Framework",
+      "nodes": [
+        "rbac",
+        "access_policy",
+        "sensitive_data",
+        "auth_permissions",
+        "auth_models"
+      ],
+      "relation": "composed_of",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "app/core/rbac.py"
+    },
+    {
+      "id": "data_persistence_layers",
+      "label": "Data Persistence Layers",
+      "nodes": [
+        "fact_store",
+        "labor_store",
+        "auth_models"
+      ],
+      "relation": "provide_storage_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "app/services/fact_store.py"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

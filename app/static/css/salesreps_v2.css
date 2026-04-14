@@ -96,7 +96,7 @@
 }
 
 .salesreps-v2 .sr-summary-narrative::before {
-  content: "Summary Narrative";
+  content: "Executive Signals";
   display: block;
   margin-bottom: 0.45rem;
   color: var(--sr-brand);
@@ -445,7 +445,6 @@
 }
 
 .salesreps-v2 .sr-scroll-card {
-  max-height: 620px;
   overflow: auto;
 }
 
@@ -510,7 +509,6 @@
 }
 
 .salesreps-v2 .sr-table-wrap {
-  max-height: 640px;
   overflow: auto;
 }
 
@@ -1192,7 +1190,6 @@
 }
 
 .salesreps-v2 .sr-top-customers-wrap {
-  max-height: 525px;
   overflow: auto;
   border: 1px solid rgba(31, 95, 154, 0.08);
   border-radius: 0.95rem;
@@ -1567,11 +1564,11 @@
 }
 
 .salesreps-v2 .sr-table-wrap {
-  max-height: 760px;
+  /* removed fixed height for production expansion */
 }
 
 .salesreps-v2 .sr-top-customers-wrap {
-  max-height: 680px;
+  /* removed fixed height for production expansion */
 }
 
 .salesreps-v2 .sr-movers-body {
@@ -1737,162 +1734,6 @@
   padding-inline: 0.45rem;
 }
 
-.salesreps-v2 .sr-live-map {
-  width: 100%;
-  height: 420px;
-  border-radius: 0 0 1rem 1rem;
-  overflow: hidden;
-}
-
-.salesreps-v2 .sr-map-placeholder {
-  position: absolute;
-  inset: 0;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  border-radius: 0 0 1rem 1rem;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.98));
-  color: #64748b;
-  text-align: center;
-  padding: 1.5rem;
-}
-
-.salesreps-v2 .sr-map-placeholder.active {
-  display: flex;
-}
-
-.salesreps-v2 .sr-map-placeholder-icon {
-  font-size: 2.35rem;
-  color: var(--sr-brand);
-}
-
-.salesreps-v2 .sr-map-legend {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  font-size: 0.74rem;
-  color: var(--sr-muted);
-}
-
-.salesreps-v2 .sr-map-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  white-space: nowrap;
-}
-
-.salesreps-v2 .sr-map-legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-}
-
-.salesreps-v2 .sr-map-legend-gradient {
-  width: 42px;
-  height: 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(18, 32, 51, 0.08);
-  flex: 0 0 auto;
-}
-
-.salesreps-v2 #srLiveMap canvas,
-.salesreps-v2 #srLiveMap .maplibregl-canvas,
-.salesreps-v2 #srLiveMap .maplibregl-canvas-container {
-  will-change: transform, opacity;
-  transform: translateZ(0);
-}
-
-.salesreps-v2 .maplibregl-ctrl-group,
-.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content {
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--sr-ink);
-  border: 1px solid rgba(18, 32, 51, 0.08);
-  box-shadow: 0 16px 36px rgba(18, 32, 51, 0.14);
-}
-
-.salesreps-v2 .sr-map-popup-inner {
-  min-width: 220px;
-  padding: 0.9rem 1rem 0.85rem;
-}
-
-.salesreps-v2 .sr-map-popup-name {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: var(--sr-ink);
-}
-
-.salesreps-v2 .sr-map-popup-meta,
-.salesreps-v2 .sr-map-popup-row,
-.salesreps-v2 .sr-map-popup-note {
-  color: var(--sr-muted);
-}
-
-.salesreps-v2 .sr-map-popup-meta {
-  font-size: 0.74rem;
-  margin-top: 0.2rem;
-}
-
-.salesreps-v2 .sr-map-popup-divider {
-  height: 1px;
-  margin: 0.55rem 0;
-  background: rgba(18, 32, 51, 0.08);
-}
-
-.salesreps-v2 .sr-map-popup-row {
-  font-size: 0.78rem;
-  margin-bottom: 0.22rem;
-}
-
-.salesreps-v2 .sr-map-popup-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.45rem;
-}
-
-.salesreps-v2 .sr-map-popup-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.14rem 0.45rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-}
-
-.salesreps-v2 .sr-map-popup-badge.is-risk {
-  background: rgba(197, 57, 57, 0.12);
-  color: var(--sr-red);
-}
-
-.salesreps-v2 .sr-map-popup-badge.is-opportunity {
-  background: rgba(15, 140, 90, 0.12);
-  color: var(--sr-green);
-}
-
-.salesreps-v2 .sr-map-popup-badge.is-lost {
-  background: rgba(91, 102, 118, 0.14);
-  color: #44505f;
-}
-
-.salesreps-v2 .sr-map-popup-open {
-  display: inline-flex;
-  margin-top: 0.55rem;
-  color: var(--sr-brand);
-  font-size: 0.74rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.salesreps-v2 .sr-map-popup-open:hover,
-.salesreps-v2 .sr-map-popup-open:focus {
-  color: var(--sr-brand);
-}
-
 @media (max-width: 991.98px) {
   #GlobalFilters.sr-global-filters {
     position: relative;
@@ -1908,14 +1749,1948 @@
   }
 
   .salesreps-v2 .sr-table-wrap {
-    max-height: 660px;
+    overflow: auto;
   }
 
   .salesreps-v2 .sr-top-customers-wrap {
-    max-height: 560px;
+    overflow: auto;
+  }
+}
+
+/* ── v4.0: Live Map ── */
+.salesreps-v2 .sr-live-map {
+  height: 420px;
+  width: 100%;
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+.salesreps-v2 .sr-map-placeholder {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 420px;
+  background: #f8fafc;
+  border-radius: 0 0 0.75rem 0.75rem;
+  color: #64748b;
+  gap: 0.5rem;
+}
+
+.salesreps-v2 .sr-map-placeholder.active {
+  display: flex;
+}
+
+.salesreps-v2 .sr-map-placeholder-icon {
+  font-size: 2.5rem;
+}
+
+.salesreps-v2 .sr-map-legend {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: #4b5563;
+}
+
+/* Risk halo — pulsing red ring for customers silent > 45d */
+@keyframes sr-risk-halo {
+  0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  70%  { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.sr-map-bubble.is-risk {
+  animation: sr-risk-halo 1.6s ease-out infinite;
+}
+
+/* ── v4.0: Follow-Up Priority Queue Side Drawer ── */
+.salesreps-v2 .sr-followup-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.salesreps-v2 .sr-followup-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.salesreps-v2 .sr-followup-drawer-panel {
+  position: relative;
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.16);
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.salesreps-v2 .sr-followup-drawer.is-open .sr-followup-drawer-panel {
+  transform: translateX(0);
+}
+
+.salesreps-v2 .sr-followup-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(31, 95, 154, 0.1);
+  background: linear-gradient(135deg, #111111 0%, #2d2d2d 100%);
+  color: #ffffff;
+}
+
+.salesreps-v2 .sr-followup-drawer-header .text-muted {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.salesreps-v2 .sr-followup-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+}
+
+.salesreps-v2 .sr-priority-item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem;
+  border: 1px solid rgba(31, 95, 154, 0.1);
+  border-radius: 0.75rem;
+  margin-bottom: 0.65rem;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.salesreps-v2 .sr-priority-item:hover {
+  background: #eff6ff;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.salesreps-v2 .sr-priority-item.is-critical {
+  border-left: 3px solid #dc2626;
+  background: rgba(220, 38, 38, 0.03);
+}
+
+.salesreps-v2 .sr-priority-item.is-atrisk {
+  border-left: 3px solid #d97706;
+  background: rgba(217, 119, 6, 0.03);
+}
+
+.salesreps-v2 .sr-priority-rank {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #6b7280;
+  min-width: 1.4rem;
+  text-align: center;
+  padding-top: 0.15rem;
+}
+
+.salesreps-v2 .sr-priority-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.salesreps-v2 .sr-priority-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.salesreps-v2 .sr-priority-sub {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.salesreps-v2 .sr-priority-action {
+  font-size: 0.7rem;
+  color: #1f5f9a;
+  margin-top: 0.2rem;
+}
+
+/* ── v4.0: Customer Movers Split-Pane Cards ── */
+.salesreps-v2 .sr-movers-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.salesreps-v2 .sr-movers-pane-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+}
+
+.salesreps-v2 .sr-movers-pane-badge.badge-gained {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.salesreps-v2 .sr-movers-pane-badge.badge-lost {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.salesreps-v2 .sr-movers-gained {
+  border-top: 3px solid #10b981;
+}
+
+.salesreps-v2 .sr-movers-lost {
+  border-top: 3px solid #ef4444;
+}
+
+/* [NEW] and [LOST] mover badges */
+.salesreps-v2 .sr-mover-badge.is-new {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+}
+
+.salesreps-v2 .sr-mover-badge.is-lost {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+}
+
+/* ── v4.0: Interactive row pointer + hover ── */
+.salesreps-v2 tbody tr.is-drillable {
+  cursor: pointer;
+}
+
+.salesreps-v2 tbody tr.is-drillable:hover td {
+  background-color: #eff6ff;
+}
+
+.salesreps-v2 #srTopCustomersTable tbody tr {
+  cursor: pointer;
+}
+
+.salesreps-v2 #srTopCustomersTable tbody tr:hover td {
+  background-color: #eff6ff;
+}
+
+/* ── v4.0: Sticky global filters — augment existing sticky rule ── */
+#GlobalFilters.sr-global-filters {
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(31, 95, 154, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ── v4.0: Map Legend Items ── */
+.salesreps-v2 .sr-map-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.salesreps-v2 .sr-map-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.salesreps-v2 .sr-map-legend-gradient {
+  width: 40px;
+  height: 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.salesreps-v2 .sr-map-legend-risk {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.salesreps-v2 .sr-map-legend-approx {
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* ── v4.0: Map Popup (MapLibre custom class "sr-map-popup") ── */
+.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content,
+.maplibregl-popup.sr-map-popup .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  min-width: 210px;
+  max-width: 280px;
+}
+
+.maplibregl-popup.sr-map-popup .maplibregl-popup-tip {
+  border-top-color: #ffffff;
+}
+
+.sr-map-popup-inner {
+  padding: 0.9rem 1rem 0.75rem;
+}
+
+.sr-map-popup-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 0.1rem;
+  line-height: 1.3;
+}
+
+.sr-map-popup-meta {
+  font-size: 0.72rem;
+  color: #6b7280;
+  margin-bottom: 0.55rem;
+}
+
+.sr-map-popup-divider {
+  height: 1px;
+  background: #f3f4f6;
+  margin: 0.45rem 0;
+}
+
+.sr-map-popup-row {
+  font-size: 0.78rem;
+  color: #374151;
+  margin-bottom: 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.sr-map-popup-risk-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  margin-left: 0.25rem;
+}
+
+.sr-map-popup-approx {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-top: 0.35rem;
+  font-style: italic;
+}
+
+.sr-map-popup-action {
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  color: #1f5f9a;
+  font-weight: 600;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 0.45rem;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.sr-map-popup-action:hover {
+  color: #965951;
+}
+
+/* ── Master Build v5.0: Enterprise Dark / Glass overrides ── */
+body[data-page-tone="salesreps"] {
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 20rem),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 18rem),
+    linear-gradient(180deg, #0f172a 0%, #111c31 42%, #1e293b 100%);
+  color: #e2e8f0;
+}
+
+body[data-page-tone="salesreps"] .app-main {
+  max-width: min(96vw, 1680px);
+}
+
+.salesreps-v2 {
+  --sr-surface: rgba(15, 23, 42, 0.72);
+  --sr-surface-strong: rgba(15, 23, 42, 0.84);
+  --sr-surface-soft: rgba(30, 41, 59, 0.56);
+  --sr-border: rgba(148, 163, 184, 0.2);
+  --sr-border-strong: rgba(148, 163, 184, 0.36);
+  --sr-ink: #f8fafc;
+  --sr-muted: #94a3b8;
+  --sr-soft: rgba(15, 23, 42, 0.55);
+  --sr-brand: #38bdf8;
+  --sr-brand-strong: #60a5fa;
+  --sr-positive: #34d399;
+  --sr-positive-strong: #6ee7b7;
+  --sr-risk: #ff7f6e;
+  --sr-risk-strong: #f87171;
+  --sr-warning: #fbbf24;
+  color: var(--sr-ink);
+}
+
+.salesreps-v2 .text-muted,
+.salesreps-v2 .text-secondary,
+.salesreps-v2 .sr-list-sub,
+.salesreps-v2 .sr-secondary-metric,
+.salesreps-v2 .sr-momentum-sub,
+.salesreps-v2 .sr-priority-sub,
+.salesreps-v2 .sr-gap-focus-meta,
+.salesreps-v2 .sr-map-legend,
+.salesreps-v2 .sr-map-legend-item,
+.salesreps-v2 #salesrepsPagerSummary,
+.salesreps-v2 #salesrepsPagerIndicator {
+  color: var(--sr-muted) !important;
+}
+
+.salesreps-v2 .card,
+.salesreps-v2 .sr-kpi,
+.salesreps-v2 .sr-highlight-card,
+.salesreps-v2 .sr-subpanel,
+.salesreps-v2 .sr-summary-narrative,
+.salesreps-v2 .sr-territory-stage,
+.salesreps-v2 .sr-territory-card,
+.salesreps-v2 .sr-territory-month-card,
+.salesreps-v2 .sr-top-customers-wrap,
+.salesreps-v2 .sr-gap-focus-panel,
+.salesreps-v2 .sr-filter-breadcrumb-shell {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.72) 0%, rgba(15, 23, 42, 0.8) 100%);
+  border: 1px solid var(--sr-border);
+  box-shadow:
+    0 24px 60px rgba(2, 6, 23, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.salesreps-v2 .card-header,
+.salesreps-v2 .sr-section-header,
+.salesreps-v2 .table-light,
+.salesreps-v2 #srTable thead th,
+.salesreps-v2 #srTopCustomersTable thead th,
+.salesreps-v2 .sr-customer-toolbar,
+.salesreps-v2 .sticky-header th {
+  background: rgba(15, 23, 42, 0.86) !important;
+  color: #e5edf8 !important;
+  border-color: var(--sr-border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.salesreps-v2 .table,
+.salesreps-v2 .table td,
+.salesreps-v2 .table th {
+  color: var(--sr-ink);
+  border-color: rgba(148, 163, 184, 0.12);
+}
+
+.salesreps-v2 .btn-outline-secondary,
+.salesreps-v2 .btn-outline-primary,
+.salesreps-v2 .dropdown-menu,
+.salesreps-v2 .form-select,
+.salesreps-v2 .form-control,
+.salesreps-v2 .badge.text-bg-light,
+.salesreps-v2 .badge.text-bg-primary-subtle {
+  background: rgba(15, 23, 42, 0.68);
+  color: #e5edf8;
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.salesreps-v2 .form-select:focus,
+.salesreps-v2 .form-control:focus,
+.salesreps-v2 .btn:focus,
+.salesreps-v2 .btn-close:focus {
+  box-shadow: 0 0 0 0.2rem rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.salesreps-v2 .btn-primary,
+.salesreps-v2 .sr-filter-toggle {
+  background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+  border-color: transparent;
+  color: #eff6ff;
+}
+
+.salesreps-v2 .btn-primary:hover,
+.salesreps-v2 .sr-filter-toggle:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%);
+  color: #ffffff;
+}
+
+.salesreps-v2 .sr-page-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.salesreps-v2 .sr-filter-breadcrumb-shell {
+  flex: 1 1 18rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  min-height: 3.5rem;
+}
+
+.salesreps-v2 .sr-filter-breadcrumb-label,
+.salesreps-v2 .sr-gap-focus-kicker {
+  margin-bottom: 0.2rem;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.salesreps-v2 .sr-filter-breadcrumb {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #f8fafc;
+  line-height: 1.35;
+}
+
+.salesreps-v2 .sr-hero,
+.salesreps-v2 .sr-summary-narrative {
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 32%),
+    linear-gradient(145deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 41, 59, 0.74) 100%);
+  border-color: rgba(125, 211, 252, 0.16);
+}
+
+.salesreps-v2 .sr-section-kicker,
+.salesreps-v2 .sr-summary-narrative::before,
+.salesreps-v2 .sr-subpanel-title,
+.salesreps-v2 .label {
+  color: #93c5fd !important;
+}
+
+.salesreps-v2 .sr-section-heading h3,
+.salesreps-v2 .sr-kpi .value,
+.salesreps-v2 .sr-highlight-card .value,
+.salesreps-v2 .sr-territory-card-metric,
+.salesreps-v2 .sr-territory-month-value,
+.salesreps-v2 .fw-semibold,
+.salesreps-v2 .fw-bold {
+  color: #f8fafc;
+}
+
+.salesreps-v2 .delta-up,
+.salesreps-v2 .sr-kpi-delta--pos,
+.salesreps-v2 .sr-momentum-pill.is-up,
+.salesreps-v2 .sr-territory-month-note.is-positive {
+  color: var(--sr-positive-strong) !important;
+}
+
+.salesreps-v2 .delta-down,
+.salesreps-v2 .sr-kpi-delta--neg,
+.salesreps-v2 .sr-momentum-pill.is-down,
+.salesreps-v2 .sr-territory-month-note.is-negative {
+  color: var(--sr-risk) !important;
+}
+
+.salesreps-v2 .sr-risk-pill.sr-risk-healthy,
+.salesreps-v2 .sr-mover-badge.is-new,
+.salesreps-v2 .sr-kpi-delta--pos {
+  background: rgba(52, 211, 153, 0.14);
+}
+
+.salesreps-v2 .sr-risk-pill.sr-risk-atrisk,
+.salesreps-v2 .sr-risk-pill.sr-risk-critical,
+.salesreps-v2 .sr-kpi-delta--neg,
+.salesreps-v2 .sr-mover-badge.is-lost {
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.salesreps-v2 .sr-table-wrap,
+.salesreps-v2 .sr-top-customers-wrap {
+  overflow: auto;
+  min-height: 24rem;
+  height: min(70vh, 58rem);
+  border-radius: 1rem;
+}
+
+.salesreps-v2 .sr-top-customers-card,
+.salesreps-v2 #srTableSection {
+  min-height: 0;
+}
+
+.salesreps-v2 #srTable tbody td.sticky-col,
+.salesreps-v2 #srTable .sticky-col,
+.salesreps-v2 #srTable thead .sticky-col {
+  background: rgba(15, 23, 42, 0.94);
+}
+
+.salesreps-v2 #srTable tbody tr:hover td,
+.salesreps-v2 #srTable tbody tr.is-rep-focus td,
+.salesreps-v2 #srTopCustomersTable tbody tr:hover td,
+.salesreps-v2 tbody tr.is-drillable:hover td {
+  background: rgba(59, 130, 246, 0.08) !important;
+  box-shadow: inset 4px 0 0 #3b82f6;
+}
+
+.salesreps-v2 #srTopCustomersTable tbody tr.is-focused-customer td {
+  background: rgba(56, 189, 248, 0.1) !important;
+  box-shadow:
+    inset 4px 0 0 #38bdf8,
+    inset 0 0 0 1px rgba(56, 189, 248, 0.16);
+}
+
+.salesreps-v2 #srTable tbody tr.is-rep-focus td {
+  box-shadow:
+    inset 4px 0 0 #38bdf8,
+    inset 0 0 0 1px rgba(56, 189, 248, 0.18);
+}
+
+.salesreps-v2 #srTopCustomersTable tbody tr,
+.salesreps-v2 #srTable tbody tr,
+.salesreps-v2 .sr-priority-item {
+  transition: background-color 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.salesreps-v2 .sr-followup-drawer-backdrop,
+.salesreps-v2 .sr-filter-drawer-backdrop {
+  background: rgba(2, 6, 23, 0.58);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.salesreps-v2 .sr-followup-drawer-panel,
+.salesreps-v2 .sr-filter-drawer-panel {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(17, 24, 39, 0.98) 100%);
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: -18px 0 50px rgba(2, 6, 23, 0.55);
+}
+
+.salesreps-v2 .sr-followup-drawer-header,
+.salesreps-v2 .sr-filter-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.16), transparent 14rem),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.9) 100%);
+  color: #f8fafc;
+}
+
+.salesreps-v2 .sr-followup-drawer-header .text-muted,
+.salesreps-v2 .sr-filter-drawer-header .text-muted {
+  color: rgba(226, 232, 240, 0.7) !important;
+}
+
+.salesreps-v2 .sr-filter-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 1060;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.salesreps-v2 .sr-filter-drawer-panel {
+  position: relative;
+  width: min(34rem, 100vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.salesreps-v2 .sr-filter-drawer.is-open .sr-filter-drawer-panel {
+  transform: translateX(0);
+}
+
+.salesreps-v2 .sr-filter-drawer-body {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.salesreps-v2 #srFilterDrawerMount > #GlobalFilters {
+  margin-bottom: 0 !important;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+}
+
+.salesreps-v2 #srFilterDrawerMount .filters-shell__header,
+.salesreps-v2 #srFilterDrawerMount .filters-shell__body,
+.salesreps-v2 #srFilterDrawerMount .filters-section,
+.salesreps-v2 #srFilterDrawerMount .filter-tile,
+.salesreps-v2 #srFilterDrawerMount .filters-date-card,
+.salesreps-v2 #srFilterDrawerMount .filters-quick-range-panel,
+.salesreps-v2 #srFilterDrawerMount .filters-shell__tools {
+  background: rgba(15, 23, 42, 0.56) !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+.salesreps-v2 #srFilterDrawerMount .filter-chip,
+.salesreps-v2 #srFilterDrawerMount .filter-range-pill,
+.salesreps-v2 #srFilterDrawerMount .filters-status-badge {
+  background: rgba(30, 41, 59, 0.72) !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.salesreps-v2 .sr-gap-focus-panel {
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+}
+
+.salesreps-v2 .sr-gap-focus-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.salesreps-v2 .sr-gap-focus-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.salesreps-v2 .sr-gap-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+}
+
+.salesreps-v2 .sr-gap-focus-card {
+  padding: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.salesreps-v2 .sr-gap-focus-card-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.salesreps-v2 .sr-gap-focus-card-value {
+  display: block;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.salesreps-v2 .sr-gap-focus-card-note {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.76rem;
+  color: var(--sr-muted);
+  line-height: 1.45;
+}
+
+.salesreps-v2 .sr-health-ring {
+  --health-pct: 0;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+}
+
+.salesreps-v2 .sr-health-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.salesreps-v2 .sr-health-ring-track {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.18);
+  stroke-width: 10;
+}
+
+.salesreps-v2 .sr-health-ring-value {
+  fill: none;
+  stroke: var(--ring-color, #34d399);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: calc(100 - var(--health-pct));
+}
+
+.salesreps-v2 .sr-health-ring-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.salesreps-v2 .sr-ratio-stack {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.salesreps-v2 .sr-ratio-bar {
+  display: flex;
+  width: 100%;
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.salesreps-v2 .sr-ratio-bar-direct {
+  background: linear-gradient(90deg, #34d399 0%, #10b981 100%);
+}
+
+.salesreps-v2 .sr-ratio-bar-inherited {
+  background: linear-gradient(90deg, #60a5fa 0%, #2563eb 100%);
+}
+
+.salesreps-v2 .sr-ratio-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  color: var(--sr-muted);
+}
+
+.salesreps-v2 .sr-ratio-labels strong {
+  color: #1E293B !important; /* Midnight Charcoal for high contrast */
+}
+
+.salesreps-v2 .sr-momentum-stack {
+  display: grid;
+  justify-items: end;
+  gap: 0.22rem;
+}
+
+.salesreps-v2 .sr-momentum-arrow {
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.salesreps-v2 .sr-momentum-arrow.is-up {
+  color: var(--sr-positive-strong);
+}
+
+.salesreps-v2 .sr-momentum-arrow.is-down {
+  color: var(--sr-risk);
+}
+
+.salesreps-v2 .sr-momentum-arrow.is-flat {
+  color: var(--sr-muted);
+}
+
+.salesreps-v2 .sr-table-average-row th,
+.salesreps-v2 .sr-table-average-row td {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  background: rgba(15, 23, 42, 0.96) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.salesreps-v2 .sr-table-average-row th {
+  color: #bfdbfe;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.salesreps-v2 .sr-table-average-row .sticky-col,
+.salesreps-v2 .sr-table-average-row th.sticky-col {
+  left: 0;
+  z-index: 7;
+}
+
+.salesreps-v2 .sr-priority-item {
+  border-width: 1px;
+  border-left: 4px solid transparent;
+  background: rgba(15, 23, 42, 0.56);
+}
+
+.salesreps-v2 .sr-priority-item:hover,
+.salesreps-v2 .sr-priority-item:focus-within {
+  background: rgba(30, 41, 59, 0.7);
+  border-left-color: #3b82f6;
+}
+
+.salesreps-v2 .sr-priority-item.is-critical {
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.salesreps-v2 .sr-priority-item.is-atrisk {
+  background: rgba(120, 53, 15, 0.18);
+}
+
+.salesreps-v2 .sr-priority-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  text-decoration: none;
+  font-weight: 700;
+  text-align: left;
+}
+
+.salesreps-v2 .sr-priority-link:hover {
+  color: #bfdbfe;
+}
+
+.salesreps-v2 .sr-live-map,
+.salesreps-v2 .sr-map-placeholder {
+  height: 30rem;
+  border-radius: 0 0 1rem 1rem;
+}
+
+.salesreps-v2 .sr-map-placeholder {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92));
+  color: #cbd5e1;
+}
+
+.salesreps-v2 #srLiveMap canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas-container {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+.salesreps-v2 .maplibregl-ctrl-group,
+.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content {
+  background: rgba(15, 23, 42, 0.88);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 20px 36px rgba(2, 6, 23, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.salesreps-v2 .maplibregl-ctrl button span {
+  filter: invert(1);
+}
+
+.salesreps-v2 .sr-map-popup-name,
+.salesreps-v2 .sr-map-popup-row b {
+  color: #f8fafc;
+}
+
+.salesreps-v2 .sr-map-popup-meta,
+.salesreps-v2 .sr-map-popup-row,
+.salesreps-v2 .sr-map-popup-action {
+  color: #cbd5e1;
+}
+
+.salesreps-v2 .sr-map-popup-divider {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.salesreps-v2 .sr-map-popup-risk-badge {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+}
+
+.salesreps-v2 #lostAccountsPanel,
+.salesreps-v2 .sr-territory-empty,
+.salesreps-v2 #srTableEmpty {
+  color: var(--sr-muted);
+}
+
+.salesreps-v2 .sr-link,
+.salesreps-v2 a {
+  color: #bfdbfe;
+}
+
+.salesreps-v2 .sr-link:hover,
+.salesreps-v2 a:hover {
+  color: #dbeafe;
+}
+
+@media (max-width: 991.98px) {
+  .salesreps-v2 .sr-page-toolbar {
+    align-items: stretch;
   }
 
-  .salesreps-v2 .sr-live-map {
-    height: 360px;
+  .salesreps-v2 .sr-filter-drawer-panel,
+  .salesreps-v2 .sr-followup-drawer-panel {
+    width: 100vw;
   }
+
+  .salesreps-v2 .sr-gap-focus-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── v7.0: Luminous Executive light-mode overhaul ────────────────────────── */
+body[data-page-tone="salesreps"],
+body:has(.salesreps-v2) {
+  background: #F8FAFC !important; /* Ghost Grey */
+}
+
+body[data-page-tone="salesreps"] .app-main,
+body:has(.salesreps-v2) .app-main {
+  background: transparent;
+}
+
+.salesreps-v2 {
+  --sr-surface: #FFFFFF;
+  --sr-surface-strong: #FFFFFF;
+  --sr-surface-soft: #F8FAFC;
+  --sr-border: #E2E8F0;
+  --sr-border-strong: #CBD5E1;
+  --sr-ink: #1E293B; /* Midnight Charcoal */
+  --sr-muted: #64748B;
+  --sr-soft: #F1F5F9;
+  --sr-brand: #720e0e; /* Oxblood Red */
+  --sr-brand-strong: #991b1b;
+  --sr-positive: #059669;
+  --sr-positive-strong: #047857;
+  --sr-risk: #dc2626;
+  --sr-risk-strong: #b91c1c;
+  --sr-warning: #C5A059; /* Burnished Gold */
+  color: var(--sr-ink);
+}
+
+
+/* Health ring percentage text must be dark on the light executive theme */
+.salesreps-v2 .sr-health-ring-label {
+  color: #1A0F0A !important;
+}
+.salesreps-v2 .text-muted,
+.salesreps-v2 .text-secondary,
+.salesreps-v2 .sr-list-sub,
+.salesreps-v2 .sr-secondary-metric,
+.salesreps-v2 .sr-momentum-sub,
+.salesreps-v2 .sr-priority-sub,
+.salesreps-v2 .sr-gap-focus-meta,
+.salesreps-v2 .sr-map-legend,
+.salesreps-v2 .sr-map-legend-item,
+.salesreps-v2 #salesrepsPagerSummary,
+.salesreps-v2 #salesrepsPagerIndicator {
+  color: var(--sr-muted) !important;
+}
+
+.salesreps-v2 .card,
+.salesreps-v2 .sr-kpi,
+.salesreps-v2 .sr-highlight-card,
+.salesreps-v2 .sr-subpanel,
+.salesreps-v2 .sr-summary-narrative,
+.salesreps-v2 .sr-territory-stage,
+.salesreps-v2 .sr-territory-card,
+.salesreps-v2 .sr-territory-month-card,
+.salesreps-v2 .sr-top-customers-wrap,
+.salesreps-v2 .sr-gap-focus-panel,
+.salesreps-v2 .sr-filter-breadcrumb-shell,
+.salesreps-v2 .sr-chart-shell,
+.salesreps-v2 .sr-table-wrap,
+.salesreps-v2 .sr-priority-item,
+.salesreps-v2 .sr-movers-panel .sr-list li,
+.salesreps-v2 .card,
+.salesreps-v2 .sr-kpi,
+.salesreps-v2 .sr-subpanel,
+.salesreps-v2 .sr-summary-narrative,
+.salesreps-v2 .sr-territory-stage,
+.salesreps-v2 .sr-territory-card,
+.salesreps-v2 .sr-territory-month-card,
+.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content,
+.salesreps-v2 .maplibregl-ctrl-group {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+  border: 1px solid #E2E8F0 !important;
+  border-top: 3px solid #720e0e !important; /* Oxblood Red top border */
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important; /* shadow-sm */
+}
+
+/* Secondary cards use Gold accent */
+.salesreps-v2 .sr-highlight-card,
+.salesreps-v2 .sr-territory-card,
+.salesreps-v2 .sr-priority-item,
+.salesreps-v2 .sr-subpanel {
+  border-top: 3px solid #C5A059 !important;
+}
+
+.salesreps-v2 .card,
+.salesreps-v2 .card-header,
+.salesreps-v2 .sr-kpi,
+.salesreps-v2 .sr-highlight-card,
+.salesreps-v2 .sr-subpanel,
+.salesreps-v2 .sr-summary-narrative,
+.salesreps-v2 .sr-chart-shell,
+.salesreps-v2 .sr-filter-breadcrumb-shell,
+.salesreps-v2 .sr-territory-stage,
+.salesreps-v2 .sr-territory-card,
+.salesreps-v2 .sr-territory-month-card,
+.salesreps-v2 .sr-top-customers-wrap,
+.salesreps-v2 .sr-gap-focus-panel,
+.salesreps-v2 .sr-customer-toolbar,
+.salesreps-v2 .sr-section-header,
+.salesreps-v2 .form-select,
+.salesreps-v2 .form-control,
+.salesreps-v2 .btn,
+.salesreps-v2 .dropdown-menu,
+.salesreps-v2 .badge,
+.salesreps-v2 .sr-chip,
+.salesreps-v2 .sr-status-pill,
+.salesreps-v2 .sr-risk-pill,
+.salesreps-v2 .sr-mover-badge,
+.salesreps-v2 .sr-quick-action,
+.salesreps-v2 .sr-priority-item,
+.salesreps-v2 .sr-gap-focus-card,
+.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content,
+.salesreps-v2 .maplibregl-ctrl-group,
+.salesreps-v2 .popover.sr-system-health-popover {
+  border-radius: 4px !important;
+}
+
+.salesreps-v2 .card-header,
+.salesreps-v2 .sr-section-header,
+.salesreps-v2 .table-light,
+.salesreps-v2 #srTable thead th,
+.salesreps-v2 #srTopCustomersTable thead th,
+.salesreps-v2 .sr-customer-toolbar,
+.salesreps-v2 .sticky-header th,
+.salesreps-v2 #srTable thead .sticky-col {
+  background: #F8FAFC !important;
+  color: #1E293B !important;
+  border-bottom: 2px solid #E2E8F0 !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.025em;
+}
+
+.salesreps-v2 .table,
+.salesreps-v2 .table td,
+.salesreps-v2 .table th,
+.salesreps-v2 .fw-semibold,
+.salesreps-v2 .fw-bold,
+.salesreps-v2 .sr-section-heading h3,
+.salesreps-v2 .sr-kpi .value,
+.salesreps-v2 .sr-highlight-card .value,
+.salesreps-v2 .sr-territory-card-metric,
+.salesreps-v2 .sr-territory-month-value,
+.salesreps-v2 .sr-priority-name,
+.salesreps-v2 .sr-map-popup-name,
+.salesreps-v2 .sr-map-popup-row b {
+  color: #1E293B !important;
+}
+
+.salesreps-v2 .sr-section-kicker,
+.salesreps-v2 .sr-summary-narrative::before,
+.salesreps-v2 .sr-subpanel-title,
+.salesreps-v2 .label,
+.salesreps-v2 .sr-filter-breadcrumb-label,
+.salesreps-v2 .sr-gap-focus-kicker {
+  color: #720e0e !important; /* Oxblood Red */
+}
+
+.salesreps-v2 .btn-primary,
+.salesreps-v2 .sr-filter-toggle,
+.salesreps-v2 .btn-outline-primary,
+.salesreps-v2 .sr-row-open,
+.salesreps-v2 .dropdown-item:active {
+  background: #720e0e !important; /* Oxblood Red */
+  border-color: #720e0e !important;
+  color: #FFFFFF !important;
+}
+
+.salesreps-v2 .btn-primary:hover,
+.salesreps-v2 .sr-filter-toggle:hover,
+.salesreps-v2 .btn-outline-primary:hover,
+.salesreps-v2 .sr-row-open:hover {
+  background: #991b1b !important;
+  border-color: #991b1b !important;
+  color: #FFFFFF !important;
+}
+
+.salesreps-v2 .btn-outline-secondary,
+.salesreps-v2 .dropdown-menu,
+.salesreps-v2 .form-select,
+.salesreps-v2 .form-control,
+.salesreps-v2 .badge.text-bg-light,
+.salesreps-v2 .badge.text-bg-primary-subtle {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+  border: 1px solid #E2E8F0 !important;
+}
+
+.salesreps-v2 .btn-outline-secondary:hover,
+.salesreps-v2 .form-select:focus,
+.salesreps-v2 .form-control:focus {
+  background: #F8FAFC !important;
+  color: #1E293B !important;
+  border-color: #720e0e !important;
+  box-shadow: 0 0 0 0.2rem rgba(114, 14, 14, 0.05) !important;
+}
+
+.salesreps-v2 .delta-up,
+.salesreps-v2 .sr-kpi-delta--pos,
+.salesreps-v2 .sr-momentum-pill.is-up,
+.salesreps-v2 .sr-territory-month-note.is-positive,
+.salesreps-v2 .sr-momentum-arrow.is-up {
+  color: #059669 !important; /* Emerald */
+}
+
+.salesreps-v2 .delta-down,
+.salesreps-v2 .sr-kpi-delta--neg,
+.salesreps-v2 .sr-momentum-pill.is-down,
+.salesreps-v2 .sr-territory-month-note.is-negative,
+.salesreps-v2 .sr-momentum-arrow.is-down,
+.salesreps-v2 .chip-danger,
+.salesreps-v2 .chip-danger.critical,
+.salesreps-v2 .sr-risk-pill.sr-risk-atrisk,
+.salesreps-v2 .sr-risk-pill.sr-risk-critical {
+  color: #dc2626 !important; /* High-contrast Red */
+}
+
+.salesreps-v2 .sr-kpi-delta--pos,
+.salesreps-v2 .sr-risk-pill.sr-risk-healthy,
+.salesreps-v2 .sr-mover-badge.is-new {
+  background: rgba(5, 150, 105, 0.1) !important;
+}
+
+.salesreps-v2 .sr-kpi-delta--neg,
+.salesreps-v2 .sr-mover-badge.is-lost,
+.salesreps-v2 .chip-danger,
+.salesreps-v2 .chip-danger.critical {
+  background: rgba(220, 38, 38, 0.1) !important;
+}
+
+.salesreps-v2 .sr-risk-pill.sr-risk-watch,
+.salesreps-v2 .chip-warn,
+.salesreps-v2 .sr-silent-chip.is-watch,
+.salesreps-v2 .sr-silent-chip.is-warning {
+  background: #F1F5F9 !important;
+  color: #946c37 !important;
+  border: 1px solid #E2E8F0 !important;
+}
+
+.salesreps-v2 #srTable tbody td,
+.salesreps-v2 #srTopCustomersTable tbody td,
+.salesreps-v2 #srTable tbody td.sticky-col,
+.salesreps-v2 #srTable .sticky-col,
+.salesreps-v2 .sr-table-average-row th,
+.salesreps-v2 .sr-table-average-row td,
+.salesreps-v2 .sr-table-average-row .sticky-col,
+.salesreps-v2 .sr-table-average-row th.sticky-col {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+}
+
+.salesreps-v2 .sr-table-average-row th,
+.salesreps-v2 .sr-table-average-row td {
+  box-shadow: inset 0 1px 0 #E2E8F0;
+}
+
+.salesreps-v2 .sr-table-average-row th {
+  color: #720e0e !important;
+}
+
+.salesreps-v2 #srTable tbody tr:hover td,
+.salesreps-v2 #srTable tbody tr.is-rep-focus td,
+.salesreps-v2 #srTopCustomersTable tbody tr:hover td,
+.salesreps-v2 #srTopCustomersTable tbody tr.is-focused-customer td,
+.salesreps-v2 tbody tr.is-drillable:hover td,
+.salesreps-v2 .sr-list li.is-drillable:hover,
+.salesreps-v2 .risk-item.is-drillable:hover,
+.salesreps-v2 .sr-highlight-card.is-drillable:hover,
+.salesreps-v2 .sr-kpi.is-drillable:hover,
+.salesreps-v2 .sr-priority-item:hover,
+.salesreps-v2 .sr-priority-item:focus-within,
+.salesreps-v2 .sr-movers-panel .sr-list li.is-drillable:hover {
+  background: #F8FAFC !important;
+  box-shadow: inset 4px 0 0 #720e0e !important;
+}
+
+.salesreps-v2 tbody tr.is-drillable,
+.salesreps-v2 #srTopCustomersTable tbody tr,
+.salesreps-v2 #srTable tbody tr,
+.salesreps-v2 .sr-priority-item {
+  cursor: pointer;
+}
+
+.salesreps-v2 .sr-link,
+.salesreps-v2 a,
+.salesreps-v2 .sr-priority-link {
+  color: #720e0e !important;
+  text-decoration: none;
+}
+
+.salesreps-v2 .sr-link:hover,
+.salesreps-v2 a:hover,
+.salesreps-v2 .sr-priority-link:hover {
+  color: #991b1b !important;
+  text-decoration: underline;
+}
+.salesreps-v2 a:hover,
+.salesreps-v2 .sr-priority-link:hover {
+  color: #b91c1c !important;
+}
+
+.salesreps-v2 .sr-filter-drawer-backdrop,
+.salesreps-v2 .sr-followup-drawer-backdrop {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.salesreps-v2 .sr-filter-drawer-panel,
+.salesreps-v2 .sr-followup-drawer-panel {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+  border-left: 1px solid #E2E8F0 !important;
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.05);
+}
+
+.salesreps-v2 .sr-filter-drawer-header,
+.salesreps-v2 .sr-followup-drawer-header {
+  background: #F8FAFC !important;
+  color: #1E293B !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+}
+
+.salesreps-v2 .sr-followup-drawer-header .text-muted,
+.salesreps-v2 .sr-filter-drawer-header .text-muted {
+  color: #64748B !important;
+}
+
+.salesreps-v2 #srFilterDrawerMount > #GlobalFilters {
+  background: transparent;
+  color: #1E293B;
+}
+
+.salesreps-v2 #srFilterDrawerMount .filters-shell__header,
+.salesreps-v2 #srFilterDrawerMount .filters-shell__body,
+.salesreps-v2 #srFilterDrawerMount .filters-section,
+.salesreps-v2 #srFilterDrawerMount .filter-tile,
+.salesreps-v2 #srFilterDrawerMount .filters-date-card,
+.salesreps-v2 #srFilterDrawerMount .filters-quick-range-panel,
+.salesreps-v2 #srFilterDrawerMount .filters-shell__tools {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+  border: 1px solid #E2E8F0 !important;
+  border-left: 3px solid #720e0e !important;
+}
+
+.salesreps-v2 #srFilterDrawerMount .filter-chip,
+.salesreps-v2 #srFilterDrawerMount .filter-range-pill,
+.salesreps-v2 #srFilterDrawerMount .filters-status-badge {
+  background: #F1F5F9 !important;
+  color: #1E293B !important;
+  border: 1px solid #E2E8F0 !important;
+}
+
+.salesreps-v2 .sr-ratio-bar {
+  background: #F1F5F9;
+}
+
+.salesreps-v2 .sr-ratio-bar-direct {
+  background: #C5A059;
+}
+
+.salesreps-v2 .sr-ratio-bar-inherited {
+  background: #720e0e;
+}
+
+.salesreps-v2 .sr-health-ring-track {
+  stroke: #F1F5F9;
+}
+
+.salesreps-v2 .sr-gap-focus-card,
+.salesreps-v2 .sr-territory-empty,
+.salesreps-v2 #srTableEmpty {
+  background: #F8FAFC !important;
+  color: #64748B !important;
+  border: 1px solid #E2E8F0 !important;
+}
+
+.salesreps-v2 .sr-gap-icon,
+.salesreps-v2 .sr-map-placeholder-icon,
+.salesreps-v2 .bi,
+.salesreps-v2 i[class^="bi "] {
+  color: #720e0e !important;
+}
+
+.salesreps-v2 .sr-gap-icon {
+  background: #F1F5F9 !important;
+}
+
+.salesreps-v2 .sr-quick-action {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  color: #64748B !important;
+}
+
+.salesreps-v2 .sr-quick-action:hover,
+.salesreps-v2 .sr-quick-action:focus {
+  background: #F8FAFC !important;
+  color: #720e0e !important;
+  border-color: #CBD5E1 !important;
+}
+
+.salesreps-v2 .sr-live-map,
+.salesreps-v2 .sr-map-placeholder {
+  height: 420px !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+.salesreps-v2 .sr-map-placeholder {
+  background: #F8FAFC !important;
+  color: #64748B;
+}
+
+.salesreps-v2 #srLiveMap canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas {
+  filter: none !important;
+}
+
+.salesreps-v2 #srLiveMap canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas-container {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+.salesreps-v2 .maplibregl-ctrl-group,
+.salesreps-v2 .maplibregl-popup.sr-map-popup .maplibregl-popup-content {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+  border: 1px solid #E2E8F0 !important;
+  border-top: 3px solid #720e0e !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.salesreps-v2 .maplibregl-ctrl button span {
+  filter: none !important;
+}
+
+.salesreps-v2 .sr-map-popup-meta,
+.salesreps-v2 .sr-map-popup-row,
+.salesreps-v2 .sr-map-popup-action {
+  color: #64748B !important;
+}
+
+.salesreps-v2 .sr-map-popup-divider {
+  background: #E2E8F0 !important;
+}
+
+.salesreps-v2 .sr-map-popup-risk-badge {
+  background: rgba(220, 38, 38, 0.1) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgba(220, 38, 38, 0.2) !important;
+}
+
+.salesreps-v2 .sr-map-legend-dot {
+  box-shadow: 0 0 0 1px rgba(30, 41, 59, 0.1);
+}
+
+.salesreps-v2 .sr-section-kicker,
+.salesreps-v2 .sr-summary-narrative::before,
+.salesreps-v2 .sr-subpanel-title,
+.salesreps-v2 .label,
+.salesreps-v2 .sr-filter-breadcrumb-label,
+.salesreps-v2 .sr-gap-focus-kicker {
+  color: #660000 !important;
+}
+
+.salesreps-v2 .delta-up,
+.salesreps-v2 .sr-kpi-delta--pos,
+.salesreps-v2 .sr-momentum-pill.is-up,
+.salesreps-v2 .sr-territory-month-note.is-positive,
+.salesreps-v2 .sr-momentum-arrow.is-up {
+  color: #1B4332 !important;
+}
+
+.salesreps-v2 .delta-down,
+.salesreps-v2 .sr-kpi-delta--neg,
+.salesreps-v2 .sr-momentum-pill.is-down,
+.salesreps-v2 .sr-territory-month-note.is-negative,
+.salesreps-v2 .sr-momentum-arrow.is-down,
+.salesreps-v2 .chip-danger,
+.salesreps-v2 .chip-danger.critical,
+.salesreps-v2 .sr-risk-pill.sr-risk-atrisk,
+.salesreps-v2 .sr-risk-pill.sr-risk-critical {
+  color: #880000 !important;
+}
+
+.salesreps-v2 .sr-kpi-delta--pos,
+.salesreps-v2 .sr-risk-pill.sr-risk-healthy,
+.salesreps-v2 .sr-mover-badge.is-new {
+  background: rgba(27, 67, 50, 0.12) !important;
+}
+
+.salesreps-v2 .sr-kpi-delta--neg,
+.salesreps-v2 .sr-mover-badge.is-lost,
+.salesreps-v2 .chip-danger,
+.salesreps-v2 .chip-danger.critical {
+  background: rgba(136, 0, 0, 0.1) !important;
+}
+
+.salesreps-v2 .sr-risk-pill.sr-risk-watch,
+.salesreps-v2 .chip-warn,
+.salesreps-v2 .sr-silent-chip.is-watch,
+.salesreps-v2 .sr-silent-chip.is-warning,
+.salesreps-v2 .sr-gap-icon,
+.salesreps-v2 .sr-gap-focus-card,
+.salesreps-v2 #srTableEmpty,
+.salesreps-v2 .sr-territory-empty {
+  background: #F2EFE9 !important;
+  color: #1A0F0A !important;
+}
+
+.salesreps-v2 .sr-page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.45rem 0.8rem;
+  margin-bottom: 0.85rem !important;
+  background: #1A0F0A !important;
+  color: #FDFBF7 !important;
+  border-left: 3px solid #660000;
+  box-shadow: 0 8px 22px -12px rgba(0, 0, 0, 0.55);
+}
+
+.salesreps-v2 .sr-filter-breadcrumb-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.salesreps-v2 .sr-filter-breadcrumb-label,
+.salesreps-v2 .sr-filter-breadcrumb {
+  color: #FDFBF7 !important;
+}
+
+.salesreps-v2 .sr-filter-toggle {
+  background:
+    linear-gradient(180deg, rgba(61, 37, 28, 0.95), rgba(38, 23, 17, 0.98)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0 2px, transparent 2px 9px) !important;
+  border: 1px solid rgba(197, 160, 89, 0.22) !important;
+  color: #FDFBF7 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.salesreps-v2 .sr-filter-toggle:hover {
+  background:
+    linear-gradient(180deg, rgba(72, 43, 33, 0.98), rgba(46, 28, 20, 1)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 9px) !important;
+}
+
+.salesreps-v2 #srTable tbody td,
+.salesreps-v2 #srTopCustomersTable tbody td,
+.salesreps-v2 #srTable tbody td.sticky-col,
+.salesreps-v2 #srTable .sticky-col,
+.salesreps-v2 #srTopCustomersTable tbody tr,
+.salesreps-v2 #srTable tbody tr {
+  background: #FDFBF7 !important;
+  color: #1A0F0A !important;
+}
+
+.salesreps-v2 #srTable tbody tr:hover td,
+.salesreps-v2 #srTable tbody tr.is-rep-focus td,
+.salesreps-v2 #srTopCustomersTable tbody tr:hover td,
+.salesreps-v2 #srTopCustomersTable tbody tr.is-focused-customer td,
+.salesreps-v2 tbody tr.is-drillable:hover td,
+.salesreps-v2 .sr-list li.is-drillable:hover,
+.salesreps-v2 .risk-item.is-drillable:hover,
+.salesreps-v2 .sr-highlight-card.is-drillable:hover,
+.salesreps-v2 .sr-kpi.is-drillable:hover,
+.salesreps-v2 .sr-priority-item:hover,
+.salesreps-v2 .sr-priority-item:focus-within,
+.salesreps-v2 .sr-movers-panel .sr-list li.is-drillable:hover {
+  background: #F2EFE9 !important;
+  box-shadow: inset 4px 0 0 #660000 !important;
+}
+
+.salesreps-v2 .sr-priority-link,
+.salesreps-v2 .sr-link,
+.salesreps-v2 a {
+  color: #660000 !important;
+}
+
+.salesreps-v2 .sr-priority-link:hover,
+.salesreps-v2 .sr-link:hover,
+.salesreps-v2 a:hover {
+  color: #880000 !important;
+}
+
+.salesreps-v2 .sr-followup-drawer-backdrop,
+.salesreps-v2 .sr-filter-drawer-backdrop {
+  background: rgba(13, 9, 7, 0.62);
+}
+
+.salesreps-v2 .sr-filter-drawer-panel,
+.salesreps-v2 .sr-followup-drawer-panel {
+  background:
+    linear-gradient(180deg, rgba(13, 9, 7, 0.99) 0%, rgba(26, 15, 10, 0.98) 100%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 2px, transparent 2px 11px) !important;
+  color: #FDFBF7 !important;
+  border-left: 1px solid rgba(102, 0, 0, 0.35) !important;
+}
+
+.salesreps-v2 .sr-followup-drawer-header,
+.salesreps-v2 .sr-filter-drawer-header {
+  background:
+    radial-gradient(circle at top right, rgba(197, 160, 89, 0.12), transparent 12rem),
+    linear-gradient(135deg, rgba(13, 9, 7, 0.98) 0%, rgba(26, 15, 10, 0.94) 100%) !important;
+  color: #FDFBF7 !important;
+  border-bottom: 1px solid rgba(102, 0, 0, 0.22) !important;
+}
+
+.salesreps-v2 .sr-followup-drawer-header .text-muted,
+.salesreps-v2 .sr-filter-drawer-header .text-muted {
+  color: rgba(253, 251, 247, 0.72) !important;
+}
+
+.salesreps-v2 #srFilterDrawerMount .filters-shell__header,
+.salesreps-v2 #srFilterDrawerMount .filters-shell__body,
+.salesreps-v2 #srFilterDrawerMount .filters-section,
+.salesreps-v2 #srFilterDrawerMount .filter-tile,
+.salesreps-v2 #srFilterDrawerMount .filters-date-card,
+.salesreps-v2 #srFilterDrawerMount .filters-quick-range-panel,
+.salesreps-v2 #srFilterDrawerMount .filters-shell__tools {
+  background: #FDFBF7 !important;
+  color: #1A0F0A !important;
+  border: 0 !important;
+  border-left: 3px solid #660000 !important;
+}
+
+.salesreps-v2 #srFilterDrawerMount .filter-chip,
+.salesreps-v2 #srFilterDrawerMount .filter-range-pill,
+.salesreps-v2 #srFilterDrawerMount .filters-status-badge {
+  background: #F2EFE9 !important;
+  color: #1A0F0A !important;
+}
+
+.salesreps-v2 .sr-table-average-row th,
+.salesreps-v2 .sr-table-average-row td,
+.salesreps-v2 .sr-table-average-row .sticky-col,
+.salesreps-v2 .sr-table-average-row th.sticky-col {
+  background: #FAF3E0 !important;
+  color: #1A0F0A !important;
+  box-shadow: inset 0 1px 0 rgba(102, 0, 0, 0.08);
+}
+
+.salesreps-v2 .sr-table-average-row th {
+  color: #660000 !important;
+}
+
+.salesreps-v2 .sr-ratio-bar {
+  background: rgba(197, 160, 89, 0.14);
+}
+
+.salesreps-v2 .sr-ratio-bar-direct {
+  background: linear-gradient(90deg, #C5A059 0%, #D4B472 100%);
+}
+
+.salesreps-v2 .sr-ratio-bar-inherited {
+  background: linear-gradient(90deg, #660000 0%, #880000 100%);
+}
+
+.salesreps-v2 .sr-health-ring-track {
+  stroke: rgba(197, 160, 89, 0.14);
+}
+
+.salesreps-v2 .sr-map-placeholder {
+  background: linear-gradient(180deg, rgba(13, 9, 7, 0.98), rgba(26, 15, 10, 0.94)) !important;
+  color: rgba(253, 251, 247, 0.76);
+}
+
+.salesreps-v2 #srLiveMap canvas,
+.salesreps-v2 #srLiveMap .maplibregl-canvas {
+  filter: none !important;
+}
+
+.salesreps-v2 .sr-map-popup-divider {
+  background: rgba(102, 0, 0, 0.12) !important;
+}
+
+.salesreps-v2 .sr-map-popup-risk-badge {
+  background: rgba(136, 0, 0, 0.1) !important;
+  color: #880000 !important;
+  border: 1px solid rgba(136, 0, 0, 0.16) !important;
+}
+
+.salesreps-v2 .maplibregl-ctrl button span,
+.salesreps-v2 .sr-gap-icon,
+.salesreps-v2 .sr-map-placeholder-icon,
+.salesreps-v2 .bi,
+.salesreps-v2 i[class^="bi "] {
+  color: #C5A059 !important;
+}
+
+/* ── Executive Signal Pills ─────────────────────────────────────────────── */
+.salesreps-v2 .sr-signal-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.55rem 0;
+}
+
+.salesreps-v2 .sr-signal-pill {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  flex: 1 1 13rem;
+  min-width: 11rem;
+  max-width: 22rem;
+  cursor: default;
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+
+.salesreps-v2 .sr-signal-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(26, 15, 10, 0.1);
+}
+
+.salesreps-v2 .sr-signal-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 0.05rem;
+}
+
+.salesreps-v2 .sr-signal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.salesreps-v2 .sr-signal-type {
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+.salesreps-v2 .sr-signal-value {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* Positive / Momentum signal */
+.salesreps-v2 .sr-signal-pill.sr-signal-positive {
+  background: rgba(5, 150, 105, 0.07);
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-positive .sr-signal-type {
+  color: #047857;
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-positive .sr-signal-value {
+  color: #065F46;
+}
+
+/* Negative / Risk signal */
+.salesreps-v2 .sr-signal-pill.sr-signal-negative {
+  background: rgba(136, 0, 0, 0.06);
+  border-color: rgba(136, 0, 0, 0.18);
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-negative .sr-signal-type {
+  color: #660000;
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-negative .sr-signal-value {
+  color: #880000;
+}
+
+/* Caution / Warning signal */
+.salesreps-v2 .sr-signal-pill.sr-signal-caution {
+  background: rgba(197, 160, 89, 0.1);
+  border-color: rgba(197, 160, 89, 0.26);
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-caution .sr-signal-type {
+  color: #7A5C1A;
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-caution .sr-signal-value {
+  color: #5C3D0A;
+}
+
+/* Neutral signal */
+.salesreps-v2 .sr-signal-pill.sr-signal-neutral {
+  background: rgba(26, 15, 10, 0.04);
+  border-color: rgba(26, 15, 10, 0.1);
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-neutral .sr-signal-type {
+  color: #64748B;
+}
+
+.salesreps-v2 .sr-signal-pill.sr-signal-neutral .sr-signal-value {
+  color: #1A0F0A;
+}
+
+/* ── Composite Smart Rank ───────────────────────────────────────────────── */
+.salesreps-v2 .sr-composite-rank {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  font-weight: 800;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  color: #1A0F0A;
+}
+
+.salesreps-v2 .sr-composite-rank.sr-rank-gold {
+  color: #7A5C1A;
+}
+
+.salesreps-v2 .sr-composite-rank.sr-rank-gold::before {
+  content: "🥇 ";
+  font-size: 0.85rem;
+}
+
+.salesreps-v2 .sr-composite-rank.sr-rank-silver {
+  color: #4A5568;
+}
+
+.salesreps-v2 .sr-composite-rank.sr-rank-silver::before {
+  content: "🥈 ";
+  font-size: 0.85rem;
+}
+
+.salesreps-v2 .sr-rank-sub {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748B;
+  margin-left: 0.2rem;
+}
+
+/* ── Map Legend Rep Hover ───────────────────────────────────────────────── */
+.salesreps-v2 .sr-map-legend-rep {
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.4rem;
+  transition: background 140ms ease, box-shadow 140ms ease;
+  outline: none;
+}
+
+.salesreps-v2 .sr-map-legend-rep:hover,
+.salesreps-v2 .sr-map-legend-rep:focus-visible {
+  background: rgba(197, 160, 89, 0.14);
+  box-shadow: 0 0 0 2px rgba(197, 160, 89, 0.3);
+}
+
+.salesreps-v2 .sr-map-legend-rep.is-highlighted {
+  background: rgba(102, 0, 0, 0.08);
+  box-shadow: 0 0 0 2px rgba(102, 0, 0, 0.2);
+}
+
+/* ── Category Gap Analysis (drilldown) ─────────────────────────────────── */
+.salesreps-v2 .sr-gap-signal {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.salesreps-v2 .sr-gap-signal.is-core {
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+  border: 1px solid rgba(5, 150, 105, 0.2);
+}
+
+.salesreps-v2 .sr-gap-signal.is-active {
+  background: rgba(197, 160, 89, 0.12);
+  color: #7A5C1A;
+  border: 1px solid rgba(197, 160, 89, 0.24);
+}
+
+.salesreps-v2 .sr-gap-signal.is-minor {
+  background: rgba(26, 15, 10, 0.06);
+  color: #64748B;
+  border: 1px solid rgba(26, 15, 10, 0.12);
+}
+
+.salesreps-v2 .sr-gap-signal.is-gap {
+  background: rgba(136, 0, 0, 0.08);
+  color: #660000;
+  border: 1px dashed rgba(136, 0, 0, 0.22);
+}
+
+/* ── Loss Aversion List (drilldown) ────────────────────────────────────── */
+.salesreps-v2 .sr-lost-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(136, 0, 0, 0.1);
+  color: #660000;
+  border: 1px solid rgba(136, 0, 0, 0.18);
+}
+
+/* ── YoY Tooltip Info Icon ──────────────────────────────────────────────── */
+.salesreps-v2 .sr-info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  font-size: 0.6rem;
+  font-weight: 800;
+  background: rgba(197, 160, 89, 0.16);
+  color: #7A5C1A;
+  border: 1px solid rgba(197, 160, 89, 0.28);
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 0.22rem;
+  line-height: 1;
 }
